@@ -36,7 +36,11 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+# S101: asserts are the point. S106: fixtures carry obviously fake credentials.
+"tests/**" = ["S101", "S106"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Puts the backend root on sys.path so tests can share helpers via
+# `from tests.conftest import ...`.
+pythonpath = ["."]
