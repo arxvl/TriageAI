@@ -12,3 +12,7 @@ never finalizes a category without a human decision.
 ## Quick start
 
 _Filled in during subphase 1.2._
+
+## Disclaimer
+The system provides decision support only. It never diagnoses, never recommends treatment, and
+never finalizes a category without a human decision.
