@@ -28,7 +28,11 @@ recommends treatment, and never finalizes a category without a human decision.
   FR-xx (functional), NFR-xx, IR-xx (interface), DR-xx (data), SR-xx
   (security), BR-xx (business rules).
 - `docs/diagrams/` — PD6 DFDs and UML (use cases UC-01..UC-16, domain model).
-- `docs/adr/` — PD7 architecture decisions ADR-01..ADR-15.
+- `docs/adr/` — architecture decision records ADR-01..ADR-17, with an index and
+  a decision map in `docs/adr/README.md`. **Read the ADRs listed for your area
+  before implementing.** ADR-09 (safety validator), ADR-10 (de-identification),
+  ADR-12 (append-only audit), ADR-16 (English-only input) and ADR-17 (mock-first
+  stages) constrain code directly.
 - `docs/prototype/TriageAI_Prototype.html` — clickable wireframes W-01..W-11.
   **Match these screens when building UI.**
 - `docs/dev-prompts/` — the phase prompts (Pxx) and manual guides (Mxx).
@@ -349,6 +353,7 @@ leave the server (IR-20, ADR-10).
 
 ## 11. Git rules
 
+- The commits will be done manually. Provide the command after each successful implementation of a sub-phase.
 - Work on the branch named in the phase prompt, created from `develop`.
 - Use Conventional Commits with requirement IDs, e.g.
   `feat(cases): validate description length (FR-04)`.
