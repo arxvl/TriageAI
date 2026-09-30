@@ -11,7 +11,14 @@ never finalizes a category without a human decision.
 
 ## Quick start
 
-_Filled in during subphase 1.2._
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- Frontend: http://localhost:5173
+- API: http://localhost:8000/api/v1
+- API docs: http://localhost:8000/docs
 
 ## Disclaimer
 The system provides decision support only. It never diagnoses, never recommends treatment, and
