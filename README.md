@@ -46,6 +46,29 @@ docker compose exec backend pytest                   # tests (creates triageai_t
 Tests run as `triageai_app` against a separate `triageai_test` database, which
 the fixtures create and migrate; that is what proves the restrictions hold.
 
+## Seed data
+
+```bash
+docker compose exec backend python -m scripts.seed           # insert what is missing
+docker compose exec backend python -m scripts.seed --reset   # dev only: wipe, then re-seed
+```
+
+Everything seeded is fictitious. The script inserts four accounts
+(`admin@`, `intake@`, `reviewer@`, `approver@triageai.local`), the 21 presenting
+complaints, seven placeholder red-flag rules, and an empty knowledge-base
+version 0. All four accounts use the password `ChangeMe!2026` and must change it
+on first login.
+
+Re-running the script is safe: it looks each row up by its natural key and never
+overwrites an existing one, so it also never picks up an edit you made to
+`scripts/seed.py`. Use `--reset` for that. `--reset` truncates every table —
+including the append-only `audit_log` — so it refuses unless `APP_ENV=dev` and
+connects as the owner role, which is the only role holding `TRUNCATE`.
+
+The red-flag rules are placeholders (`is_placeholder=true`, no approver). They
+give the FR-23 safety floor something to apply while the pipeline runs on mocks;
+veterinarian-approved rules replace them in P08.
+
 ## Disclaimer
 The system provides decision support only. It never diagnoses, never recommends treatment, and
 never finalizes a category without a human decision.

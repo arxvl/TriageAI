@@ -1,0 +1,121 @@
+# Demo scenarios for the PD8 prototype walkthrough.
+#
+# Every pet, owner description and signalment here is invented (CLAUDE.md §9).
+# All text is English; clinic staff translate what the owner reported before
+# entering it (FR-18, ADR-16). No description contains a diagnosis or any
+# treatment wording (FR-28) — they are what an owner would say at the counter.
+#
+# Fields
+#   id                      stable fixture identifier, referenced by the phase
+#                           prompts (P05, P06, P08, P10) and the manual guides
+#   species                 Species
+#   intake_channel          WALK_IN | PHONE | MESSAGE
+#   signalment              the Signalment columns; sex is Sex, age_unit AgeUnit
+#   description             the owner's verbatim account, as typed by intake
+#   force_failure           the scenario deliberately fails AI processing; the
+#                           mechanism is chosen in P05 §5.2
+#   expected_category       VTLCategory, or null when no AI category is produced
+#   expected_status         CaseStatus the case should end in
+#   expected_red_flag_codes red_flag_rules.code values the pre-screen should hit
+#   notes                   what the scenario demonstrates
+#
+# P05 §5.2 extends each entry below with mock_red_flags, mock_extraction,
+# mock_passages and mock_draft, which the mock pipeline stages read.
+
+cases:
+  - id: DEMO_1
+    species: CAT
+    intake_channel: WALK_IN
+    signalment:
+      pet_name: Miso
+      age_value: 3
+      age_unit: YEARS
+      sex: MALE
+      neutered: false
+      breed: Domestic Shorthair
+      weight_kg: 4.6
+    description: >-
+      He keeps going in and out of the litter box since last night and
+      nothing comes out. He cries when he squats and he keeps licking
+      himself down there. His belly feels hard and he did not touch his
+      food this morning.
+    expected_category: ORANGE
+    expected_status: AWAITING_REVIEW
+    expected_red_flag_codes:
+      - MALE_CAT_NO_URINE
+    notes: >-
+      The safety-floor demonstration (FR-23). P05 §5.2 gives this case a
+      YELLOW mock draft and a MALE_CAT_NO_URINE hit, so the deterministic
+      validator must raise the stored category to ORANGE and record the rule
+      code. The red-flag alert is written by the pre-screen before any
+      extraction runs (FR-12).
+
+  - id: DEMO_2
+    species: DOG
+    intake_channel: WALK_IN
+    signalment:
+      pet_name: Bantay
+      age_value: 8
+      age_unit: YEARS
+      sex: MALE
+      neutered: true
+      breed: Aspin
+      weight_kg: 18.0
+    description: >-
+      He collapsed in the yard about twenty minutes ago and now he is
+      breathing with his mouth wide open and his neck stretched out. His
+      gums look bluish. He will not get up when I call him.
+    expected_category: RED
+    expected_status: AWAITING_REVIEW
+    expected_red_flag_codes:
+      - PALE_OR_BLUE_GUMS
+      - NOT_BREATHING
+    notes: >-
+      The most urgent path: multiple red flags, both RED, so the queue shows
+      the case at the top with a target waiting time of 0 minutes.
+
+  - id: DEMO_3
+    species: DOG
+    intake_channel: PHONE
+    signalment:
+      pet_name: Coco
+      age_value: 2
+      age_unit: YEARS
+      sex: FEMALE
+      neutered: true
+      breed: Shih Tzu
+      weight_kg: 5.2
+    description: >-
+      She has been scratching her back and sides for about two weeks. There
+      are a few bald patches near her tail. She is eating normally, drinking
+      normally and still wants to play.
+    expected_category: BLUE
+    expected_status: AWAITING_REVIEW
+    expected_red_flag_codes: []
+    notes: >-
+      The low-urgency end of the scale: no red flags, a settled history, and
+      a case that should sit at the bottom of the queue with a 240-minute
+      target.
+
+  - id: DEMO_4
+    species: DOG
+    intake_channel: MESSAGE
+    signalment:
+      pet_name: Tala
+      age_value: 5
+      age_unit: MONTHS
+      sex: FEMALE
+      neutered: false
+      breed: Beagle
+      weight_kg: 6.4
+    description: >-
+      She seems off today. Not her usual self since we came back from my
+      cousin's house yesterday.
+    force_failure: true
+    expected_category: null
+    expected_status: MANUAL_TRIAGE_REQUIRED
+    expected_red_flag_codes: []
+    notes: >-
+      The failure path (FR-15, NFR-09). Extraction is forced to fail, so no
+      category is ever produced and the case is handed to a reviewer for
+      manual triage. The UI must show the fallback, not an empty result.
