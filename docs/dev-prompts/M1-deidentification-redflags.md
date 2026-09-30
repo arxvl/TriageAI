@@ -33,7 +33,7 @@ Both plug into the existing pipeline through `.env`. No other code changes are n
 | E-mail addresses | `[EMAIL]` | Standard pattern |
 | Street addresses | `[ADDRESS]` | Only with Philippine address markers: Blk/Block + number, Lot + number, Purok/Zone + number, Brgy./Barangay/Sitio + name, `<number> <Name> St./Street/Ave./Road` |
 
-Name parts are matched **case-sensitive and capitalized** so common words survive. Example: an owner named "May" must not erase "may dugo" ("there is blood").
+Name parts are matched **case-sensitive and capitalized** so common words survive. Example: an owner named "Grace" must not erase "the owner said the cat seemed to recover with grace" — the capitalized `Grace` is removed, the lowercase `grace` is not. This matters because several common English words double as given names (May, Grace, Bill, Hope, Faith) or as parts of clinical phrasing.
 
 ### Step A2. Create `backend/app/pipeline/deidentify_rules.py`
 
@@ -107,12 +107,12 @@ class RuleBasedDeidentifier:
 **Check A2.** Run it on these strings in a Python shell:
 
 ```bash
-docker compose exec backend python -c "from app.pipeline.deidentify_rules import RuleBasedDeidentifier as D; print(D().deidentify('Si Ana Reyes ito, 0917 123 4567. May dugo sa ihi.','Ana Reyes','09171234567'))"
+docker compose exec backend python -c "from app.pipeline.deidentify_rules import RuleBasedDeidentifier as D; print(D().deidentify('This is Grace Cruz, 0917 123 4567. Grace says the cat vomited twice; it seems to be recovering with grace since yesterday.','Grace Cruz','09171234567'))"
 ```
 
-Expected: `This is [OWNER], [PHONE]. May has blood in her urine.`
+Expected: `This is [OWNER], [PHONE]. [OWNER] says the cat vomited twice; it seems to be recovering with grace since yesterday.`
 
-Here "May" is the pet's name, not a word to strip. This example shows why the name parts are matched case-sensitively: a common word that happens to match a name part must survive.
+The full name and the phone number are redacted, and so is the standalone, capitalized second mention of "Grace". The lowercase "grace" later in the sentence — an ordinary English word, not the owner's name — survives, because name-part matching is case-sensitive.
 
 ### Step A3. Tests — `backend/tests/unit/pipeline/test_deidentify_rules.py`
 
@@ -157,7 +157,7 @@ ACTIVE_SEIZURE:
   phrases: ["seizure", "seizuring", "convulsing", "convulsion", "fitting", "shaking uncontrollably"]
 UNCONTROLLED_BLEEDING:
   negatable: true
-  phrases: ["bleeding a lot", "won't stop bleeding", "will not stop bleeding", "bleeding heavily", "ayaw tumigil ang dugo"]
+  phrases: ["bleeding a lot", "won't stop bleeding", "will not stop bleeding", "bleeding heavily", "blood everywhere", "profuse bleeding"]
 MALE_CAT_NO_URINE:
   negatable: false
   requires: {species: CAT, sex: MALE}

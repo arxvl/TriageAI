@@ -1,0 +1,15 @@
+Alembic migrations for the TriageAI backend.
+
+Run them as the database owner, from the `backend/` directory:
+
+    alembic upgrade head          # apply
+    alembic downgrade base        # reverse
+    alembic upgrade head --sql    # review the SQL without running it
+
+The URL comes from MIGRATION_DATABASE_URL (the owner account). The application
+itself connects as the restricted `triageai_app` role created by
+0002_db_protections, which cannot UPDATE or DELETE audit_log and cannot UPDATE
+owner_descriptions (FR-05, FR-43, ADR-12).
+
+Conventions (CLAUDE.md §11): at most one migration per subphase, named after
+the subphase.

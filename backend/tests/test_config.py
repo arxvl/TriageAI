@@ -5,8 +5,10 @@ from app.core.config import Settings
 
 BASE_ENV = {
     "DB_PASSWORD": "test",
-    "DATABASE_URL": "postgresql+psycopg://triageai:test@localhost:5432/triageai",
-    "TEST_DATABASE_URL": "postgresql+psycopg://triageai:test@localhost:5432/triageai_test",
+    "DB_APP_PASSWORD": "test-app",
+    "DATABASE_URL": "postgresql+psycopg://triageai_app:test-app@localhost:5432/triageai",
+    "MIGRATION_DATABASE_URL": "postgresql+psycopg://triageai:test@localhost:5432/triageai",
+    "TEST_DATABASE_URL": "postgresql+psycopg://triageai_app:test-app@localhost:5432/triageai_test",
     "SECRET_KEY": "test-secret",
 }
 
