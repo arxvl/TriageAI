@@ -1,0 +1,18 @@
+# Placeholder owners — replace with real GitHub usernames for
+# Letada, Alzaga, and Bataller before enabling required reviews.
+
+# Lane A: backend api, services, models
+/backend/app/api/       @arxvl
+/backend/app/services/  @arxvl
+/backend/app/models/    @arxvl
+
+# Lane B: pipeline, adapters, prompts, knowledge_base
+/backend/app/pipeline/  @arxvl
+/backend/app/adapters/  @arxvl
+/backend/prompts/       @arxvl
+/knowledge_base/        @arxvl
+
+# Lane C: frontend, deploy, e2e
+/frontend/  @arxvl
+/deploy/    @arxvl
+/e2e/       @arxvl
