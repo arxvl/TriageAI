@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TriageAI – Wireframe Prototype · Transformer-Based NLP System for Canine and Feline Symptom Triage and Clinical Decision Support</title>
+<style>
+:root{--ink:#1f1f1f;--mid:#5b5b5b;--soft:#8a8a8a;--line:#cfcfcf;--pane:#f5f5f5;--bg:#ffffff;--hi:#fff3b0;
+--red:#C62828;--orange:#E65100;--yellow:#F9A825;--green:#2E7D32;--blue:#1565C0;--gray:#616161}
+*{box-sizing:border-box}
+html,body{margin:0;background:#e9e9e9;color:var(--ink);font-family:"Liberation Sans",Arial,Helvetica,sans-serif;font-size:14px}
+.screen{display:none;width:1280px;min-height:800px;margin:0 auto;background:var(--bg);position:relative}
+.screen.on{display:block}
+.co{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:50%;background:#111;color:#fff;font-weight:bold;font-size:11px;margin:0 4px;vertical-align:middle;flex:none;box-shadow:0 0 0 2px #fff}
+body:not(.ann) .co{display:none}
+.top{display:flex;align-items:center;gap:22px;height:54px;padding:0 22px;border-bottom:2px solid var(--ink);background:#fafafa}
+.logo{font-weight:bold;font-size:19px;letter-spacing:.3px}
+.logo small{display:block;font-weight:normal;font-size:10px;color:var(--mid);letter-spacing:0}
+.nav a{margin-right:18px;color:var(--ink);text-decoration:none;padding:16px 0;border-bottom:3px solid transparent}
+.nav a.cur{border-bottom-color:var(--ink);font-weight:bold}
+.who{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--mid)}
+.who b{color:var(--ink)}
+.btn{display:inline-block;border:1.5px solid var(--ink);background:#fff;color:var(--ink);padding:8px 14px;border-radius:6px;font-weight:bold;font-size:13px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn.pri{background:var(--ink);color:#fff}
+.btn.dis{border-color:#bbb;color:#aaa;cursor:not-allowed}
+.btn.sm{padding:5px 10px;font-size:12px}
+.wrap{padding:18px 22px 60px}
+h1{font-size:21px;margin:4px 0 14px}
+h2{font-size:15px;margin:0 0 10px}
+.muted{color:var(--mid)} .small{font-size:12px}
+.row{display:flex;gap:16px;align-items:flex-start}
+.card{border:1.5px solid var(--line);border-radius:8px;padding:14px;background:#fff}
+.pane{background:var(--pane)}
+.banner{display:flex;align-items:center;gap:10px;border:2px solid var(--red);background:#fdecea;padding:10px 14px;border-radius:6px;margin-bottom:14px;font-weight:bold}
+.banner.warn{border-color:#8a6d00;background:#fff8d6}
+.banner.info{border-color:var(--gray);background:#f2f2f2;font-weight:normal}
+.ico{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--red);color:#fff;align-items:center;justify-content:center;font-weight:bold;flex:none}
+.warn .ico{background:#8a6d00}
+.vtl{display:inline-flex;align-items:center;gap:6px;border-radius:5px;padding:4px 9px;font-weight:bold;font-size:12px;color:#fff;white-space:nowrap;letter-spacing:.3px}
+.vtl.r{background:var(--red)} .vtl.o{background:var(--orange)} .vtl.y{background:var(--yellow);color:#1a1a1a} .vtl.g{background:var(--green)} .vtl.b{background:var(--blue)} .vtl.m{background:#fff;color:var(--ink);border:1.5px dashed var(--ink)}
+.vtl small{font-weight:normal;opacity:.95}
+.chip{display:inline-block;border:1.2px solid var(--mid);border-radius:12px;padding:2px 9px;font-size:12px;white-space:nowrap}
+.chip.ai{border-style:dashed}
+.chip.ok{background:#eee}
+.chip.bad{border-color:var(--red);color:var(--red);font-weight:bold}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;color:var(--mid);font-weight:bold;border-bottom:1.5px solid var(--ink);padding:8px 8px}
+td{border-bottom:1px solid var(--line);padding:9px 8px;vertical-align:middle}
+tr.click{cursor:pointer} tr.click:hover{background:#f3f3f3}
+tr.over{background:#fff4f2}
+.bar{width:120px;height:8px;background:#e3e3e3;border-radius:4px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px}
+.bar i{display:block;height:100%;background:#777}
+.bar.x i{background:var(--red)}
+.counts{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.count{border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;min-width:118px}
+.count b{font-size:20px;display:block}
+.filters{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.inp{border:1.5px solid #9a9a9a;border-radius:5px;padding:8px 10px;background:#fff;min-width:150px;color:#444}
+.inp.wide{min-width:290px}
+.inp.err{border-color:var(--red);background:#fff7f6}
+.errtxt{color:var(--red);font-size:12px;margin-top:4px}
+label.l{display:block;font-weight:bold;font-size:12px;margin:12px 0 5px}
+.seg{display:inline-flex;border:1.5px solid var(--ink);border-radius:6px;overflow:hidden}
+.seg span{padding:8px 16px;border-right:1.5px solid var(--ink)} .seg span:last-child{border-right:0}
+.seg span.sel{background:var(--ink);color:#fff;font-weight:bold}
+textarea.inp{width:100%;height:120px;font-family:inherit;font-size:14px;resize:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px}
+mark{background:var(--hi);padding:0 2px;border-bottom:2px solid #c9a800}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:7px 10px;font-size:13px}
+.kv div:nth-child(odd){color:var(--mid);font-weight:bold;font-size:12px}
+.edit{border:1px dashed #999;border-radius:4px;padding:3px 6px;background:#fcfcfc;display:inline-block}
+.panel-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.ref{border-left:4px solid #999;padding:6px 10px;margin:8px 0;background:#fafafa;font-size:13px}
+.ref a{color:#1155cc}
+.actions{position:sticky;bottom:0;display:flex;gap:10px;align-items:center;border-top:2px solid var(--ink);padding:12px 22px;background:#fafafa}
+.disc{font-size:12px;color:var(--mid);margin-left:auto;max-width:430px;text-align:right}
+.overlay{position:absolute;inset:0;background:rgba(40,40,40,.55);display:flex;align-items:center;justify-content:center}
+.modal{width:620px;background:#fff;border-radius:10px;border:2px solid var(--ink);padding:22px}
+.opt{display:flex;align-items:center;gap:12px;border:1.5px solid var(--line);border-radius:6px;padding:9px 12px;margin:7px 0}
+.opt.sel{border:2.5px solid var(--ink)}
+.rad{width:16px;height:16px;border-radius:50%;border:2px solid var(--ink);flex:none}
+.opt.sel .rad{background:radial-gradient(var(--ink) 45%,#fff 50%)}
+.tl{border-left:2px solid var(--ink);margin-left:8px;padding-left:18px}
+.tl .ev{position:relative;margin-bottom:14px;font-size:13px}
+.tl .ev:before{content:"";position:absolute;left:-25px;top:3px;width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid var(--ink)}
+.tl .ev b{display:block}
+.tabs{display:flex;gap:4px;border-bottom:1.5px solid var(--ink);margin-bottom:10px}
+.tabs span{padding:8px 12px;border:1.5px solid var(--line);border-bottom:0;border-radius:6px 6px 0 0;font-size:13px}
+.tabs span.sel{border-color:var(--ink);font-weight:bold;background:#fff;margin-bottom:-1.5px}
+.metric{border:1.5px solid var(--line);border-radius:8px;padding:10px 12px}
+.metric b{display:block;font-size:22px;margin:3px 0}
+.ok{color:var(--green);font-weight:bold} .no{color:var(--red);font-weight:bold}
+.cm td,.cm th{text-align:center;padding:6px;font-size:12px;border:1px solid var(--line)}
+.cm td.d{background:#e8e8e8;font-weight:bold}
+.idx{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.idx a{display:block;border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;text-decoration:none;color:var(--ink);background:#fff}
+.idx a:hover{border-color:var(--ink);background:#f7f7f7}
+.idx a b{display:block;font-size:13px}
+.idx a span{font-size:12px;color:var(--mid)}
+.flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px}
+.flow i{font-style:normal;border:1.5px solid var(--line);border-radius:6px;padding:6px 9px;background:#fff}
+.flow i.ext{border-style:dashed}
+.flow s{text-decoration:none;color:var(--soft);font-weight:bold}
+.wm{position:absolute;top:360px;left:300px;transform:rotate(-18deg);font-size:54px;font-weight:bold;color:rgba(0,0,0,.06);pointer-events:none;letter-spacing:4px}
+.tag{position:absolute;right:10px;bottom:8px;font-size:11px;color:var(--soft)}
+.login{display:flex;align-items:center;justify-content:center;min-height:800px;background:repeating-linear-gradient(45deg,#f7f7f7,#f7f7f7 12px,#f1f1f1 12px,#f1f1f1 24px)}
+.lcard{width:420px;background:#fff;border:2px solid var(--ink);border-radius:10px;padding:30px}
+.toggle{position:fixed;right:14px;bottom:14px;z-index:9}
+body.shot .toggle{display:none}
+.navpane{position:fixed;left:14px;bottom:14px;z-index:9;background:#fff;border:1.5px solid #999;border-radius:8px;padding:8px 10px;font-size:12px;max-width:520px}
+.navpane a{margin-right:8px;color:#1155cc}
+body.shot .navpane{display:none}
+/* Tablet (W-11): queue table becomes cards */
+@media (max-width:900px){
+ .screen{width:100%;min-height:0}
+ .top{flex-wrap:wrap;height:auto;padding:10px 14px;gap:10px}
+ .who{margin-left:0}
+ .nav a{margin-right:12px}
+ .wrap{padding:14px}
+ .count{min-width:0;flex:1 1 30%}
+ .q thead{display:none}
+ .q tr{display:block;border:1.5px solid var(--line);border-radius:8px;margin-bottom:10px;padding:8px 10px}
+ .q td{display:flex;justify-content:space-between;align-items:center;border:0;padding:5px 0}
+ .q td:before{content:attr(data-l);font-size:11px;font-weight:bold;color:var(--mid);margin-right:12px}
+ .inp.wide{min-width:0;flex:1 1 100%}
+}
+</style>
+</head>
+<body class="ann">
+
+<!-- ================= W-00 PROTOTYPE INDEX ================= -->
+<section class="screen" id="w00">
+ <div class="top"><div class="logo">TriageAI<small>A Transformer-Based NLP System for Canine and Feline Symptom Triage and Clinical Decision Support</small></div>
+  <div class="who"><span class="small">Team A-08 · Letada, Alzaga, Bataller</span></div></div>
+ <div class="wrap">
+  <h1>Wireframe prototype – index and design reference</h1>
+  <div class="banner info"><span>Static wireframes with sample data. Layout, wording and states are the reference for implementation; visual styling is deliberately plain. Decisions behind these screens are recorded in <b>docs/adr/</b> (ADR-15 covers this UI).</span></div>
+
+  <div class="card" style="margin-bottom:14px">
+   <h2>Screens</h2>
+   <div class="idx">
+    <a href="#w01"><b>W-01 Login</b><span>All roles · SR-03</span></a>
+    <a href="#w02"><b>W-02 Triage Queue</b><span>Staff, Reviewer · FR-29</span></a>
+    <a href="#w03"><b>W-03 Case Intake</b><span>Staff, Reviewer · FR-01</span></a>
+    <a href="#w04"><b>W-04 Case Review</b><span>Reviewer decides · FR-31</span></a>
+    <a href="#w05"><b>W-05 Adjust dialog</b><span>Reviewer · FR-32</span></a>
+    <a href="#w06"><b>W-06 Manual triage</b><span>Reviewer · FR-34</span></a>
+    <a href="#w07"><b>W-07 History + audit</b><span>All roles · FR-44</span></a>
+    <a href="#w08"><b>W-08 Knowledge Base</b><span>Admin + KB approver · FR-52</span></a>
+    <a href="#w09"><b>W-09 Users</b><span>Administrator · FR-60</span></a>
+    <a href="#w10"><b>W-10 Evaluation</b><span>Administrator · FR-66</span></a>
+    <a href="#w02"><b>W-11 Tablet layout</b><span>Narrow the window below 900 px on W-02</span></a>
+    <a href="#w04"><b>Start the walkthrough</b><span>Queue → review → decision</span></a>
+   </div>
+  </div>
+
+  <div class="row" style="margin-bottom:14px">
+   <div class="card" style="flex:1.15">
+    <h2>Case flow (ADR-05, ADR-08, ADR-09, ADR-10)</h2>
+    <div class="flow">
+     <i>W-03 Intake</i><s>→</s><i>De-identify</i><s>→</s><i>Red-flag screen</i><s>→</s><i class="ext">Extraction (LLM)</i><s>→</s><i>Retrieval (pgvector)</i><s>→</s><i class="ext">Generation (LLM)</i><s>→</s><i>Safety validator</i><s>→</s><i>W-02 Queue</i><s>→</s><i>W-04 Review</i><s>→</s><i>Decision</i>
+    </div>
+    <p class="small muted" style="margin-top:10px">Dashed boxes are the only steps that call an external service, and they receive de-identified text only (ADR-10). The pipeline runs as a background job; the browser polls every 15 s (ADR-08). The safety validator can raise the category but never lower it (ADR-09).</p>
+    <p class="small muted">On failure at any stage the case becomes <b>Manual triage required</b> (W-06) and is never lost (NFR-09).</p>
+   </div>
+   <div class="card" style="flex:.85">
+    <h2>Roles and what they may do (ADR-11, BR-01)</h2>
+    <table>
+     <thead><tr><th>Role</th><th>May do</th></tr></thead>
+     <tbody>
+      <tr><td><b>Intake Staff</b></td><td>Create cases, view the queue and history, see red-flag alerts. <b>Cannot</b> confirm, adjust or finalise a category; W-04 is read-only.</td></tr>
+      <tr><td><b>Veterinary Reviewer</b></td><td>Everything above, plus confirm, adjust, manually triage, add notes and close cases. The decision always overrides the AI.</td></tr>
+      <tr><td><b>+ KB approval</b></td><td>A Veterinary Reviewer flagged <code>can_approve_kb</code> (licensed veterinarian only, BR-04) approves knowledge-base entries and red-flag rules in W-08.</td></tr>
+      <tr><td><b>Administrator</b></td><td>Users (W-09), knowledge-base drafting (W-08), evaluation runs (W-10), exports, read-only audit access. <b>Cannot</b> decide a category.</td></tr>
+     </tbody>
+    </table>
+   </div>
+  </div>
+
+  <div class="row">
+   <div class="card" style="flex:1">
+    <h2>Urgency categories (IR-03)</h2>
+    <p class="small muted" style="margin-top:-4px">Colour is never used alone: every badge carries the category name and its target waiting time.</p>
+    <div class="row" style="flex-wrap:wrap;gap:8px">
+     <span class="vtl r">RED <small>Immediate</small></span>
+     <span class="vtl o">ORANGE <small>≤ 15 min</small></span>
+     <span class="vtl y">YELLOW <small>≤ 30–60 min</small></span>
+     <span class="vtl g">GREEN <small>≤ 120 min</small></span>
+     <span class="vtl b">BLUE <small>≤ 240 min</small></span>
+     <span class="vtl m">MANUAL <small>no AI category</small></span>
+    </div>
+    <p class="small muted" style="margin-top:12px"><b>Queue order (FR-29):</b> Red first, then cases with no category (manual or still processing), then Orange, Yellow, Green, Blue; oldest first within a group.</p>
+   </div>
+   <div class="card" style="flex:1">
+    <h2>Case status</h2>
+    <div class="row" style="flex-wrap:wrap;gap:6px">
+     <span class="chip">Submitted</span><span class="chip">Processing</span>
+     <span class="chip ai">Awaiting review</span><span class="chip bad">Manual triage required</span>
+     <span class="chip">Confirmed</span><span class="chip">Adjusted</span>
+     <span class="chip">Manually triaged</span><span class="chip">Closed</span>
+    </div>
+    <p class="small muted" style="margin-top:12px">A dashed chip marks AI output that no human has accepted yet. The label <b>“AI Recommendation – requires staff confirmation”</b> stays on screen until a reviewer decides (IR-04).</p>
+    <p class="small muted">Decision support only – not a diagnosis. The final category is always decided by veterinary staff (BR-09).</p>
+   </div>
+  </div>
+ </div>
+ <div class="tag">Index · prototype for the PD8 MVP</div>
+</section>
+
+<!-- ================= W-01 LOGIN ================= -->
+<section class="screen" id="w01">
+ <div class="login">
+  <div class="lcard">
+   <div class="logo" style="font-size:26px">TriageAI<small>Canine and Feline Symptom Triage and Clinical Decision Support</small></div>
+   <p class="muted small" style="margin-top:14px">Sign in with your clinic account.</p>
+   <label class="l">Username or e-mail <i class="co">1</i></label>
+   <div class="inp" style="width:100%">m.santos@clinic.example</div>
+   <label class="l">Password</label>
+   <div class="inp err" style="width:100%">••••••••••••</div>
+   <div class="errtxt">Incorrect username or password. <i class="co">2</i></div>
+   <div class="small muted" style="margin-top:6px">After 5 failed attempts your account is locked for 15 minutes. <i class="co">3</i></div>
+   <div style="margin-top:18px;display:flex;align-items:center;justify-content:space-between">
+     <a class="btn pri" href="#w02">Log In</a>
+     <span class="small muted">Forgot password? Ask your administrator.</span>
+   </div>
+   <hr style="border:0;border-top:1px solid var(--line);margin:20px 0 10px">
+   <div class="small muted">Privacy notice: personal data is processed under the Data Privacy Act of 2012 (RA 10173) for triage and project evaluation only. <i class="co">4</i></div>
+  </div>
+ </div>
+ <div class="tag">W-01 · wireframe · sample data</div>
+</section>
+
+<!-- shared header snippets are repeated for clarity of each static screen -->
+
+<!-- ================= W-02 TRIAGE QUEUE ================= -->
+<section class="screen" id="w02">
+ <div class="top"><div class="logo">TriageAI<small>Clinical decision support</small></div>
+  <div class="nav"><a class="cur" href="#w02">Triage Queue</a><a href="#w03">New Case</a><a href="#w07">Case History</a><a href="#w08">KB Approvals</a></div>
+  <div class="who"><span><b>Dr. M. Santos</b> · Veterinary Reviewer</span><a href="#w01" class="small">Help</a><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap">
+  <div class="banner"><span class="ico">!</span> Red-flag alert – C-0142 (Cat, “Mingming”): male cat producing no urine. A Veterinary Reviewer must assess now. <a class="btn sm" href="#w04" style="margin-left:auto">Open case</a><i class="co">1</i></div>
+  <div class="row" style="justify-content:space-between;align-items:center"><h1>Triage Queue</h1><div class="small muted">Updated 5 s ago · auto-refresh every 15 s <i class="co">7</i> <a class="btn pri" href="#w03" style="margin-left:10px">+ New Case</a><i class="co">8</i></div></div>
+  <div class="counts">
+   <div class="count"><span class="vtl r">RED</span><b>1</b><span class="small muted">Immediate</span></div>
+   <div class="count"><span class="vtl o">ORANGE</span><b>1</b><span class="small muted">≤ 15 min</span></div>
+   <div class="count"><span class="vtl y">YELLOW</span><b>2</b><span class="small muted">≤ 30–60 min</span></div>
+   <div class="count"><span class="vtl g">GREEN</span><b>1</b><span class="small muted">≤ 120 min</span></div>
+   <div class="count"><span class="vtl b">BLUE</span><b>1</b><span class="small muted">≤ 240 min</span></div>
+   <div class="count"><span class="vtl m">MANUAL</span><b>1</b><span class="small muted">Needs manual triage</span></div>
+   <div class="count" style="border-style:dashed"><b>3</b><span class="small muted">Awaiting review</span><i class="co">2</i></div>
+  </div>
+  <div class="filters"><div class="inp wide">Search case ID, pet name, or complaint…</div><div class="inp">Species: All ▾</div><div class="inp">Category: All ▾</div><div class="inp">Status: Open ▾</div><div class="inp">Today ▾</div><i class="co">3</i></div>
+  <table class="q">
+   <thead><tr><th>Urgency</th><th>Case</th><th>Patient</th><th>Primary complaint</th><th>Arrived</th><th>Waiting / target <i class="co">5</i></th><th>Status <i class="co">4</i></th><th>Flags</th></tr></thead>
+   <tbody>
+    <tr class="click" onclick="go('w04')"><td data-l="Urgency"><span class="vtl r">RED <small>Immediate</small></span></td><td data-l="Case">C-0141</td><td data-l="Patient">Dog · Bantay · 8 y</td><td data-l="Complaint">Difficulty breathing</td><td data-l="Arrived">09:42</td><td data-l="Waiting"><span class="bar x"><i style="width:100%"></i></span>1 min / 0 min</td><td data-l="Status"><span class="chip ai">AI recommendation · pending</span></td><td data-l="Flags"><span class="ico">!</span></td></tr>
+    <tr class="click over" onclick="go('w06')"><td data-l="Urgency"><span class="vtl m">MANUAL</span><i class="co">6</i></td><td data-l="Case">C-0140</td><td data-l="Patient">Cat · Kiko · 6 y</td><td data-l="Complaint">— (AI unavailable)</td><td data-l="Arrived">09:20</td><td data-l="Waiting">22 min / —</td><td data-l="Status"><span class="chip bad">Manual triage required</span></td><td data-l="Flags"></td></tr>
+    <tr class="click" onclick="go('w04')"><td data-l="Urgency"><span class="vtl o">ORANGE <small>≤ 15 min</small></span></td><td data-l="Case">C-0142</td><td data-l="Patient">Cat · Mingming · 3 y</td><td data-l="Complaint">Straining or inability to urinate</td><td data-l="Arrived">09:36</td><td data-l="Waiting"><span class="bar"><i style="width:40%"></i></span>6 / 15 min</td><td data-l="Status"><span class="chip ai">AI recommendation · pending</span></td><td data-l="Flags"><span class="ico">!</span></td></tr>
+    <tr class="click over"><td data-l="Urgency"><span class="vtl y">YELLOW <small>≤ 60 min</small></span></td><td data-l="Case">C-0138</td><td data-l="Patient">Dog · Choco · 2 y</td><td data-l="Complaint">Repeated vomiting with lethargy</td><td data-l="Arrived">08:31</td><td data-l="Waiting"><span class="bar x"><i style="width:100%"></i></span><b style="color:var(--red)">64 / 60 min · overdue</b></td><td data-l="Status"><span class="chip ok">Confirmed</span></td><td data-l="Flags"></td></tr>
+    <tr class="click"><td data-l="Urgency"><span class="vtl y">YELLOW <small>≤ 60 min</small></span></td><td data-l="Case">C-0139</td><td data-l="Patient">Cat · Luna · 1 y</td><td data-l="Complaint">Diarrhea</td><td data-l="Arrived">09:05</td><td data-l="Waiting"><span class="bar"><i style="width:62%"></i></span>37 / 60 min</td><td data-l="Status"><span class="chip ai">AI recommendation · pending</span></td><td data-l="Flags"></td></tr>
+    <tr class="click" onclick="go('w07')"><td data-l="Urgency"><span class="vtl g">GREEN <small>≤ 120 min</small></span></td><td data-l="Case">C-0137</td><td data-l="Patient">Dog · Max · 5 y</td><td data-l="Complaint">Lameness (bearing weight)</td><td data-l="Arrived">08:50</td><td data-l="Waiting"><span class="bar"><i style="width:43%"></i></span>52 / 120 min</td><td data-l="Status"><span class="chip ok">Adjusted (Yellow → Green)</span></td><td data-l="Flags"></td></tr>
+    <tr class="click"><td data-l="Urgency"><span class="vtl b">BLUE <small>≤ 240 min</small></span></td><td data-l="Case">C-0136</td><td data-l="Patient">Dog · Whitey · 4 y</td><td data-l="Complaint">Itching for two weeks</td><td data-l="Arrived">08:12</td><td data-l="Waiting"><span class="bar"><i style="width:38%"></i></span>90 / 240 min</td><td data-l="Status"><span class="chip ok">Confirmed</span></td><td data-l="Flags"></td></tr>
+   </tbody>
+  </table>
+  <p class="small muted">Colors are always shown with the category name and target waiting time. Cases without a category are listed directly below Red.</p>
+ </div>
+ <div class="tag">W-02 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-03 CASE INTAKE ================= -->
+<section class="screen" id="w03">
+ <div class="top"><div class="logo">TriageAI<small>Clinical decision support</small></div>
+  <div class="nav"><a href="#w02">Triage Queue</a><a class="cur" href="#w03">New Case</a><a href="#w07">Case History</a></div>
+  <div class="who"><span><b>J. Cruz</b> · Intake Staff</span><a href="#w01" class="small">Help</a><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap">
+  <h1>New Triage Case</h1>
+  <div class="row">
+   <div class="card" style="flex:1 1 820px">
+    <label class="l" style="margin-top:0">Species (required) <i class="co">1</i></label>
+    <div class="seg"><span>Dog</span><span class="sel">Cat</span><span>Other species</span></div>
+    <span class="small muted" style="margin-left:10px">Other species are not processed by the AI and must be triaged manually.</span>
+    <div class="grid3" style="margin-top:4px">
+     <div><label class="l">Pet name <span class="muted">(optional)</span> <i class="co">2</i></label><div class="inp" style="width:100%">Mingming</div></div>
+     <div><label class="l">Age</label><div class="row" style="gap:6px"><div class="inp" style="min-width:0;width:80px">3</div><div class="inp" style="min-width:0;flex:1">years ▾</div></div></div>
+     <div><label class="l">Sex and neuter status</label><div class="inp" style="width:100%">Male, intact ▾</div></div>
+     <div><label class="l">Breed</label><div class="inp" style="width:100%">Puspin (domestic short hair)</div></div>
+     <div><label class="l">Body weight (kg)</label><div class="inp err" style="width:100%">4,2 kg</div><div class="errtxt">Enter the weight as a number, e.g. 4.2 <i class="co">5</i></div></div>
+     <div><label class="l">Intake channel</label><div class="seg"><span>Walk-in</span><span class="sel">Phone</span><span>Message</span></div></div>
+    </div>
+    <label class="l">Owner’s description of the problem (required, 20–2,000 characters) <i class="co">3</i></label>
+    <textarea class="inp">Since this morning he keeps going to the litter box and cries, but nothing comes out. He also vomited twice. He is 3 years old and was fine last night.</textarea>
+    <div class="row small muted" style="justify-content:space-between;margin-top:4px"><span>Enter the description in English; translate any Filipino or Bikol words, keeping the owner’s exact wording in quotes if unsure. Do not include the owner’s name or phone number here.</span><span>143 / 2,000</span></div>
+    <div class="card pane" style="margin-top:14px">
+     <b>Owner reference (optional)</b> <i class="co">4</i> <span class="small muted">– stored separately and never sent to AI services</span>
+     <div class="grid2"><div><label class="l">Owner name</label><div class="inp" style="width:100%">—</div></div><div><label class="l">Contact number</label><div class="inp" style="width:100%">—</div></div></div>
+    </div>
+    <div class="row" style="margin-top:18px"><a class="btn pri" href="#w02">Submit for triage</a><i class="co">6</i><a class="btn" href="#w02">Cancel</a><span class="small muted" style="align-self:center">The recommendation usually appears within 10 seconds.</span></div>
+   </div>
+   <div class="card pane" style="width:330px">
+    <h2>Red-flag signs – notify a Veterinary Reviewer immediately</h2>
+    <ul class="small" style="padding-left:18px;line-height:1.6;margin:0">
+     <li>Not breathing or struggling to breathe</li><li>Collapsed or unresponsive</li><li>Seizure happening now</li><li>Bleeding that will not stop</li><li>Male cat straining with no urine</li><li>Possible poison or medication swallowed</li><li>Pale, white, or bluish gums</li></ul>
+    <p class="small muted">Final list to be validated by the veterinary reviewer (TBD-4).</p>
+    <h2 style="margin-top:14px">Tips for a useful description</h2>
+    <p class="small">Ask when it started, how often it happens, whether it is getting worse, and whether the pet is eating and drinking.</p>
+   </div>
+  </div>
+ </div>
+ <div class="tag">W-03 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-04 CASE REVIEW ================= -->
+<section class="screen" id="w04">
+ <div class="top"><div class="logo">TriageAI<small>Clinical decision support</small></div>
+  <div class="nav"><a class="cur" href="#w02">Triage Queue</a><a href="#w03">New Case</a><a href="#w07">Case History</a><a href="#w08">KB Approvals</a></div>
+  <div class="who"><span><b>Dr. M. Santos</b> · Veterinary Reviewer</span><a href="#w01" class="small">Help</a><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap" style="padding-bottom:20px">
+  <div class="row" style="justify-content:space-between;align-items:center">
+   <div><a href="#w02" class="small">← Back to queue</a><h1 style="margin:4px 0">C-0142 · Cat · Mingming · 3 y · Male, intact <i class="co">1</i></h1>
+   <span class="muted">Arrived 09:36 by phone · recorded by J. Cruz · <b>waiting 6 min of 15 min</b></span></div>
+   <span class="chip ai" style="font-size:13px;padding:6px 12px">AI Recommendation – requires staff confirmation</span><i class="co">2</i>
+  </div>
+  <div class="banner" style="margin-top:12px"><span class="ico">!</span> Red flag detected by the pre-screen: male cat producing no urine.</div>
+  <div class="row">
+   <div class="card" style="width:330px">
+    <div class="panel-h"><h2 style="margin:0">Owner’s description (verbatim)</h2><i class="co">3</i></div>
+    <p style="line-height:1.7">Since this morning he <mark>keeps going to the litter box</mark> and <mark>cries</mark>, but <mark>nothing comes out</mark>. He also <mark>vomited twice</mark>. He is <mark>3 years old</mark> and was fine last night.</p>
+    <p class="small muted">Highlights show the evidence used for each extracted value.</p>
+   </div>
+   <div class="card" style="width:390px">
+    <div class="panel-h"><h2 style="margin:0">Extracted information</h2><span><i class="co">4</i><span class="small muted">Click a value to correct it</span></span></div>
+    <div class="kv">
+     <div>Species</div><div><span class="edit">Cat</span></div>
+     <div>Presenting complaints</div><div><span class="edit">Straining or inability to urinate <b>(primary)</b></span><br><span class="edit" style="margin-top:4px">Vomiting</span></div>
+     <div>Onset / duration</div><div><span class="edit">Since this morning (&lt; 24 h)</span></div>
+     <div>Frequency / severity</div><div><span class="edit">Repeated attempts; vomited 2 times</span></div>
+     <div>Associated signs</div><div><span class="edit">Vocalizing (crying)</span></div>
+     <div>Negated findings</div><div><span class="edit">None stated</span></div>
+     <div>Red flags</div><div><b style="color:var(--red)">Male cat producing no urine</b></div>
+     <div>Ask the owner</div><div>Appetite · water intake · previous episodes</div>
+    </div>
+    <div style="margin-top:12px"><span class="btn dis sm">Save and regenerate</span> <span class="small muted">enabled after a correction</span></div>
+   </div>
+   <div class="card" style="flex:1">
+    <div class="panel-h"><h2 style="margin:0">Recommended urgency</h2><i class="co">5</i></div>
+    <span class="vtl o" style="font-size:17px;padding:9px 14px">ORANGE · Very urgent <small>· see within 15 min</small></span>
+    <div class="banner warn" style="margin:12px 0 10px;font-size:13px"><span class="ico">✓</span> Safety floor applied: the red flag “male cat, no urine” requires at least Orange. <i class="co">6</i></div>
+    <p style="font-size:13px;line-height:1.5"><b>Rationale.</b> The owner reports repeated straining with no urine since this morning in a male cat, with vomiting. The knowledge base identifies this pattern as a possible urinary blockage that needs prompt veterinary assessment.</p>
+    <div class="small"><b>Confidence:</b> Medium ▮▮▯ · <a href="#w07">View audit trail</a></div>
+    <h2 style="margin-top:12px">References <i class="co">7</i></h2>
+    <div class="ref"><b>[1] Merck Veterinary Manual</b> – Feline lower urinary tract disease (urethral obstruction section).<br><span class="muted">Summary: male cats that strain without passing urine may have a blockage that requires prompt care.</span> <a href="#w04">Open source ↗</a></div>
+    <div class="ref"><b>[2] Veterinary Triage List</b> – urinary discriminators (Ruys et al., 2012).<br><span class="muted">Summary: inability to urinate is listed among discriminators for the higher urgency categories.</span> <a href="#w04">Open source ↗</a></div>
+    <p class="small muted" style="margin-top:8px">Model: TBD-1 · Prompt v1.3 · KB version 7 · generated 09:36:14 in 9.2 s <i class="co">8</i></p>
+   </div>
+  </div>
+ </div>
+ <div class="actions"><a class="btn pri" href="#w02">Confirm Orange</a><a class="btn" href="#w05">Adjust category…</a><a class="btn" href="#w06">Mark for manual triage</a><a class="btn" href="#w04">Add note</a><i class="co">9</i>
+  <span class="disc">Decision support only – this is not a diagnosis. The final urgency category is decided by veterinary staff. <i class="co">10</i></span></div>
+ <div class="tag">W-04 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-05 ADJUST DIALOG ================= -->
+<section class="screen" id="w05">
+ <div style="filter:grayscale(1);opacity:.9">
+ <div class="top"><div class="logo">TriageAI<small>Clinical decision support</small></div>
+  <div class="nav"><a class="cur">Triage Queue</a><a>New Case</a><a>Case History</a></div>
+  <div class="who"><span><b>Dr. M. Santos</b> · Veterinary Reviewer</span></div></div>
+ <div class="wrap"><h1>C-0142 · Cat · Mingming · 3 y · Male, intact</h1><div class="row"><div class="card" style="width:330px;height:420px"></div><div class="card" style="width:390px;height:420px"></div><div class="card" style="flex:1;height:420px"></div></div></div>
+ </div>
+ <div class="overlay">
+  <div class="modal">
+   <h1 style="margin-top:0">Adjust urgency category</h1>
+   <p class="muted" style="margin-top:-6px">AI recommendation: <span class="vtl o">ORANGE</span> · select the category you have decided on. <i class="co">1</i></p>
+   <div class="opt sel"><span class="rad"></span><span class="vtl r">RED</span> Immediate · 0 min <span class="small muted" style="margin-left:auto">Up-triage</span></div>
+   <div class="opt"><span class="rad"></span><span class="vtl o">ORANGE</span> Very urgent · ≤ 15 min <span class="small muted" style="margin-left:auto">current</span></div>
+   <div class="opt"><span class="rad"></span><span class="vtl y">YELLOW</span> Urgent · ≤ 30–60 min</div>
+   <div class="opt"><span class="rad"></span><span class="vtl g">GREEN</span> Standard · ≤ 120 min</div>
+   <div class="opt"><span class="rad"></span><span class="vtl b">BLUE</span> Non-urgent · ≤ 240 min</div>
+   <label class="l">Reason for change (required) <i class="co">2</i></label>
+   <div class="inp" style="width:100%">Patient’s condition on arrival differs from the description ▾</div>
+   <label class="l">Details</label>
+   <div class="inp" style="width:100%;height:60px">On arrival: abdomen painful, cat weak and lying down.</div>
+   <div class="banner info" style="margin-top:12px;font-size:12px">Change: Orange → Red (up-triage). Your name, the time, and the reason are recorded in the audit trail and cannot be edited later. <i class="co">3</i></div>
+   <div class="row" style="justify-content:flex-end"><a class="btn" href="#w04">Cancel</a><a class="btn pri" href="#w02">Save decision</a></div>
+  </div>
+ </div>
+ <div class="tag">W-05 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-06 AI UNAVAILABLE / MANUAL ================= -->
+<section class="screen" id="w06">
+ <div class="top"><div class="logo">TriageAI<small>Clinical decision support</small></div>
+  <div class="nav"><a class="cur" href="#w02">Triage Queue</a><a href="#w03">New Case</a><a href="#w07">Case History</a></div>
+  <div class="who"><span><b>Dr. M. Santos</b> · Veterinary Reviewer</span><a href="#w01" class="small">Help</a><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap">
+  <a href="#w02" class="small">← Back to queue</a><h1 style="margin:4px 0 12px">C-0140 · Cat · Kiko · 6 y · Female, spayed</h1>
+  <div class="banner warn"><span class="ico">!</span> AI unavailable – triage manually using the VTL. The language model did not respond after two retries (09:20:41). The case is safe to triage; no data was lost. <i class="co">1</i> <a class="btn sm" href="#w04" style="margin-left:auto">Retry AI processing</a></div>
+  <div class="row">
+   <div class="card" style="width:380px"><h2>Owner’s description (verbatim)</h2><p style="line-height:1.6">She has been hiding under the bed since yesterday and did not eat her breakfast. She is breathing a bit fast when I touch her belly.</p><p class="small muted">Extracted information: not available for this case. <i class="co">2</i></p></div>
+   <div class="card" style="flex:1">
+    <h2>Assign a category manually <i class="co">3</i></h2>
+    <div class="opt"><span class="rad"></span><span class="vtl r">RED</span> Immediate · e.g. not breathing, unresponsive, ongoing seizure, uncontrolled bleeding</div>
+    <div class="opt sel"><span class="rad"></span><span class="vtl o">ORANGE</span> Very urgent · e.g. breathing difficulty, severe pain, suspected toxin, male cat unable to urinate</div>
+    <div class="opt"><span class="rad"></span><span class="vtl y">YELLOW</span> Urgent · e.g. repeated vomiting with lethargy, controlled bleeding</div>
+    <div class="opt"><span class="rad"></span><span class="vtl g">GREEN</span> Standard · e.g. lameness while bearing weight, single vomiting episode</div>
+    <div class="opt"><span class="rad"></span><span class="vtl b">BLUE</span> Non-urgent · e.g. chronic itching, mild eye or ear discharge</div>
+    <label class="l">Note (required)</label><div class="inp" style="width:100%;height:56px">Fast breathing reported; assess on arrival.</div>
+    <div class="row" style="margin-top:12px"><a class="btn pri" href="#w02">Save manual triage</a><span class="small muted" style="align-self:center">Status will change to “Manually triaged”. <i class="co">4</i></span></div>
+   </div>
+  </div>
+ </div>
+ <div class="tag">W-06 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-07 CASE HISTORY & AUDIT ================= -->
+<section class="screen" id="w07">
+ <div class="top"><div class="logo">TriageAI<small>Clinical decision support</small></div>
+  <div class="nav"><a href="#w02">Triage Queue</a><a href="#w03">New Case</a><a class="cur" href="#w07">Case History</a></div>
+  <div class="who"><span><b>Dr. M. Santos</b> · Veterinary Reviewer</span><a href="#w01" class="small">Help</a><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap">
+  <h1>Case History</h1>
+  <div class="filters"><div class="inp">Case ID</div><div class="inp">01–30 Oct 2026 ▾</div><div class="inp">Species: All ▾</div><div class="inp">Complaint: All ▾</div><div class="inp">Category: All ▾</div><div class="inp">Status: All ▾</div><a class="btn" href="#w07">Search</a><i class="co">1</i></div>
+  <div class="row">
+   <div class="card" style="flex:1">
+    <table><thead><tr><th>Case</th><th>Date</th><th>Patient</th><th>AI</th><th>Final</th><th>Status</th></tr></thead><tbody>
+     <tr style="background:#eee"><td><b>C-0137</b></td><td>Today 08:50</td><td>Dog · Max</td><td><span class="vtl y">YELLOW</span></td><td><span class="vtl g">GREEN</span></td><td>Closed</td></tr>
+     <tr><td>C-0136</td><td>Today 08:12</td><td>Dog · Whitey</td><td><span class="vtl b">BLUE</span></td><td><span class="vtl b">BLUE</span></td><td>Confirmed</td></tr>
+     <tr><td>C-0135</td><td>Yesterday</td><td>Dog · Brownie</td><td><span class="vtl o">ORANGE</span></td><td><span class="vtl r">RED</span></td><td>Closed</td></tr>
+     <tr><td>C-0134</td><td>Yesterday</td><td>Cat · Snow</td><td><span class="vtl g">GREEN</span></td><td><span class="vtl g">GREEN</span></td><td>Closed</td></tr>
+     <tr><td>C-0133</td><td>Yesterday</td><td>Dog · Tiger</td><td><span class="vtl m">—</span></td><td><span class="vtl y">YELLOW</span></td><td>Manually triaged</td></tr>
+    </tbody></table>
+    <p class="small muted">AI and final categories are shown side by side so disagreements are easy to review. <i class="co">2</i></p>
+   </div>
+   <div class="card" style="width:500px">
+    <div class="panel-h"><h2 style="margin:0">Audit timeline – C-0137</h2><i class="co">3</i></div>
+    <div class="row small" style="gap:20px;margin-bottom:12px"><span>Submission → recommendation: <b>10 s</b></span><span>Recommendation → decision: <b>8 min 28 s</b></span><i class="co">4</i></div>
+    <div class="tl">
+     <div class="ev"><b>08:50:02 · Case created</b>J. Cruz (Intake Staff) · channel: walk-in</div>
+     <div class="ev"><b>08:50:03 · Red-flag pre-screen</b>No red flags found</div>
+     <div class="ev"><b>08:50:09 · Extraction v1 stored</b>Prompt v1.3 · schema valid</div>
+     <div class="ev"><b>08:50:12 · Recommendation v1: YELLOW</b>Confidence Medium · KB version 7 · 2 references</div>
+     <div class="ev"><b>08:58:40 · Decision: Adjusted Yellow → Green</b>Dr. M. Santos · reason: “Bearing weight, alert, no swelling on arrival.”</div>
+     <div class="ev"><b>09:40:10 · Note added</b>Dr. M. Santos</div>
+     <div class="ev"><b>10:05:31 · Case closed</b>Seen by veterinarian</div>
+    </div>
+    <p class="small muted">Entries are append-only and cannot be edited or deleted.</p>
+   </div>
+  </div>
+ </div>
+ <div class="tag">W-07 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-08 KNOWLEDGE BASE ================= -->
+<section class="screen" id="w08">
+ <div class="top"><div class="logo">TriageAI<small>Administration</small></div>
+  <div class="nav"><a href="#w09">Users</a><a class="cur" href="#w08">Knowledge Base</a><a href="#w10">Evaluation</a><a href="#w10">Exports</a></div>
+  <div class="who"><span><b>Dr. A. Rivera</b> · Veterinary Reviewer (KB approver)</span><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap">
+  <div class="row" style="justify-content:space-between;align-items:center"><h1>Knowledge Base</h1><span class="small muted">Published version: <b>v7</b> · 18 active entries <i class="co">1</i></span></div>
+  <div class="row">
+   <div class="card" style="width:520px">
+    <div class="tabs"><span>Draft (3)</span><span class="sel">Pending review (2)</span><span>Active (18)</span><span>Retired (1)</span><i class="co">2</i></div>
+    <table><thead><tr><th>Entry</th><th>Species</th><th>Source</th><th>Updated</th></tr></thead><tbody>
+     <tr style="background:#eee"><td><b>Straining or inability to urinate</b></td><td>Cat</td><td>Merck Vet Manual</td><td>Today</td></tr>
+     <tr><td>Heat exposure or overheating</td><td>Dog, Cat</td><td>WSAVA</td><td>Yesterday</td></tr>
+    </tbody></table>
+   </div>
+   <div class="card" style="flex:1">
+    <div class="panel-h"><h2 style="margin:0">Straining or inability to urinate – Cat</h2><span class="chip">Pending review</span></div>
+    <div class="grid2"><div><label class="l" style="margin-top:0">Presenting complaint (fixed list)</label><div class="inp" style="width:100%">Straining to urinate or inability to urinate ▾</div></div><div><label class="l" style="margin-top:0">Species</label><div class="inp" style="width:100%">Cat ▾</div></div></div>
+    <label class="l">Content (written by the curator from the cited source) <i class="co">3</i></label>
+    <div class="inp" style="width:100%;height:78px;color:#333">Male cats that repeatedly strain in the litter box and pass little or no urine may have a urethral blockage. The condition can worsen within hours and should be assessed promptly…</div>
+    <label class="l">Red flags and minimum category <i class="co">4</i></label>
+    <table><tbody><tr><td>Male cat producing no urine</td><td><span class="vtl o">ORANGE</span> minimum</td></tr><tr><td>Collapsed or unresponsive with urinary signs</td><td><span class="vtl r">RED</span> minimum</td></tr></tbody></table>
+    <label class="l">Source citation (required) <i class="co">5</i></label>
+    <div class="grid3"><div class="inp">Merck Veterinary Manual</div><div class="inp">merckvetmanual.com/…</div><div class="inp">Accessed 24 Sep 2026</div></div>
+    <div class="row" style="margin-top:16px"><a class="btn pri" href="#w08">Approve and publish (v8)</a><a class="btn" href="#w08">Reject with comments</a><i class="co">6</i><span class="small muted" style="align-self:center">Visible only to licensed veterinarians with approval permission.</span></div>
+   </div>
+  </div>
+ </div>
+ <div class="tag">W-08 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-09 USERS ================= -->
+<section class="screen" id="w09">
+ <div class="top"><div class="logo">TriageAI<small>Administration</small></div>
+  <div class="nav"><a class="cur" href="#w09">Users</a><a href="#w08">Knowledge Base</a><a href="#w10">Evaluation</a><a href="#w10">Exports</a></div>
+  <div class="who"><span><b>System Administrator</b> · Administrator</span><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wrap">
+  <h1>User Management</h1>
+  <div class="row">
+   <div class="card" style="flex:1">
+    <table><thead><tr><th>Name</th><th>E-mail</th><th>Role <i class="co">1</i></th><th>KB approval</th><th>Status</th><th>Last login</th><th></th></tr></thead><tbody>
+     <tr><td>Dr. M. Santos</td><td>m.santos@…</td><td>Veterinary Reviewer</td><td>—</td><td>Active</td><td>Today 08:01</td><td><span class="btn sm">Edit</span></td></tr>
+     <tr><td>Dr. A. Rivera</td><td>a.rivera@…</td><td>Veterinary Reviewer</td><td><b>Yes</b></td><td>Active</td><td>Yesterday</td><td><span class="btn sm">Edit</span></td></tr>
+     <tr><td>J. Cruz</td><td>j.cruz@…</td><td>Intake Staff</td><td>—</td><td>Active</td><td>Today 07:55</td><td><span class="btn sm">Edit</span></td></tr>
+     <tr class="over"><td>R. Dela Peña</td><td>r.delapena@…</td><td>Intake Staff</td><td>—</td><td><span class="chip bad">Locked until 10:15</span> <i class="co">2</i></td><td>Today 09:58</td><td><span class="btn sm">Unlock</span></td></tr>
+     <tr><td>T. Garcia</td><td>t.garcia@…</td><td>Intake Staff</td><td>—</td><td class="muted">Deactivated</td><td>12 Sep</td><td><span class="btn sm">Reactivate</span></td></tr>
+    </tbody></table>
+   </div>
+   <div class="card pane" style="width:360px">
+    <h2>Add user <i class="co">3</i></h2>
+    <label class="l">Full name</label><div class="inp" style="width:100%">—</div>
+    <label class="l">E-mail</label><div class="inp" style="width:100%">—</div>
+    <label class="l">Role</label><div class="inp" style="width:100%">Intake Staff ▾</div>
+    <label class="l"><span class="rad" style="display:inline-block;border-radius:3px;vertical-align:middle"></span> Grant knowledge base approval permission</label>
+    <p class="small muted" style="margin-top:0">Only for licensed veterinarians with the Veterinary Reviewer role (BR-04). <i class="co">4</i></p>
+    <p class="small">A temporary password is generated and must be changed at first login.</p>
+    <a class="btn pri" href="#w09">Create account</a>
+   </div>
+  </div>
+ </div>
+ <div class="tag">W-09 · wireframe · sample data</div>
+</section>
+
+<!-- ================= W-10 EVALUATION ================= -->
+<section class="screen" id="w10">
+ <div class="top"><div class="logo">TriageAI<small>Administration</small></div>
+  <div class="nav"><a href="#w09">Users</a><a href="#w08">Knowledge Base</a><a class="cur" href="#w10">Evaluation</a><a href="#w10">Exports</a></div>
+  <div class="who"><span><b>System Administrator</b> · Administrator</span><a href="#w01" class="btn sm">Log out</a></div></div>
+ <div class="wm">ILLUSTRATIVE DATA</div>
+ <div class="wrap">
+  <h1>Evaluation Console</h1>
+  <div class="card pane" style="margin-bottom:14px"><div class="row" style="align-items:center;flex-wrap:wrap"><span><b>Vignette set:</b> Set v1 – 80 vignettes, reference labels by veterinary reviewer ▾</span><span class="small muted">Model: TBD-1 · Prompt v1.3 · KB v7 · temperature 0 · top-k 5 <i class="co">1</i></span><a class="btn pri" href="#w10" style="margin-left:auto">Start evaluation run</a><a class="btn" href="#w10">Upload vignettes (CSV/JSON)</a></div></div>
+  <h2>Run #3 · completed · 80 of 80 vignettes <i class="co">2</i></h2>
+  <div class="grid3" style="grid-template-columns:repeat(6,1fr);gap:10px">
+   <div class="metric">Macro-F1<b>0.84</b><span class="small ok">target ≥ 0.70 ✓</span></div>
+   <div class="metric">Red + Orange recall<b>0.96</b><span class="small ok">target ≥ 0.90 ✓</span></div>
+   <div class="metric">Under-triage rate<b>7.5%</b><span class="small ok">target ≤ 10% ✓</span></div>
+   <div class="metric">Recall@5<b>0.86</b><span class="small ok">target ≥ 0.80 ✓</span></div>
+   <div class="metric">MRR<b>0.74</b><span class="small ok">target ≥ 0.70 ✓</span></div>
+   <div class="metric">Latency p50 / p95<b>8.4 / 16.9 s</b><span class="small ok">target ≤ 10 / 20 s ✓</span></div>
+  </div>
+  <div class="row" style="margin-top:16px">
+   <div class="card" style="width:470px"><h2>Confusion matrix (rows: reference, columns: predicted) <i class="co">3</i></h2>
+    <table class="cm"><tr><th></th><th>Red</th><th>Orange</th><th>Yellow</th><th>Green</th><th>Blue</th></tr>
+     <tr><th>Red</th><td class="d">11</td><td>1</td><td>0</td><td>0</td><td>0</td></tr>
+     <tr><th>Orange</th><td>1</td><td class="d">14</td><td>1</td><td>0</td><td>0</td></tr>
+     <tr><th>Yellow</th><td>0</td><td>2</td><td class="d">16</td><td>2</td><td>0</td></tr>
+     <tr><th>Green</th><td>0</td><td>0</td><td>2</td><td class="d">14</td><td>2</td></tr>
+     <tr><th>Blue</th><td>0</td><td>0</td><td>0</td><td>2</td><td class="d">12</td></tr></table>
+    <p class="small muted">Cells to the right of the diagonal are under-triaged.</p></div>
+   <div class="card" style="flex:1"><h2>Under-triaged vignettes – forward to the veterinary reviewer (NFR-14) <i class="co">4</i></h2>
+    <table><thead><tr><th>Vignette</th><th>Reference</th><th>Predicted</th><th>Primary complaint</th></tr></thead><tbody>
+     <tr><td>V-017</td><td><span class="vtl r">RED</span></td><td><span class="vtl o">ORANGE</span></td><td>Seizures</td></tr>
+     <tr><td>V-032</td><td><span class="vtl o">ORANGE</span></td><td><span class="vtl y">YELLOW</span></td><td>Suspected toxin ingestion</td></tr>
+     <tr><td>V-044</td><td><span class="vtl y">YELLOW</span></td><td><span class="vtl g">GREEN</span></td><td>Diarrhea</td></tr>
+     <tr><td colspan="4" class="muted">+ 3 more</td></tr></tbody></table>
+    <div class="row" style="margin-top:12px"><a class="btn" href="#w10">Export CSV</a><a class="btn" href="#w10">Export JSON</a><i class="co">5</i></div></div>
+  </div>
+ </div>
+ <div class="tag">W-10 · wireframe · illustrative data, not project results</div>
+</section>
+
+<div class="toggle"><button class="btn sm" onclick="document.body.classList.toggle('ann')">Show / hide annotations</button></div>
+<div class="navpane"><b>Prototype screens:</b> <a href="#w00">Index</a><a href="#w01">W-01</a><a href="#w02">W-02</a><a href="#w03">W-03</a><a href="#w04">W-04</a><a href="#w05">W-05</a><a href="#w06">W-06</a><a href="#w07">W-07</a><a href="#w08">W-08</a><a href="#w09">W-09</a><a href="#w10">W-10</a><span class="muted">W-11: narrow the window on W-02</span></div>
+<script>
+function go(id){location.hash=id}
+function show(){var id=(location.hash||'#w00').slice(1).split('?')[0];document.querySelectorAll('.screen').forEach(function(s){s.classList.toggle('on',s.id===id)});
+ if(location.search.indexOf('shot')>=0)document.body.classList.add('shot');window.scrollTo(0,0)}
+window.addEventListener('hashchange',show);show();
+</script>
+</body>
+</html>
