@@ -1,0 +1,35 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# --- Environment ---
+.env
+.env.*
+!.env.example
+
+# --- Evaluation results (fixtures only, not generated output) ---
+evaluation/results/*
+!evaluation/results/.gitkeep
+
+# --- Model weights (never committed; loaded manually per M2/M4) ---
+/models/
+
+# --- Editor / OS ---
+.DS_Store
+.idea/
+.vscode/
