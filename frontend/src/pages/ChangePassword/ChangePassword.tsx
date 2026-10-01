@@ -10,6 +10,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ApiErrorCode, isApiError } from "../../api/errors";
+import { PasswordField } from "../../components/PasswordField";
 import { homePathFor, useAuth } from "../../hooks/useAuth";
 import { strings } from "../../i18n/strings";
 import styles from "./ChangePassword.module.css";
@@ -68,44 +69,32 @@ export function ChangePassword() {
       )}
 
       <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-        <label className={styles.label} htmlFor="current-password">
-          {strings.changePassword.currentLabel}
-        </label>
-        <input
+        <PasswordField
           id="current-password"
-          className={styles.input}
-          type="password"
+          label={strings.changePassword.currentLabel}
           autoComplete="current-password"
           value={currentPassword}
-          onChange={(event) => setCurrentPassword(event.target.value)}
+          onChange={setCurrentPassword}
         />
 
-        <label className={styles.label} htmlFor="new-password">
-          {strings.changePassword.newLabel}
-        </label>
-        <input
+        <PasswordField
           id="new-password"
-          className={styles.input}
-          type="password"
+          label={strings.changePassword.newLabel}
           autoComplete="new-password"
           value={newPassword}
-          aria-describedby={POLICY_HINT_ID}
-          onChange={(event) => setNewPassword(event.target.value)}
+          describedBy={POLICY_HINT_ID}
+          onChange={setNewPassword}
         />
         <p id={POLICY_HINT_ID} className={styles.hint}>
           {strings.changePassword.policyHint}
         </p>
 
-        <label className={styles.label} htmlFor="confirm-password">
-          {strings.changePassword.confirmLabel}
-        </label>
-        <input
+        <PasswordField
           id="confirm-password"
-          className={styles.input}
-          type="password"
+          label={strings.changePassword.confirmLabel}
           autoComplete="new-password"
           value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
+          onChange={setConfirmPassword}
         />
 
         <p id={ERROR_ID} className={styles.error} role="alert">

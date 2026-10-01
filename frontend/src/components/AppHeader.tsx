@@ -11,6 +11,7 @@ import type { AuthenticatedUser } from "../api/auth";
 import { useAuth } from "../hooks/useAuth";
 import { strings } from "../i18n/strings";
 import styles from "./AppHeader.module.css";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface NavItem {
   to: string;
@@ -83,6 +84,7 @@ export function AppHeader({ user }: { user: AuthenticatedUser }) {
         <span>
           <b>{user.full_name}</b> · {strings.roles[user.role]}
         </span>
+        <ThemeToggle />
         <NavLink to="/help" className={styles.helpLink}>
           {strings.common.help}
         </NavLink>

@@ -1,0 +1,59 @@
+/* A compact version of the prototype's `.seg` track: same outline-and-fill idea
+   as SegmentedControl, at the small type scale the header uses. */
+
+.group {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.track {
+  display: inline-flex;
+  overflow: hidden;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: var(--radius-sm);
+}
+
+.option {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  border-right: var(--border-width) solid var(--color-ink);
+}
+
+.option:last-child {
+  border-right: 0;
+}
+
+.selected {
+  font-weight: bold;
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+}
+
+.icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+/* The radio stays in the accessibility tree and keeps the label clickable, but
+   the label around it is what the user sees. */
+.radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* The focus ring has to follow the hidden radio onto its visible label. */
+.option:has(.radio:focus-visible) {
+  outline: 3px solid var(--color-focus);
+  outline-offset: -3px;
+}

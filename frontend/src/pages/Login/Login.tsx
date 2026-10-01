@@ -15,6 +15,7 @@ import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { ApiErrorCode, isApiError } from "../../api/errors";
+import { PasswordField } from "../../components/PasswordField";
 import { homePathFor, useAuth } from "../../hooks/useAuth";
 import { strings } from "../../i18n/strings";
 import { extractIsoTimestamp, formatDisplayTime } from "../../lib/datetime";
@@ -70,6 +71,9 @@ export function Login() {
   return (
     <main className={styles.page}>
       <div className={styles.card}>
+        {/* No theme control here on purpose: the sign-in screen follows the
+            device setting, and the toggle belongs to the signed-in shell
+            (see ThemeProvider). */}
         <h1 className={styles.title}>{strings.login.title}</h1>
         <p className={styles.subtitle}>{strings.login.subtitle}</p>
         <p className={styles.intro}>{strings.login.intro}</p>
@@ -89,18 +93,15 @@ export function Login() {
             onChange={(event) => setEmail(event.target.value)}
           />
 
-          <label className={styles.label} htmlFor="login-password">
-            {strings.login.passwordLabel}
-          </label>
-          <input
+          <PasswordField
             id="login-password"
-            className={error === null ? styles.input : styles.inputInvalid}
-            type="password"
             name="password"
+            label={strings.login.passwordLabel}
             autoComplete="current-password"
             value={password}
-            aria-describedby={error === null ? undefined : ERROR_ID}
-            onChange={(event) => setPassword(event.target.value)}
+            invalid={error !== null}
+            describedBy={error === null ? undefined : ERROR_ID}
+            onChange={setPassword}
           />
 
           {/* Always rendered so the live region exists before the first failure. */}

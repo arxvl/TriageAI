@@ -20,6 +20,21 @@ export const strings = {
     loadingSession: "Checking your session…",
     dismiss: "Dismiss",
     mainNavLabel: "Main",
+    // The reveal button on every password field. The name states what the next
+    // click does, which is also how its state is announced (IR-07, NFR-21).
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+  },
+
+  // The light/dark control in the header and on the sign-in card (NFR-21).
+  theme: {
+    label: "Theme",
+    system: "System",
+    light: "Light",
+    dark: "Dark",
+    // {theme} is replaced with the resolved name, so "System" says what it means
+    // on this device right now.
+    systemHint: "Follow the device setting (currently {theme})",
   },
 
   roles: {

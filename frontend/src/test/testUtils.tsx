@@ -10,7 +10,10 @@
  *   Use it when the request itself matters (login, change password).
  *
  * Both wrap `ToastProvider`, because it sits above the routes in `App.tsx` and a
- * page that shows a confirmation must be able to reach it.
+ * page that shows a confirmation must be able to reach it, and `ThemeProvider`,
+ * because the header carries the theme control. `ThemeProvider` sits inside the
+ * router, as it does in `App.tsx`: it reads the route to decide whether the
+ * stored preference applies, so `options.route` changes what it does.
  *
  * There is no MSW and no `user-event`: `vi.stubGlobal("fetch", ...)` and
  * `fireEvent` cover everything these screens do, and both avoid a new
@@ -24,6 +27,7 @@ import { vi } from "vitest";
 
 import type { AuthenticatedUser, UserRole } from "../api/auth";
 import { AuthProvider } from "../components/AuthProvider";
+import { ThemeProvider } from "../components/ThemeProvider";
 import { ToastProvider } from "../components/ToastProvider";
 import { AuthContext, type AuthContextValue } from "../hooks/useAuth";
 
@@ -72,9 +76,11 @@ export function renderWithAuth(ui: ReactNode, options: AuthOptions = {}): Render
   return render(
     <QueryClientProvider client={newQueryClient()}>
       <MemoryRouter initialEntries={[options.route ?? "/"]}>
-        <ToastProvider>
-          <AuthContext.Provider value={value}>{ui}</AuthContext.Provider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthContext.Provider value={value}>{ui}</AuthContext.Provider>
+          </ToastProvider>
+        </ThemeProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -84,9 +90,11 @@ export function renderWithProviders(ui: ReactNode, options: { route?: string } =
   return render(
     <QueryClientProvider client={newQueryClient()}>
       <MemoryRouter initialEntries={[options.route ?? "/"]}>
-        <ToastProvider>
-          <AuthProvider>{ui}</AuthProvider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>{ui}</AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
