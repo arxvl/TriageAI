@@ -1,7 +1,7 @@
 # CLAUDE.md — TriageAI
 
 **Project:** TriageAI: A Transformer-Based NLP System for Canine and Feline Symptom Triage and Clinical Decision Support
-**Team:** Letada, Alzaga, Bataller — BSCS Software Engineering, Bicol University College of Science
+**Team:** Letada, Alzaga, Bataller
 **Deliverable in progress:** PD8 (initial MVP prototype), due 2026-10-29
 
 This file is read at the start of every Claude Code session. Follow it in every phase.
