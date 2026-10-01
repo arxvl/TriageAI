@@ -13,14 +13,45 @@
 #   signalment              the Signalment columns; sex is Sex, age_unit AgeUnit
 #   description             the owner's verbatim account, as typed by intake
 #   force_failure           the scenario deliberately fails AI processing; the
-#                           mechanism is chosen in P05 §5.2
+#                           mechanism is `mock_failure` below
 #   expected_category       VTLCategory, or null when no AI category is produced
 #   expected_status         CaseStatus the case should end in
 #   expected_red_flag_codes red_flag_rules.code values the pre-screen should hit
 #   notes                   what the scenario demonstrates
 #
-# P05 §5.2 extends each entry below with mock_red_flags, mock_extraction,
-# mock_passages and mock_draft, which the mock pipeline stages read.
+# --- The recorded mock outputs (P05 §5.2) --------------------------------
+#
+# `app.pipeline.mock_fixtures` loads the four keys below and the mock stages in
+# `app.pipeline.mocks` replay them. A description matches a fixture when the two
+# are equal after whitespace normalisation — exact string matching, never
+# similarity. Nothing here is inferred from the text at run time; these are
+# recorded answers, written by hand, so the whole application runs end to end
+# before any AI component exists (CLAUDE.md §8, ADR-17).
+#
+#   mock_red_flags   what MockRedFlagScreener returns: rule_code (a code the
+#                    seeder creates), matched_text (an exact substring of the
+#                    normalised description) and min_category, the floor the
+#                    rule imposes on the safety validator (FR-23).
+#   mock_extraction  what MockEntityExtractor returns. `species` and
+#                    `signalment` are NOT written here: the loader fills them
+#                    from the case above, so the two can never drift apart.
+#                    Every evidence_spans[].text is an exact substring of the
+#                    normalised description, as the contract requires — the mock
+#                    de-identifier returns the text unchanged.
+#   mock_passages    what MockRetriever returns, in rank order. `rank` is the
+#                    list position (1-based) and `chunk_id`/`entry_id` are
+#                    derived by uuid5, so they are stable across runs and
+#                    environments and are never written here.
+#                    The entries and sources are INVENTED PLACEHOLDERS. No real
+#                    veterinary publication is cited anywhere in this file; the
+#                    knowledge base is built and approved by a veterinarian in
+#                    P08/M5.
+#   mock_draft       what MockRecommendationGenerator returns, before the
+#                    deterministic safety validator runs (ADR-09).
+#   mock_failure     optional; a MOCK_LLM_BEHAVIOR value the extraction stage
+#                    applies to this case alone, whatever the global setting is.
+#                    A scenario with a mock_failure records no extraction,
+#                    passages or draft: the run never reaches those stages.
 
 cases:
   - id: DEMO_1
@@ -49,6 +80,81 @@ cases:
       validator must raise the stored category to ORANGE and record the rule
       code. The red-flag alert is written by the pre-screen before any
       extraction runs (FR-12).
+    mock_red_flags:
+      - rule_code: MALE_CAT_NO_URINE
+        matched_text: nothing comes out
+        min_category: ORANGE
+    mock_extraction:
+      presenting_complaints:
+        - code: URINARY_OBSTRUCTION
+          is_primary: true
+        - code: INAPPETENCE
+          is_primary: false
+      onset_duration: since last night
+      frequency_severity: repeated unproductive attempts, vocalising each time
+      associated_signs:
+        - crying when squatting
+        - repeated licking of the hind end
+        - firm abdomen on touch
+        - no food taken this morning
+      negated_findings: []
+      exposure_history: null
+      relevant_history: null
+      red_flags:
+        - straining in the litter box with no urine passed
+      missing_information:
+        - water intake
+        - vomiting
+        - previous episodes
+      evidence_spans:
+        - field: onset_duration
+          text: since last night
+        - field: presenting_complaints
+          text: keeps going in and out of the litter box
+        - field: red_flags
+          text: nothing comes out
+        - field: associated_signs
+          text: He cries when he squats
+        - field: associated_signs
+          text: His belly feels hard
+        - field: associated_signs
+          text: he did not touch his food this morning
+    mock_passages:
+      - entry_title: Straining to urinate in cats
+        source_title: Placeholder triage reference A (invented for development)
+        source_url: null
+        text: >-
+          A male cat that strains repeatedly in the litter box and passes no
+          urine is treated as time critical. Repeated unproductive attempts,
+          vocalising and a firm abdomen are the features that raise urgency.
+        score: 0.82
+      - entry_title: Straining to urinate in cats
+        source_title: Placeholder triage reference A (invented for development)
+        source_url: null
+        text: >-
+          Loss of appetite alongside unproductive straining shortens the
+          acceptable waiting time. The case should be seen within fifteen
+          minutes of arrival.
+        score: 0.74
+      - entry_title: Abdominal pain in cats
+        source_title: Placeholder triage reference B (invented for development)
+        source_url: null
+        text: >-
+          A firm or tense abdomen reported by an owner is a sign of pain and
+          is assessed on arrival rather than placed in a routine queue.
+        score: 0.61
+    mock_draft:
+      category: YELLOW
+      rationale: >-
+        The cat has made repeated unproductive trips to the litter box since
+        last night, cries when squatting and has a firm abdomen, with appetite
+        lost this morning. The retrieved guidance treats repeated straining
+        with no urine passed as a presentation that should not wait in a
+        routine queue. A veterinary reviewer must confirm the category.
+      cited_ranks:
+        - 1
+        - 2
+      confidence: HIGH
 
   - id: DEMO_2
     species: DOG
@@ -73,6 +179,75 @@ cases:
     notes: >-
       The most urgent path: multiple red flags, both RED, so the queue shows
       the case at the top with a target waiting time of 0 minutes.
+    mock_red_flags:
+      - rule_code: PALE_OR_BLUE_GUMS
+        matched_text: His gums look bluish
+        min_category: RED
+      - rule_code: NOT_BREATHING
+        matched_text: breathing with his mouth wide open and his neck stretched out
+        min_category: RED
+    mock_extraction:
+      presenting_complaints:
+        - code: RESPIRATORY_DISTRESS
+          is_primary: true
+        - code: COLLAPSE
+          is_primary: false
+      onset_duration: about twenty minutes ago
+      frequency_severity: continuous since the collapse, not improving
+      associated_signs:
+        - open-mouth breathing
+        - extended neck posture
+        - bluish gums
+        - unable to rise when called
+      negated_findings: []
+      exposure_history: null
+      relevant_history: null
+      red_flags:
+        - bluish gums
+        - collapse with laboured breathing
+      missing_information:
+        - known heart or airway problem
+        - possible trauma
+        - temperature of the surroundings
+      evidence_spans:
+        - field: onset_duration
+          text: about twenty minutes ago
+        - field: presenting_complaints
+          text: breathing with his mouth wide open
+        - field: associated_signs
+          text: his neck stretched out
+        - field: red_flags
+          text: His gums look bluish
+        - field: associated_signs
+          text: He will not get up when I call him
+    mock_passages:
+      - entry_title: Breathing difficulty in dogs
+        source_title: Placeholder triage reference A (invented for development)
+        source_url: null
+        text: >-
+          Open-mouth breathing with an extended neck, together with bluish or
+          pale gums, is the most urgent respiratory presentation and is seen
+          immediately on arrival.
+        score: 0.88
+      - entry_title: Collapse in dogs
+        source_title: Placeholder triage reference B (invented for development)
+        source_url: null
+        text: >-
+          Collapse within the last hour, with the animal unable to rise, is
+          assessed immediately and is never placed in a waiting queue.
+        score: 0.79
+    mock_draft:
+      category: RED
+      rationale: >-
+        The dog collapsed twenty minutes ago, is breathing with an open mouth
+        and extended neck, has bluish gums and cannot rise. The retrieved
+        guidance places open-mouth breathing with discoloured gums and recent
+        collapse in the immediate group, with a target waiting time of zero
+        minutes. A veterinary reviewer must confirm the category.
+      cited_ranks:
+        - 1
+        - 2
+      confidence: HIGH
 
   - id: DEMO_3
     species: DOG
@@ -96,6 +271,62 @@ cases:
       The low-urgency end of the scale: no red flags, a settled history, and
       a case that should sit at the bottom of the queue with a 240-minute
       target.
+    mock_red_flags: []
+    mock_extraction:
+      presenting_complaints:
+        - code: SKIN_ITCH
+          is_primary: true
+      onset_duration: for about two weeks
+      frequency_severity: ongoing, no reported worsening
+      associated_signs:
+        - bald patches near the tail
+      negated_findings:
+        - eating normally
+        - drinking normally
+        - still playful
+      exposure_history: null
+      relevant_history: null
+      red_flags: []
+      missing_information:
+        - parasite prevention
+        - other animals in the household
+        - skin odour or discharge
+      evidence_spans:
+        - field: presenting_complaints
+          text: scratching her back and sides
+        - field: onset_duration
+          text: for about two weeks
+        - field: associated_signs
+          text: a few bald patches near her tail
+        - field: negated_findings
+          text: eating normally, drinking
+    mock_passages:
+      - entry_title: Itching and hair loss in dogs
+        source_title: Placeholder triage reference C (invented for development)
+        source_url: null
+        text: >-
+          Itching of two weeks or more with small areas of hair loss, in an
+          animal that is eating, drinking and behaving normally, is a routine
+          appointment rather than an urgent one.
+        score: 0.71
+      - entry_title: Routine skin complaints
+        source_title: Placeholder triage reference C (invented for development)
+        source_url: null
+        text: >-
+          Skin complaints with no systemic signs may wait for the next
+          available consultation, with a target waiting time of up to four
+          hours.
+        score: 0.55
+    mock_draft:
+      category: BLUE
+      rationale: >-
+        The dog has been itching for about two weeks with a few small bald
+        patches, while eating, drinking and playing normally. The retrieved
+        guidance places a skin complaint with no systemic signs in the
+        non-urgent group. A veterinary reviewer must confirm the category.
+      cited_ranks:
+        - 1
+      confidence: MEDIUM
 
   - id: DEMO_4
     species: DOG
@@ -112,10 +343,15 @@ cases:
       She seems off today. Not her usual self since we came back from my
       cousin's house yesterday.
     force_failure: true
+    mock_failure: invalid_json
     expected_category: null
     expected_status: MANUAL_TRIAGE_REQUIRED
     expected_red_flag_codes: []
     notes: >-
-      The failure path (FR-15, NFR-09). Extraction is forced to fail, so no
-      category is ever produced and the case is handed to a reviewer for
-      manual triage. The UI must show the fallback, not an empty result.
+      The failure path (FR-15, NFR-09). `mock_failure: invalid_json` makes the
+      mock extractor raise LLMInvalidOutput on every attempt for this
+      description alone, whatever MOCK_LLM_BEHAVIOR is set to, so the
+      orchestrator retries, gives up and hands the case to a reviewer for
+      manual triage. No category is ever produced. The UI must show the
+      fallback, not an empty result.
+    mock_red_flags: []

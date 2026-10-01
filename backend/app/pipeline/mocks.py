@@ -4,32 +4,52 @@ These exist so the whole application — intake, queue, review, decisions, audit
 evaluation — runs end to end before any AI component is written, and so the test
 suite and CI need no API key, no model download and no network (ADR-17).
 
-**There is no NLP here and there must never be.** A mock either returns a
-recorded fixture or a fixed generic answer. Matching is string equality after
-whitespace normalisation, not similarity. The real stages are written manually
-under M1–M6.
+**There is no NLP here and there must never be.** A mock either replays a
+recorded fixture from `tests/fixtures/demo_cases.yaml` or returns a fixed generic
+answer. Matching is string equality after whitespace normalisation, not
+similarity; it lives in `app.pipeline.mock_fixtures`. The real stages are written
+manually under M1–M6.
 
-Subphase 5.1 ships the skeletons: the correct signatures, the provenance
-attributes the orchestrator reads, and the "no fixture match" answers that P05
-§5.2 specifies. Subphase 5.2 adds the `tests/fixtures/demo_cases.yaml` lookup and
-the `MOCK_LLM_BEHAVIOR` failure modes — see each `TODO(P05.2)`.
+Three things the mocks have to get right, because the orchestrator and the safety
+validator are built against them:
 
-A mock reports `model_id="mock"` and `prompt_version="mock-0"` rather than
-omitting them, so the provenance columns are filled the same way on a mock run
-and a real one and nothing downstream branches (FR-26, NFR-23, ADR-14). The
-evaluation screen tells the two apart by those values, which is why a mock-mode
-run is labelled rather than silently reported as a result.
+**The demo scenarios.** `DEMO_1` replays a YELLOW draft together with a
+`MALE_CAT_NO_URINE` hit at ORANGE, so the deterministic validator visibly raises
+the category and FR-23 can be demonstrated on screen. `DEMO_2` replays RED,
+`DEMO_3` BLUE.
+
+**The failure paths.** `MOCK_LLM_BEHAVIOR` turns the two model stages into a
+timeout, an unusable answer, a one-off flake or a slow answer, so the retry and
+failure-path logic in P05 §5.4 is exercised with no network call. A fixture may
+also force a failure for one scenario alone — `DEMO_4` does, which is how the
+walkthrough reaches `MANUAL_TRIAGE_REQUIRED` without editing `.env`.
+
+**Provenance.** A mock reports `model_id="mock"` and `prompt_version="mock-0"`
+rather than omitting them, so the provenance columns are filled the same way on a
+mock run and a real one and nothing downstream branches (FR-26, NFR-23, ADR-14).
+The evaluation screen tells the two apart by those values, which is why a
+mock-mode run is labelled rather than silently reported as a result.
 """
 
+import hashlib
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import TYPE_CHECKING
 
-from app.core.config import MockLLMBehavior, Settings
+from app.core.config import MOCK_SLOW_DELAY_S, MockLLMBehavior, Settings
 from app.models.enums import ConfidenceLevel, Species, VTLCategory
 from app.pipeline.config import PipelineConfig
+from app.pipeline.errors import LLMInvalidOutput, LLMTimeout
+from app.pipeline.mock_fixtures import (
+    coerce_signalment,
+    find_by_extraction,
+    find_by_text,
+    mock_chunk_id,
+    mock_entry_id,
+    normalize,
+)
 from app.pipeline.types import (
     DraftRecommendation,
     ExtractedComplaint,
@@ -40,6 +60,25 @@ from app.pipeline.types import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.pipeline.registry import PipelineDeps
+
+__all__ = [
+    "GENERIC_MISSING_INFORMATION",
+    "GENERIC_PASSAGE_SCORE",
+    "MOCK_MODEL_ID",
+    "MOCK_PROMPT_VERSION",
+    "OTHER_COMPLAINT",
+    "MockDeidentifier",
+    "MockEntityExtractor",
+    "MockKBIndexer",
+    "MockRecommendationGenerator",
+    "MockRedFlagScreener",
+    "MockRetriever",
+    "generic_draft",
+    "generic_extraction",
+    "generic_passages",
+    "mock_chunk_id",
+    "mock_entry_id",
+]
 
 MOCK_MODEL_ID = "mock"
 MOCK_PROMPT_VERSION = "mock-0"
@@ -53,25 +92,13 @@ OTHER_COMPLAINT = "OTHER"
 # the PD8 walkthrough (P05 §5.2).
 GENERIC_MISSING_INFORMATION = ["duration", "appetite", "water intake"]
 
-# Deterministic ids for generic passages. `uuid5` of a stable seed, so the same
-# description produces the same `chunk_id` on every run and in every environment
-# (P05 §5.2).
 GENERIC_FIXTURE_ID = "GENERIC"
 GENERIC_PASSAGE_COUNT = 2
 GENERIC_PASSAGE_SCORE = 0.20
 
 
-def mock_chunk_id(fixture_id: str, rank: int) -> uuid.UUID:
-    """The `chunk_id` a mock passage carries (P05 §5.2).
-
-    Derived, not random: a mock run has no `kb_chunks` rows to point at, and a
-    stable id is what lets a test assert on a stored reference.
-    """
-    return uuid.uuid5(uuid.NAMESPACE_URL, f"{fixture_id}{rank}")
-
-
 class _MockStage:
-    """Shared provenance and timing for the mocks (CLAUDE.md §8.2).
+    """Shared provenance, timing and failure simulation (CLAUDE.md §8.2).
 
     Not a stage. It holds the three attributes the orchestrator reads off every
     stage, so each mock below is only its own `from_settings` and its one method.
@@ -84,6 +111,10 @@ class _MockStage:
         self.config = config
         self.behavior = behavior
         self.last_latency_ms = 0
+        # Attempt counts, so `flaky` can fail the first attempt at a given call
+        # and succeed on the retry. Keyed and counted only under `flaky`; see
+        # `_simulate`.
+        self._attempts: dict[str, int] = {}
 
     @classmethod
     def from_settings(cls, settings: Settings, deps: "PipelineDeps") -> "_MockStage":
@@ -101,6 +132,56 @@ class _MockStage:
             yield
         finally:
             self.last_latency_ms = int((perf_counter() - started) * 1000)
+
+    def _simulate(self, key: str, behavior: MockLLMBehavior | None = None) -> None:
+        """Apply `MOCK_LLM_BEHAVIOR` before the stage answers (P05 §5.2).
+
+        `behavior` overrides the configured one, which is how a fixture forces a
+        failure for one scenario alone.
+
+        `key` identifies the call, not the caller: `flaky` must fail the first
+        attempt at *each* case and succeed on its retry. Counting per stage
+        instance would not do — the registry builds each stage once at startup
+        and shares it, so only the first case the process ever saw would flake.
+        The key is a digest, never the text itself, so no owner description is
+        retained here (CLAUDE.md §9).
+
+        Messages name the simulated behaviour and nothing else: they end up in
+        the job's `last_error` and in the log.
+        """
+        behavior = behavior or self.behavior
+
+        if behavior is MockLLMBehavior.TIMEOUT:
+            raise LLMTimeout(f"mock stage simulating a timeout (MOCK_LLM_BEHAVIOR={behavior})")
+
+        if behavior is MockLLMBehavior.INVALID_JSON:
+            raise LLMInvalidOutput(
+                f"mock stage simulating unusable output (MOCK_LLM_BEHAVIOR={behavior})"
+            )
+
+        if behavior is MockLLMBehavior.FLAKY:
+            attempt = self._attempts[key] = self._attempts.get(key, 0) + 1
+            if attempt == 1:
+                raise LLMInvalidOutput(
+                    f"mock stage simulating a first-attempt failure "
+                    f"(MOCK_LLM_BEHAVIOR={behavior}); the retry succeeds"
+                )
+
+        if behavior is MockLLMBehavior.SLOW:
+            sleep(min(MOCK_SLOW_DELAY_S, self.config.timeout_s))
+
+    def reset_attempts(self) -> None:
+        """Forget the `flaky` attempt counts. For tests, and for a worker restart."""
+        self._attempts.clear()
+
+
+def _call_key(value: str) -> str:
+    """A stable, non-reversible key for one call's input.
+
+    Hashed rather than kept: the extractor's input is the owner's description,
+    and nothing outside the de-identifier should hold on to it (CLAUDE.md §9).
+    """
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class MockDeidentifier(_MockStage):
@@ -120,50 +201,82 @@ class MockDeidentifier(_MockStage):
 
 
 class MockRedFlagScreener(_MockStage):
-    """Replays a fixture's recorded hits; no phrase matching (M1 writes the real one)."""
+    """Replays a fixture's recorded hits; no phrase matching (M1 writes the real one).
+
+    It does not honour `MOCK_LLM_BEHAVIOR`. Screening is not a model call, and an
+    alert has to reach the queue within about two seconds even when the model
+    path is failing (NFR-05, FR-12) — making this stage fail with the others
+    would hide exactly the behaviour P05 §5.4 has to prove.
+    """
 
     def screen(self, text: str, species: Species, sex: str | None) -> list[RedFlagHit]:
         with self._measured():
-            # TODO(P05.2): look `text` up in demo_cases.yaml and return its
-            # `mock_red_flags`. No fixture match means no hit.
-            return []
+            fixture = find_by_text(text)
+            return list(fixture.red_flags) if fixture is not None else []
 
 
 class MockEntityExtractor(_MockStage):
-    """Replays a fixture's recorded extraction (M3 writes the real one)."""
+    """Replays a fixture's recorded extraction (M3 writes the real one).
+
+    A fixture's own `mock_failure` takes precedence over `MOCK_LLM_BEHAVIOR`, so
+    `DEMO_4` fails on every run and the other scenarios still succeed. That is
+    what lets the walkthrough show the failure path (FR-15, NFR-09) beside three
+    working cases, in one pass, with no configuration change.
+    """
 
     def extract(
         self, text: str, species: Species, signalment: dict | None = None
     ) -> ExtractionOutput:
         with self._measured():
-            # TODO(P05.2): look `text` up in demo_cases.yaml and return its
-            # `mock_extraction`; honour MOCK_LLM_BEHAVIOR (invalid_json, timeout,
-            # flaky, slow) so the orchestrator's retry and failure paths are
-            # exercised without a network call.
+            fixture = find_by_text(text)
+            self._simulate(
+                key=_call_key(normalize(text)),
+                behavior=fixture.failure if fixture is not None else None,
+            )
+            if fixture is not None and fixture.extraction is not None:
+                return fixture.extraction
             return generic_extraction(species, signalment)
 
 
 class MockRetriever(_MockStage):
-    """Replays a fixture's recorded passages; no vector search (M6 writes the real one)."""
+    """Replays a fixture's recorded passages; no vector search (M6 writes the real one).
+
+    The stage is handed an `ExtractionOutput` and never the description
+    (CLAUDE.md §8.2), so the fixture is found by exact equality against the
+    extraction the file recorded. It does not honour `MOCK_LLM_BEHAVIOR`:
+    retrieval is a database query in the real stage, not a model call.
+    """
 
     def retrieve(
         self, extraction: ExtractionOutput, kb_version_id: uuid.UUID, k: int
     ) -> list[Passage]:
         with self._measured():
-            # TODO(P05.2): look the extraction's source description up in
-            # demo_cases.yaml and return its `mock_passages`.
+            fixture = find_by_extraction(extraction)
+            if fixture is not None and fixture.passages:
+                return list(fixture.passages[:k])
             return generic_passages(k)
 
 
 class MockRecommendationGenerator(_MockStage):
-    """Replays a fixture's recorded draft (M6 writes the real one)."""
+    """Replays a fixture's recorded draft (M6 writes the real one).
+
+    Found by the same reverse lookup as the retriever. The draft is a *draft*:
+    `DEMO_1`'s is YELLOW on purpose, and the safety validator is what turns it
+    into the ORANGE a reviewer sees (FR-23, ADR-09).
+    """
 
     def generate(
         self, extraction: ExtractionOutput, passages: list[Passage]
     ) -> DraftRecommendation:
         with self._measured():
-            # TODO(P05.2): look the extraction up in demo_cases.yaml and return
-            # its `mock_draft`; honour MOCK_LLM_BEHAVIOR as above.
+            fixture = find_by_extraction(extraction)
+            self._simulate(
+                key=fixture.fixture_id
+                if fixture is not None
+                else _call_key(extraction.model_dump_json())
+            )
+            if fixture is not None and fixture.draft is not None:
+                return fixture.draft
             return generic_draft()
 
 
@@ -191,18 +304,6 @@ class MockKBIndexer(_MockStage):
 # have to build a stage to get one.
 
 
-def _as_signalment(signalment: dict | None) -> dict[str, str | None]:
-    """Coerce a signalment dict to the `dict[str, str | None]` the contract uses.
-
-    Ages and weights arrive as numbers from the database; the extraction contract
-    stores signalment as text because a real model reports it as the owner said
-    it ("about 3 years"), not as a column value.
-    """
-    return {
-        str(key): None if value is None else str(value) for key, value in (signalment or {}).items()
-    }
-
-
 def generic_extraction(species: Species, signalment: dict | None = None) -> ExtractionOutput:
     """What the extractor returns for a description no fixture matches.
 
@@ -212,7 +313,7 @@ def generic_extraction(species: Species, signalment: dict | None = None) -> Extr
     """
     return ExtractionOutput(
         species=species,
-        signalment=_as_signalment(signalment),
+        signalment=coerce_signalment(signalment),
         presenting_complaints=[ExtractedComplaint(code=OTHER_COMPLAINT, is_primary=True)],
         onset_duration=None,
         frequency_severity=None,
