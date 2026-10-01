@@ -99,9 +99,69 @@ Every 4xx and 5xx response has the same shape:
 { "error": { "code": "INVALID_CREDENTIALS", "message": "Incorrect username or password." } }
 ```
 
+A validation error carries one more key, `field`, naming the input it belongs to so
+the form can put the message beside it rather than at the top of the page (IR-05):
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Enter the weight as a number, e.g. 4.2.",
+    "field": "weight_kg"
+  }
+}
+```
+
+The wording for each field lives in `app/core/validation_messages.py`, so the API
+and the forms cannot drift apart.
+
 Authorisation is enforced on the server only: every endpoint except
 `/api/v1/health` and `/api/v1/auth/login` declares the `require_role(...)`
 dependency, and a test scans the route table to prove it (SR-05).
+
+## Cases
+
+| Endpoint | Roles | Purpose |
+|---|---|---|
+| `POST /api/v1/cases` | Intake Staff, Veterinary Reviewer | Create a case → `{id, case_no, status}` |
+| `GET /api/v1/cases` | all roles | The Triage Queue, with filters and counters |
+| `GET /api/v1/cases/{id}/status` | Intake Staff, Veterinary Reviewer | Poll one case |
+
+Species is Dog or Cat. `OTHER` is accepted by the form and answered with 422
+`SPECIES_OUT_OF_SCOPE` — those cases are triaged by clinic procedure and no AI
+pipeline runs for them (FR-02, BR-06). Nothing is written when a case is refused.
+
+A submission writes the case, its signalment, the owner's description and, only
+when one is given, the owner reference in a single transaction, plus a
+`CASE_CREATED` audit entry holding identifiers and a character count and never the
+description text. `owner_descriptions.text` is stored verbatim and cannot be
+updated afterwards — a database trigger, not just application code (FR-05).
+
+Owner name and contact number go to `owner_references` and are returned by no
+endpoint (FR-07, DR-04). No response model has a field for them:
+
+```bash
+docker compose exec db psql -U triageai -d triageai -c "select * from owner_references;"
+```
+
+The queue returns open cases — anything not `CLOSED` — ordered by the category it
+displays, which is the reviewer's confirmed category when there is one and the AI's
+recommendation otherwise: **RED, then cases with no category at all, then ORANGE,
+YELLOW, GREEN, BLUE**, oldest first within a rank (FR-29). An unclassified case
+sits second because nobody has looked at it yet. Each row carries its waiting time
+against the category's target and an `is_overdue` flag (FR-30).
+
+Filters are `species`, `category` (the five categories plus `MANUAL`), `status`,
+`date_from`/`date_to` and a free-text `q` over case number, pet name and primary
+complaint, with `limit` and `offset` to bound the response (FR-39). `date_from` and
+`date_to` are inclusive calendar dates read in the clinic's timezone, so "today"
+means the clinic's working day although every timestamp is stored in UTC (DR-03).
+The counters always describe the whole open queue and do not move when a filter is
+applied, so a counter can be used to apply one.
+
+Until P05 adds the pipeline, a new case stays in `SUBMITTED` and every category
+comes back `null`; the queue shows "—". `POST /cases` becomes 202 at that point
+(FR-06).
 
 ## Web interface
 
