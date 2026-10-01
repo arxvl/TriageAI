@@ -10,7 +10,7 @@ All data here is fictitious (CLAUDE.md §9).
 """
 
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -18,11 +18,29 @@ from urllib.parse import urlsplit, urlunsplit
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Connection, Engine, create_engine, text
+from fastapi.dependencies.models import Dependant
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+from httpx import Response
+from sqlalchemy import Connection, Engine, create_engine, select, text
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
-from app.models import Case, CaseStatus, IntakeChannel, OwnerDescription, Species, User, UserRole
+from app.api.cookies import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME
+from app.api.deps import ROLE_GUARD_ATTR
+from app.core.config import AppEnv, get_settings
+from app.core.security import hash_password
+from app.db.session import get_db
+from app.main import create_app
+from app.models import (
+    AuditEntry,
+    Case,
+    CaseStatus,
+    IntakeChannel,
+    OwnerDescription,
+    Species,
+    User,
+    UserRole,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -164,17 +182,29 @@ def make_user(
     role: UserRole = UserRole.INTAKE_STAFF,
     can_approve_kb: bool = False,
     email: str | None = None,
+    full_name: str = "Test Staff",
+    password: str | None = None,
+    is_active: bool = True,
+    must_change_password: bool = False,
+    failed_login_count: int = 0,
+    locked_until: datetime | None = None,
 ) -> User:
-    """Insert a fictitious user and return it."""
+    """Insert a fictitious user and return it.
+
+    Pass `password` to store a real Argon2id hash the auth tests can sign in
+    with; without it the row carries an unusable placeholder, which is cheaper
+    and is all the schema tests need.
+    """
     user = User(
-        full_name="Test Staff",
+        full_name=full_name,
         email=email or f"staff-{uuid.uuid4().hex[:8]}@triageai.invalid",
-        password_hash="not-a-real-hash",
+        password_hash=hash_password(password) if password else "not-a-real-hash",
         role=role,
         can_approve_kb=can_approve_kb,
-        is_active=True,
-        must_change_password=False,
-        failed_login_count=0,
+        is_active=is_active,
+        must_change_password=must_change_password,
+        failed_login_count=failed_login_count,
+        locked_until=locked_until,
     )
     session.add(user)
     session.flush()
@@ -224,3 +254,96 @@ def insert_audit_entry(session: Session, *, action: str = "CASE_CREATED") -> int
         ),
         {"action": action, "entity_id": str(uuid.uuid4())},
     ).scalar_one()
+
+
+# --- HTTP client (P03) ----------------------------------------------------
+
+
+@pytest.fixture
+def api_client(db_session: Session) -> Generator[TestClient, None, None]:
+    """A client whose requests run inside the test's rolled-back transaction.
+
+    `get_db` is overridden with the very session the test asserts on, so a row
+    an endpoint commits is visible to the test and still disappears afterwards.
+
+    The app is built per test rather than imported, because
+    `dependency_overrides` is app-wide state.
+    """
+    settings = get_settings()
+    assert settings.app_env is AppEnv.DEV, (
+        "the API tests need APP_ENV=dev: the RBAC demo routes are mounted only in "
+        f"development and cookies are Secure outside it (got {settings.app_env.value})"
+    )
+
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
+def sign_in(client: TestClient, email: str, password: str) -> Response:
+    """Log in and leave the session and CSRF cookies on `client`."""
+    return client.post("/api/v1/auth/login", json={"email": email, "password": password})
+
+
+def csrf_headers(client: TestClient) -> dict[str, str]:
+    """The double-submit header the SPA sends, read from the readable cookie."""
+    return {CSRF_HEADER_NAME: client.cookies[CSRF_COOKIE_NAME]}
+
+
+def set_session_cookie_value(client: TestClient, token: str) -> None:
+    """Plant a session cookie, as a browser holding an old token would.
+
+    Any existing one is removed first: httpx files a cookie it was handed
+    without a domain under a different host than one parsed from a response, so
+    setting over the top would leave the jar holding two of the same name.
+    """
+    client.cookies.delete(SESSION_COOKIE_NAME)
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+
+
+def session_token_from(response: Response) -> str | None:
+    """The session token in this response's `Set-Cookie`, if it set one.
+
+    Read from the headers rather than the client's jar so a test can tell
+    "the server re-issued the cookie" from "the jar still has the old one".
+    """
+    for key, value in response.headers.multi_items():
+        if key.lower() == "set-cookie" and value.startswith(f"{SESSION_COOKIE_NAME}="):
+            return value.split("=", 1)[1].split(";", 1)[0]
+    return None
+
+
+def iter_api_routes(router: object, prefix: str = "") -> Iterator[tuple[str, APIRoute]]:
+    """Yield `(full path, route)` for every API route reachable from `router`.
+
+    FastAPI 0.142 stores an included router lazily instead of copying its routes
+    onto the parent, so the walk has to follow `original_router`. Handling the
+    flattened shape too keeps this working on either side of that change.
+    """
+    for route in getattr(router, "routes", ()):
+        if isinstance(route, APIRoute):
+            yield prefix + route.path, route
+            continue
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            context = getattr(route, "include_context", None)
+            yield from iter_api_routes(included, prefix + getattr(context, "prefix", ""))
+
+
+def has_role_guard(dependant: Dependant) -> bool:
+    """True when `require_role` appears anywhere in this route's dependencies."""
+    if getattr(dependant.call, ROLE_GUARD_ATTR, False):
+        return True
+    return any(has_role_guard(sub_dependant) for sub_dependant in dependant.dependencies)
+
+
+def audit_actions(session: Session, user_id: uuid.UUID | None = None) -> list[str]:
+    """Audit actions written so far, oldest first, optionally for one user."""
+    statement = select(AuditEntry.action).order_by(AuditEntry.id)
+    if user_id is not None:
+        statement = statement.where(AuditEntry.user_id == user_id)
+    return list(session.execute(statement).scalars())

@@ -69,6 +69,40 @@ The red-flag rules are placeholders (`is_placeholder=true`, no approver). They
 give the FR-23 safety floor something to apply while the pipeline runs on mocks;
 veterinarian-approved rules replace them in P08.
 
+## Authentication
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/auth/login` | `{email, password}` → `{user: {...}}`, sets both cookies |
+| `POST /api/v1/auth/logout` | Clears both cookies |
+| `GET /api/v1/auth/me` | The signed-in account |
+| `POST /api/v1/auth/change-password` | `{current_password, new_password}` |
+
+The session is a signed token in `triageai_session` — `HttpOnly`, `SameSite=Lax`,
+and `Secure` whenever `APP_ENV` is not `dev`. It is re-issued on every
+authenticated request, so the 30-minute timeout in `SESSION_IDLE_MINUTES` is an
+idle one (SR-04).
+
+`triageai_csrf` is readable on purpose: every `POST`, `PATCH`, `PUT` and `DELETE`
+must repeat its value in an `X-CSRF-Token` header or the request is rejected with
+403 (SR-09). Login is the only exemption.
+
+Five consecutive failed logins lock an account for 15 minutes and the API answers
+423; every other rejection is the same 401, so accounts cannot be enumerated
+(SR-03). While `must_change_password` is set, every endpoint outside `/auth/*`
+answers 403 `PASSWORD_CHANGE_REQUIRED` (FR-61). Logins, failures, lockouts,
+logouts and password changes all reach the append-only audit log (SR-12).
+
+Every 4xx and 5xx response has the same shape:
+
+```json
+{ "error": { "code": "INVALID_CREDENTIALS", "message": "Incorrect username or password." } }
+```
+
+Authorisation is enforced on the server only: every endpoint except
+`/api/v1/health` and `/api/v1/auth/login` declares the `require_role(...)`
+dependency, and a test scans the route table to prove it (SR-05).
+
 ## Disclaimer
 The system provides decision support only. It never diagnoses, never recommends treatment, and
 never finalizes a category without a human decision.
