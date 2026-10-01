@@ -1,1 +1,4 @@
 Phase 3
+
+Features to add:
+1. See password eye icon in login Parameters:

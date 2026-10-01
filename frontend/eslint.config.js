@@ -19,4 +19,13 @@ export default tseslint.config(
       globals: globals.browser,
     },
   },
+  {
+    // Test files and the shared harness export helpers next to components on
+    // purpose. Fast refresh never applies to them, so the rule has nothing to
+    // protect here.
+    files: ["src/test/**/*.{ts,tsx}", "**/*.test.{ts,tsx}"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
 );
