@@ -1,3 +1,1 @@
-Features to add:
-1. Eye icon to see password in login page and change password page.
-2. toggle theme mode (dark and light mode) !DO NOT HARDCODE
+Phase 5
