@@ -83,3 +83,106 @@ export async function createCase(payload: CaseCreateRequest): Promise<CaseCreate
     body: JSON.stringify(payload),
   });
 }
+
+export type DecisionType = "CONFIRM" | "ADJUST" | "MANUAL";
+
+/**
+ * The category filter on W-02: the five VTL categories plus manual triage.
+ *
+ * MANUAL is not a category. It selects the cases that reached
+ * `MANUAL_TRIAGE_REQUIRED`, which have no category at all.
+ */
+export type QueueCategoryFilter = VTLCategory | "MANUAL";
+
+/** How often the queue re-asks the server (IR-22, ADR-08). */
+export const QUEUE_POLL_INTERVAL_MS = 15_000;
+
+/**
+ * One row of the Triage Queue (W-02), mirroring the API's `CaseQueueItem`.
+ *
+ * `category` is the one the row displays: the confirmed category if a reviewer
+ * has decided, otherwise the AI's recommendation (FR-29). The two sources come
+ * separately as well, because the status chip has to say *which* it is (FR-36,
+ * IR-04).
+ *
+ * Everything from `waiting_minutes` down is derived by the server against a
+ * single clock, so every row in one response is measured at the same instant.
+ */
+export interface CaseQueueItem {
+  id: string;
+  case_no: string;
+  status: CaseStatus;
+  /** ISO-8601 UTC; the screen shows it in the clinic's timezone. */
+  created_at: string;
+
+  species: Species;
+  pet_name: string | null;
+  age_value: number | null;
+  age_unit: AgeUnit | null;
+  breed: string | null;
+
+  primary_complaint_code: string | null;
+  primary_complaint_name: string | null;
+
+  category: VTLCategory | null;
+  recommended_category: VTLCategory | null;
+  confirmed_category: VTLCategory | null;
+  decision_type: DecisionType | null;
+
+  waiting_minutes: number;
+  /** Null for a case with no category, which therefore has no target. */
+  target_minutes: number | null;
+  is_overdue: boolean;
+  has_red_flag: boolean;
+}
+
+/**
+ * The counters above the W-02 table.
+ *
+ * They always describe the whole open queue, never the filtered rows, so the
+ * numbers do not move when a filter is applied and a counter can be used to
+ * apply one. `by_category` carries all five keys, zeros included.
+ */
+export interface CaseQueueCounts {
+  by_category: Record<VTLCategory, number>;
+  manual_count: number;
+  awaiting_review_count: number;
+  total: number;
+}
+
+export interface CaseListResponse {
+  items: CaseQueueItem[];
+  counts: CaseQueueCounts;
+  /** Drives the "Updated N s ago" indicator (IR-22). */
+  generated_at: string;
+}
+
+/** The W-02 search and filter bar (FR-39), as query parameters. */
+export interface CaseQueueFilters {
+  species?: Species;
+  category?: QueueCategoryFilter;
+  status?: CaseStatus;
+  /** Inclusive calendar dates, `YYYY-MM-DD`, read in the clinic's timezone. */
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+}
+
+/**
+ * The Triage Queue: open cases in urgency order, with the counters (FR-29, FR-39).
+ *
+ * An absent or empty filter is left out of the query string rather than sent
+ * blank, because `CaseQueueFilters` on the server forbids unknown and malformed
+ * parameters.
+ */
+export async function listCases(filters: CaseQueueFilters = {}): Promise<CaseListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") {
+      params.set(key, value);
+    }
+  }
+
+  const query = params.toString();
+  return apiFetch<CaseListResponse>(query === "" ? "/cases" : `/cases?${query}`);
+}

@@ -1,0 +1,331 @@
+/* W-02 and W-11. Structure and spacing follow
+   docs/prototype/TriageAI_Prototype.html (#w02 and its max-width:900px block). */
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+}
+
+.headerRight {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.updated {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.newCase {
+  padding: var(--space-2) var(--space-3);
+  font-size: 13px;
+  font-weight: bold;
+  font-family: inherit;
+  color: var(--color-ink-contrast);
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--color-ink);
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: 6px;
+}
+
+/* --- Counters ---------------------------------------------------------- */
+
+.counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: var(--space-3);
+}
+
+/* A tile is a button, so it gets none of a button's default chrome: the border
+   and the badge inside it are the whole affordance. */
+.counter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+  min-width: 118px;
+  padding: var(--space-2) 12px;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.counter:hover {
+  border-color: var(--color-ink);
+}
+
+/* The applied filter. A heavier border, never colour alone — the tile already
+   owns a VTL colour and a second meaning in colour would collide with it. */
+.counterActive {
+  border-width: var(--border-width-strong);
+  border-color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+.counterValue {
+  font-size: 20px;
+}
+
+.counterCaption {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* "Awaiting review" spans categories, so it is a read-out, not a filter. Dashed,
+   as the prototype draws it. */
+.awaiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+  min-width: 118px;
+  margin: 0;
+  padding: var(--space-2) 12px;
+  border: var(--border-width) dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* --- Filters ----------------------------------------------------------- */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.searchField {
+  flex: 1 1 290px;
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.filterLabel {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.search,
+.select {
+  padding: var(--space-2) 10px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: 5px;
+}
+
+.search {
+  width: 100%;
+}
+
+.select {
+  min-width: 150px;
+}
+
+/* --- Table ------------------------------------------------------------- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--color-ink);
+}
+
+.table td {
+  padding: 9px var(--space-2);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-surface);
+}
+
+/* FR-30. The tint is the glance-level cue; the row also carries the word
+   "overdue" in its waiting cell, so the warning never rests on colour (IR-03). */
+.overdue {
+  background: var(--color-danger-bg);
+}
+
+.caseLink {
+  font-weight: bold;
+  color: var(--color-text);
+}
+
+.waiting {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.bar {
+  display: inline-block;
+  width: 120px;
+  height: 8px;
+  overflow: hidden;
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  background: var(--color-line-strong);
+}
+
+.barOver .barFill {
+  background: var(--vtl-red);
+}
+
+.overdueText {
+  color: var(--color-danger);
+}
+
+/* The red-flag marker, the same disc as the banner's icon. */
+.flag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-weight: bold;
+  color: #ffffff;
+  background: var(--color-danger);
+  border-radius: 50%;
+}
+
+/* --- States and notes -------------------------------------------------- */
+
+.notice,
+.error {
+  padding: var(--space-4);
+  text-align: center;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.notice {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.noticeText {
+  margin: 0 0 var(--space-2);
+}
+
+.clearFilters {
+  padding: 5px 10px;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  font-family: inherit;
+  color: var(--color-ink);
+  cursor: pointer;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: 6px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+}
+
+.colorNote {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* --- W-11: below 900 px a row becomes a card --------------------------- */
+
+@media (max-width: 900px) {
+  .counter,
+  .awaiting {
+    flex: 1 1 30%;
+    min-width: 0;
+  }
+
+  .searchField {
+    flex: 1 1 100%;
+  }
+
+  /* The column headings leave the top of the table and reappear inside each
+     card, printed from the `data-label` every cell carries. A value never
+     appears without the heading it belonged to. */
+  .table thead {
+    display: none;
+  }
+
+  .table tr {
+    display: block;
+    margin-bottom: 10px;
+    padding: var(--space-2) 10px;
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+
+  .table td {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 0;
+    border: 0;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    font-size: var(--font-size-xs);
+    font-weight: bold;
+    color: var(--color-text-muted);
+  }
+
+  /* An empty Flags cell would otherwise show its label and nothing else. */
+  .table td:empty {
+    display: none;
+  }
+}

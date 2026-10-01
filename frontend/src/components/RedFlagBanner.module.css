@@ -1,0 +1,48 @@
+/* The prototype's `.banner` (docs/prototype/TriageAI_Prototype.html #w02). */
+
+.region {
+  margin-bottom: var(--space-3);
+}
+
+.banner {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0 0 var(--space-2);
+  padding: 10px var(--space-3);
+  font-weight: bold;
+  background: var(--color-danger-bg);
+  border: var(--border-width-strong) solid var(--color-danger);
+  border-radius: 6px;
+}
+
+.banner:last-child {
+  margin-bottom: 0;
+}
+
+/* The icon repeats what the sentence already says, so it is hidden from the
+   accessibility tree rather than given a label of its own (IR-03). */
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-weight: bold;
+  color: #ffffff;
+  background: var(--color-danger);
+  border-radius: 50%;
+}
+
+.open {
+  margin-left: auto;
+  padding: 5px 10px;
+  font-size: var(--font-size-sm);
+  color: var(--color-ink);
+  white-space: nowrap;
+  text-decoration: none;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: 6px;
+}

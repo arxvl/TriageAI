@@ -187,6 +187,26 @@ request, so the UI only hides what the API would refuse (SR-05):
 | `approver@triageai.local` (Reviewer + `can_approve_kb`) | `/queue` | the three above, plus KB Approvals |
 | `admin@triageai.local` (Administrator) | `/admin/users` | Users, Knowledge Base, Evaluation, Exports |
 
+**Triage Queue** (`/queue`) is the screen staff work from (W-02). Rows arrive in
+the server's FR-29 order and are never re-sorted in the browser, so one definition
+of urgency exists rather than two. Each row carries a VTL badge, which always
+prints the category name *and* its target waiting time — colour never carries
+meaning on its own (IR-03) — and a status chip, so an AI recommendation reads as
+pending until a reviewer decides (FR-36, IR-04). The waiting column shows the
+elapsed time against the target with a progress bar; a case past its target is
+tinted and labelled "overdue" in words (FR-30). RED is the exception: its target
+is 0, so the API reports it overdue a minute after arrival and the screen shows a
+full red bar and the minutes without the word, which would otherwise be on every
+RED row.
+
+The counters above the table are also the category filter — pressing one applies
+it, pressing it again clears it — and they keep describing the whole open queue
+while a filter is on. Search covers the case number, pet name and primary
+complaint; the date filter defaults to all open dates rather than today, so a case
+left open overnight does not disappear. The queue re-asks the server every 15
+seconds and stops while the tab is in the background (IR-22). Below 900 px each
+row becomes a card whose fields are labelled from the column headings (W-11).
+
 **New Case** (`/cases/new`) is the real intake form (W-03). Species is Dog, Cat or
 "Other species" — choosing the third shows the manual-triage message and disables
 submission, so the refusal happens before a request is sent as well as after
@@ -202,8 +222,10 @@ and still says exactly what the API would say. The form reports every invalid
 field at once; the API reports the first, and places it beside the named input
 through the envelope's `field` key (FR-04, IR-05).
 
-The remaining feature screens are placeholders until P04-P09; the login screen,
-the change-password screen, the intake form and the header shell are real.
+The remaining feature screens are placeholders until P05-P09; the login screen,
+the change-password screen, the Triage Queue, the intake form and the header shell
+are real. The red-flag banner above the queue is built and empty: P05's
+deterministic pre-screen is what fills it (FR-12, NFR-05).
 
 Interface text lives in `frontend/src/i18n/strings.ts` rather than inline, so a
 translated UI can be added without touching components (NFR-27). All of it is
