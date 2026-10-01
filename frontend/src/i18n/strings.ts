@@ -172,6 +172,139 @@ export const strings = {
     },
   },
 
+  // The VTL badge (IR-03). Every badge shows a category name *and* its target
+  // waiting time as text, so meaning is never carried by colour alone. The
+  // target wording is CLAUDE.md §6's Display column, character for character.
+  vtl: {
+    codes: {
+      RED: "RED",
+      ORANGE: "ORANGE",
+      YELLOW: "YELLOW",
+      GREEN: "GREEN",
+      BLUE: "BLUE",
+      MANUAL: "MANUAL",
+    },
+    targets: {
+      RED: "Immediate",
+      ORANGE: "≤ 15 min",
+      YELLOW: "≤ 30–60 min",
+      GREEN: "≤ 120 min",
+      BLUE: "≤ 240 min",
+    },
+    // Title case, for a category named inside a sentence ("Adjusted (Yellow →
+    // Green)"), where the badge's shouting capitals would not belong.
+    names: {
+      RED: "Red",
+      ORANGE: "Orange",
+      YELLOW: "Yellow",
+      GREEN: "Green",
+      BLUE: "Blue",
+    },
+    manualCaption: "Needs manual triage",
+    // A case still in the pipeline has no category and no target yet. Read out
+    // in place of the em dash the column shows (NFR-21).
+    noCategory: "No category yet",
+  },
+
+  // The status chip (FR-36, IR-04). An AI recommendation is never shown as
+  // settled: until a reviewer decides, the chip says so in words.
+  statusChip: {
+    processing: "Processing",
+    awaitingReview: "AI recommendation · pending",
+    manualTriageRequired: "Manual triage required",
+    confirmed: "Confirmed",
+    // {from} and {to} are replaced with the two category names.
+    adjusted: "Adjusted ({from} → {to})",
+    manuallyTriaged: "Manually triaged",
+    closed: "Closed",
+  },
+
+  // W-02 Triage Queue and W-11 tablet layout (FR-29, FR-30, FR-36, FR-39, IR-22).
+  queue: {
+    title: "Triage Queue",
+    newCase: "+ New Case",
+
+    // {seconds} is replaced with the age of the data in whole seconds.
+    updatedAgo: "Updated {seconds} s ago · auto-refresh every 15 s",
+    updatedJustNow: "Updated just now · auto-refresh every 15 s",
+
+    redFlagBannerLabel: "Red-flag alerts",
+    // {caseNo} and {summary} come from the alert.
+    redFlagAlert: "Red-flag alert – {caseNo}: {summary}",
+    redFlagOpenCase: "Open case",
+
+    countersLabel: "Case counts by urgency",
+    awaitingReviewCaption: "Awaiting review",
+    // {category} is replaced with a category name; used as the tile's accessible
+    // name, since the visible tile is a badge and a number.
+    counterFilterHint: "Show only {category} cases",
+    counterFilterClearHint: "Clear the {category} filter",
+
+    searchLabel: "Search",
+    searchPlaceholder: "Search case ID, pet name, or complaint…",
+    speciesFilterLabel: "Species",
+    categoryFilterLabel: "Category",
+    statusFilterLabel: "Status",
+    dateFilterLabel: "Date",
+    filterAll: "All",
+    // The queue never lists a closed case, so "open" is the widest status there
+    // is here, not a filter that hides anything.
+    statusAll: "Open",
+    species: {
+      DOG: "Dog",
+      CAT: "Cat",
+    },
+    status: {
+      SUBMITTED: "Submitted",
+      PROCESSING: "Processing",
+      AWAITING_REVIEW: "Awaiting review",
+      MANUAL_TRIAGE_REQUIRED: "Manual triage required",
+      CONFIRMED: "Confirmed",
+      ADJUSTED: "Adjusted",
+      MANUALLY_TRIAGED: "Manually triaged",
+    },
+    dateRanges: {
+      ALL: "All open dates",
+      TODAY: "Today",
+      LAST_7_DAYS: "Last 7 days",
+    },
+
+    columns: {
+      urgency: "Urgency",
+      case: "Case",
+      patient: "Patient",
+      complaint: "Primary complaint",
+      arrived: "Arrived",
+      waiting: "Waiting / target",
+      status: "Status",
+      flags: "Flags",
+    },
+
+    // {waiting} and {target} are whole minutes.
+    waiting: "{waiting} / {target} min",
+    // A case with no category has no target to measure against.
+    waitingNoTarget: "{waiting} min / —",
+    overdueSuffix: "overdue",
+    redFlag: "Red flag",
+    // Shown where a value the pipeline has not produced yet would go.
+    notAvailable: "—",
+    // {species}, {name} and {age} are joined only when present.
+    ageYears: "{value} y",
+    ageMonths: "{value} mo",
+
+    colorNote:
+      "Colors are always shown with the category name and target waiting time. " +
+      "Cases without a category are listed directly below Red.",
+
+    loading: "Loading the queue…",
+    empty: "No open cases. Submitted cases appear here within 15 seconds.",
+    emptyFiltered: "No open cases match these filters.",
+    clearFilters: "Clear filters",
+    errors: {
+      unexpected: "The queue could not be loaded right now. It will retry automatically.",
+    },
+  },
+
   placeholder: {
     body: "Coming in a later phase.",
   },

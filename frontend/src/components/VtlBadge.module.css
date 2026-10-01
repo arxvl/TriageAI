@@ -1,0 +1,65 @@
+/* Follows the prototype's `.vtl` (docs/prototype/TriageAI_Prototype.html): a
+   filled pill with the category code in bold and its target time beside it in
+   regular weight. */
+
+.badge {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  padding: var(--space-1) 9px;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: #ffffff;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  border-radius: 5px;
+}
+
+.md {
+  padding: 6px var(--space-3);
+  font-size: var(--font-size-md);
+}
+
+/* The target time sits inside the badge but is not the headline. */
+.target {
+  font-weight: normal;
+  opacity: 0.95;
+}
+
+/* The five fills are the only meaningful colour on any screen (IR-03). They are
+   fixed values, not theme tokens: a VTL colour means the same thing in dark mode
+   as in light, so it must not be redefined there. */
+.red {
+  background: var(--vtl-red);
+}
+
+.orange {
+  background: var(--vtl-orange);
+}
+
+/* Yellow is the one fill that cannot carry white text at 4.5:1 (NFR-21). */
+.yellow {
+  color: #1a1a1a;
+  background: var(--vtl-yellow);
+}
+
+.green {
+  background: var(--vtl-green);
+}
+
+.blue {
+  background: var(--vtl-blue);
+}
+
+/* MANUAL is the absence of a category, so it is drawn as an outline rather than
+   a sixth colour that would read as a sixth urgency level. */
+.manual {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) dashed var(--color-ink);
+}
+
+/* A case still in the pipeline: the column's em dash, not a badge. */
+.none {
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,34 @@
+/* The prototype's `.chip` variants (docs/prototype/TriageAI_Prototype.html). */
+
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  border: 1.2px solid var(--color-text-muted);
+  border-radius: 12px;
+}
+
+/* A dashed border is this interface's one mark for machine-written content, so a
+   pending recommendation is recognisable before the words are read (IR-04). */
+.ai {
+  border-style: dashed;
+}
+
+.processing {
+  color: var(--color-text-muted);
+  border-style: dashed;
+}
+
+/* A decided case: filled, settled, no dashes. */
+.decided {
+  background: var(--color-surface);
+}
+
+/* Manual triage is the one state that needs a reviewer to act, so it is the one
+   chip that carries the danger colour — with bold text, never colour alone. */
+.bad {
+  font-weight: bold;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}

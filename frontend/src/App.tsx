@@ -26,6 +26,7 @@ import { ChangePassword } from "./pages/ChangePassword/ChangePassword";
 import { Login } from "./pages/Login/Login";
 import { NotFound } from "./pages/NotFound/NotFound";
 import { Placeholder } from "./pages/Placeholder/Placeholder";
+import { TriageQueue } from "./pages/TriageQueue/TriageQueue";
 
 const queryClient = new QueryClient();
 
@@ -52,7 +53,7 @@ function App() {
                     <Route path="/" element={<RoleHomeRedirect />} />
 
                     <Route element={<ProtectedRoute allowedRoles={CASE_ROLES} />}>
-                      <Route path="/queue" element={<Placeholder title={strings.nav.queue} />} />
+                      <Route path="/queue" element={<TriageQueue />} />
                       <Route path="/cases/new" element={<CaseIntake />} />
                       <Route
                         path="/history"
