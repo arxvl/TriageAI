@@ -35,11 +35,21 @@ from app.models import (
     AuditEntry,
     Case,
     CaseStatus,
+    ConfidenceLevel,
+    DecisionDirection,
+    DecisionType,
+    ExtractionResult,
     IntakeChannel,
     OwnerDescription,
+    Recommendation,
+    RedFlagAlert,
+    RedFlagRule,
+    Signalment,
     Species,
+    StaffDecision,
     User,
     UserRole,
+    VTLCategory,
 )
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -211,18 +221,41 @@ def make_user(
     return user
 
 
-def make_case(session: Session, *, created_by: User | None = None) -> Case:
-    """Insert a fictitious case and return it."""
+def make_case(
+    session: Session,
+    *,
+    created_by: User | None = None,
+    case_no: str | None = None,
+    species: Species = Species.DOG,
+    intake_channel: IntakeChannel = IntakeChannel.WALK_IN,
+    status: CaseStatus = CaseStatus.SUBMITTED,
+    created_at: datetime | None = None,
+    closed_at: datetime | None = None,
+    pet_name: str | None = None,
+) -> Case:
+    """Insert a fictitious case and return it.
+
+    `created_at` has a server default, so it is set explicitly only when a test
+    needs a case of a particular age — which the queue tests do, since waiting
+    time and the overdue flag are measured from it.
+    """
     author = created_by or make_user(session)
     case = Case(
-        case_no=f"C-{uuid.uuid4().int % 10000:04d}",
-        species=Species.DOG,
-        intake_channel=IntakeChannel.WALK_IN,
-        status=CaseStatus.SUBMITTED,
+        case_no=case_no or f"C-{uuid.uuid4().int % 10000:04d}",
+        species=species,
+        intake_channel=intake_channel,
+        status=status,
         created_by=author.id,
+        closed_at=closed_at,
     )
+    if created_at is not None:
+        case.created_at = created_at
     session.add(case)
     session.flush()
+
+    if pet_name is not None:
+        session.add(Signalment(case_id=case.id, pet_name=pet_name))
+        session.flush()
     return case
 
 
@@ -239,6 +272,130 @@ def make_owner_description(session: Session, *, case: Case | None = None) -> Own
     session.add(description)
     session.flush()
     return description
+
+
+def make_recommendation(
+    session: Session,
+    *,
+    case: Case,
+    category: VTLCategory,
+    version: int = 1,
+    created_at: datetime | None = None,
+) -> Recommendation:
+    """Insert an AI recommendation for a case, with the extraction it came from.
+
+    `recommendations.extraction_id` is not nullable, so a recommendation cannot
+    exist on its own. Creating the pair here keeps that out of the queue tests,
+    which care only about the category.
+
+    The pipeline does not run until P05; these rows stand in for its output so
+    that the FR-29 ordering can be proved now.
+    """
+    extraction = ExtractionResult(
+        case_id=case.id,
+        version=version,
+        entities={},
+        red_flags=[],
+        missing_information=[],
+        is_corrected=False,
+        model_id="mock",
+        prompt_version="mock-0",
+    )
+    session.add(extraction)
+    session.flush()
+
+    recommendation = Recommendation(
+        case_id=case.id,
+        extraction_id=extraction.id,
+        version=version,
+        category=category,
+        rationale="Fixture recommendation.",
+        confidence=ConfidenceLevel.MEDIUM,
+        safety_floor_applied=False,
+        safety_floor_rule_codes=[],
+        low_confidence_reasons=[],
+        model_id="mock",
+        prompt_version="mock-0",
+    )
+    if created_at is not None:
+        recommendation.created_at = created_at
+    session.add(recommendation)
+    session.flush()
+    return recommendation
+
+
+def make_staff_decision(
+    session: Session,
+    *,
+    case: Case,
+    final_category: VTLCategory,
+    decision_type: DecisionType = DecisionType.CONFIRM,
+    direction: DecisionDirection = DecisionDirection.SAME,
+    decided_by: User | None = None,
+    decided_at: datetime | None = None,
+) -> StaffDecision:
+    """Insert a reviewer's decision, which outranks the AI category (FR-29)."""
+    reviewer = decided_by or make_user(session, role=UserRole.VETERINARY_REVIEWER)
+    decision = StaffDecision(
+        case_id=case.id,
+        type=decision_type,
+        final_category=final_category,
+        # Required whenever the type is ADJUST (ck_staff_decisions_...).
+        reason_code="FIXTURE" if decision_type is DecisionType.ADJUST else None,
+        direction=direction,
+        decided_by=reviewer.id,
+        decided_at=decided_at or datetime.now(UTC),
+    )
+    session.add(decision)
+    session.flush()
+    return decision
+
+
+def make_red_flag_rule(
+    session: Session,
+    *,
+    code: str,
+    min_category: VTLCategory = VTLCategory.RED,
+    species: tuple[Species, ...] = (Species.DOG, Species.CAT),
+) -> RedFlagRule:
+    """Get or create a placeholder red-flag rule.
+
+    Nothing here has been seen by a veterinarian, so `is_placeholder` is True —
+    the same contract the seed script uses (P08 replaces both).
+    """
+    existing = session.query(RedFlagRule).filter_by(code=code).one_or_none()
+    if existing is not None:
+        return existing
+    rule = RedFlagRule(
+        code=code,
+        label=f"Fixture rule {code}",
+        min_category=min_category,
+        species=list(species),
+        is_placeholder=True,
+    )
+    session.add(rule)
+    session.flush()
+    return rule
+
+
+def make_red_flag_alert(
+    session: Session,
+    *,
+    case: Case,
+    rule_code: str = "FIXTURE_RED_FLAG",
+    min_category: VTLCategory = VTLCategory.RED,
+) -> RedFlagAlert:
+    """Insert a red-flag alert, creating its rule if the test has not already."""
+    make_red_flag_rule(session, code=rule_code, min_category=min_category)
+    alert = RedFlagAlert(
+        case_id=case.id,
+        rule_code=rule_code,
+        matched_text="fixture match",
+        min_category=min_category,
+    )
+    session.add(alert)
+    session.flush()
+    return alert
 
 
 def insert_audit_entry(session: Session, *, action: str = "CASE_CREATED") -> int:

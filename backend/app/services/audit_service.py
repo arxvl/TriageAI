@@ -19,6 +19,9 @@ from app.models import AuditEntry, UserRole
 # The entity every security event is about.
 USER_ENTITY = "user"
 
+# The entity every case event is about.
+CASE_ENTITY = "case"
+
 # Used when a login is attempted for an address that has no account, so the
 # failure is still auditable (SR-12).
 UNKNOWN_ENTITY_ID = "unknown"
@@ -30,6 +33,7 @@ class AuditAction(StrEnum):
     ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
     LOGOUT = "LOGOUT"
     PASSWORD_CHANGED = "PASSWORD_CHANGED"  # noqa: S105 - an audit action name
+    CASE_CREATED = "CASE_CREATED"
 
 
 class AuditService:
