@@ -83,16 +83,23 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
-/** Read `{"error": {"code", "message"}}`, falling back when the body is not that. */
+/**
+ * Read `{"error": {"code", "message", "field"?}}`, falling back when the body is
+ * not that.
+ *
+ * `field` is present only on a validation error and is what lets a form put the
+ * message beside the input it belongs to (IR-05, FR-04).
+ */
 async function toApiError(response: Response): Promise<ApiError> {
   let code = `HTTP_${response.status}`;
   let message = "Something went wrong. Please try again.";
+  let field: string | null = null;
 
   try {
     const body: unknown = await response.json();
     const envelope =
       typeof body === "object" && body !== null
-        ? (body as { error?: { code?: unknown; message?: unknown } }).error
+        ? (body as { error?: { code?: unknown; message?: unknown; field?: unknown } }).error
         : undefined;
 
     if (typeof envelope?.code === "string") {
@@ -101,9 +108,12 @@ async function toApiError(response: Response): Promise<ApiError> {
     if (typeof envelope?.message === "string") {
       message = envelope.message;
     }
+    if (typeof envelope?.field === "string") {
+      field = envelope.field;
+    }
   } catch {
     // An empty or non-JSON error body: keep the fallbacks above.
   }
 
-  return new ApiError(response.status, code, message);
+  return new ApiError(response.status, code, message, field);
 }

@@ -187,8 +187,23 @@ request, so the UI only hides what the API would refuse (SR-05):
 | `approver@triageai.local` (Reviewer + `can_approve_kb`) | `/queue` | the three above, plus KB Approvals |
 | `admin@triageai.local` (Administrator) | `/admin/users` | Users, Knowledge Base, Evaluation, Exports |
 
-The feature screens behind those links are placeholders until P04-P09; the login
-screen, the change-password screen and the header shell are real.
+**New Case** (`/cases/new`) is the real intake form (W-03). Species is Dog, Cat or
+"Other species" — choosing the third shows the manual-triage message and disables
+submission, so the refusal happens before a request is sent as well as after
+(FR-02). The description field states the English-entry rule staff follow
+(FR-18, ADR-16) and counts characters against the 2,000 limit without truncating
+what was pasted. Owner name and contact number sit in their own box, captioned
+"stored separately and never sent to AI services" (FR-07). A successful
+submission confirms the case number and returns to the queue.
+
+Field limits and error wording are mirrored from the server in
+`frontend/src/lib/caseValidation.ts`, so the form answers without a round trip
+and still says exactly what the API would say. The form reports every invalid
+field at once; the API reports the first, and places it beside the named input
+through the envelope's `field` key (FR-04, IR-05).
+
+The remaining feature screens are placeholders until P04-P09; the login screen,
+the change-password screen, the intake form and the header shell are real.
 
 Interface text lives in `frontend/src/i18n/strings.ts` rather than inline, so a
 translated UI can be added without touching components (NFR-27). All of it is

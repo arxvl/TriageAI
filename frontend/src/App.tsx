@@ -7,7 +7,9 @@
  *
  * Provider order matters: `AuthProvider` sits inside `BrowserRouter` because it
  * navigates when a session expires, and inside `QueryClientProvider` because it
- * caches `/auth/me`.
+ * caches `/auth/me`. `ToastProvider` sits above the routes because a confirmation
+ * outlives the screen that asked for it — intake submits a case and leaves for the
+ * queue in the same tick.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
@@ -17,7 +19,9 @@ import { AppLayout } from "./components/AppLayout";
 import { AuthProvider } from "./components/AuthProvider";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RoleHomeRedirect } from "./components/RoleHomeRedirect";
+import { ToastProvider } from "./components/ToastProvider";
 import { strings } from "./i18n/strings";
+import { CaseIntake } from "./pages/CaseIntake/CaseIntake";
 import { ChangePassword } from "./pages/ChangePassword/ChangePassword";
 import { Login } from "./pages/Login/Login";
 import { NotFound } from "./pages/NotFound/NotFound";
@@ -33,69 +37,71 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<Login />} />
+        <ToastProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={<Login />} />
 
-            {/* Signed in, temporary password still allowed. */}
-            <Route element={<ProtectedRoute allowPasswordChangePending />}>
-              <Route element={<AppLayout />}>
-                <Route path="/change-password" element={<ChangePassword />} />
+              {/* Signed in, temporary password still allowed. */}
+              <Route element={<ProtectedRoute allowPasswordChangePending />}>
+                <Route element={<AppLayout />}>
+                  <Route path="/change-password" element={<ChangePassword />} />
 
-                {/* Everything past here needs a permanent password (FR-61). */}
-                <Route element={<ProtectedRoute />}>
-                  <Route path="/" element={<RoleHomeRedirect />} />
+                  {/* Everything past here needs a permanent password (FR-61). */}
+                  <Route element={<ProtectedRoute />}>
+                    <Route path="/" element={<RoleHomeRedirect />} />
 
-                  <Route element={<ProtectedRoute allowedRoles={CASE_ROLES} />}>
-                    <Route path="/queue" element={<Placeholder title={strings.nav.queue} />} />
+                    <Route element={<ProtectedRoute allowedRoles={CASE_ROLES} />}>
+                      <Route path="/queue" element={<Placeholder title={strings.nav.queue} />} />
+                      <Route path="/cases/new" element={<CaseIntake />} />
+                      <Route
+                        path="/history"
+                        element={<Placeholder title={strings.nav.caseHistory} />}
+                      />
+                    </Route>
+
+                    {/* Administrators may read a case but never decide one (BR-02). */}
                     <Route
-                      path="/cases/new"
-                      element={<Placeholder title={strings.nav.newCase} />}
+                      path="/cases/:caseId"
+                      element={<Placeholder title={strings.nav.caseDetail} />}
                     />
-                    <Route
-                      path="/history"
-                      element={<Placeholder title={strings.nav.caseHistory} />}
-                    />
-                  </Route>
 
-                  {/* Administrators may read a case but never decide one (BR-02). */}
-                  <Route
-                    path="/cases/:caseId"
-                    element={<Placeholder title={strings.nav.caseDetail} />}
-                  />
-
-                  {/* A reviewer needs the separate KB approval permission (BR-04);
+                    {/* A reviewer needs the separate KB approval permission (BR-04);
                       an administrator drafts entries without it (FR-52). */}
-                  <Route
-                    element={
-                      <ProtectedRoute allowedRoles={KB_ROLES} requireKbApprovalForReviewers />
-                    }
-                  >
-                    <Route path="/kb" element={<Placeholder title={strings.nav.knowledgeBase} />} />
-                  </Route>
+                    <Route
+                      element={
+                        <ProtectedRoute allowedRoles={KB_ROLES} requireKbApprovalForReviewers />
+                      }
+                    >
+                      <Route
+                        path="/kb"
+                        element={<Placeholder title={strings.nav.knowledgeBase} />}
+                      />
+                    </Route>
 
-                  <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} />}>
-                    <Route
-                      path="/admin/users"
-                      element={<Placeholder title={strings.nav.users} />}
-                    />
-                    <Route
-                      path="/admin/evaluation"
-                      element={<Placeholder title={strings.nav.evaluation} />}
-                    />
-                    <Route
-                      path="/admin/exports"
-                      element={<Placeholder title={strings.nav.exports} />}
-                    />
-                  </Route>
+                    <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} />}>
+                      <Route
+                        path="/admin/users"
+                        element={<Placeholder title={strings.nav.users} />}
+                      />
+                      <Route
+                        path="/admin/evaluation"
+                        element={<Placeholder title={strings.nav.evaluation} />}
+                      />
+                      <Route
+                        path="/admin/exports"
+                        element={<Placeholder title={strings.nav.exports} />}
+                      />
+                    </Route>
 
-                  <Route path="/help" element={<Placeholder title={strings.common.help} />} />
-                  <Route path="*" element={<NotFound />} />
+                    <Route path="/help" element={<Placeholder title={strings.common.help} />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Route>
                 </Route>
               </Route>
-            </Route>
-          </Routes>
-        </AuthProvider>
+            </Routes>
+          </AuthProvider>
+        </ToastProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

@@ -1,0 +1,247 @@
+/* W-03. Structure and spacing follow docs/prototype/TriageAI_Prototype.html
+   (#w03): a form card that grows beside a fixed 330px guidance pane. */
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.card {
+  flex: 1 1 820px;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.sidePane {
+  flex: 0 0 330px;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* Three columns of signalment, as the prototype's .grid3. The row gap is zero
+   there; the vertical rhythm comes from each label's own top margin. */
+.grid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0 var(--space-3);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--space-3);
+}
+
+.field {
+  margin-top: var(--space-3);
+}
+
+.label {
+  display: block;
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.optional {
+  font-weight: normal;
+  color: var(--color-text-muted);
+}
+
+.input,
+.inputInvalid,
+.textarea,
+.textareaInvalid {
+  width: 100%;
+  padding: var(--space-2);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.inputInvalid,
+.textareaInvalid {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+}
+
+.textarea,
+.textareaInvalid {
+  height: 120px;
+  resize: vertical;
+}
+
+/* The age number and its unit share one label and one line. */
+.ageRow {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.ageValue {
+  width: 80px;
+}
+
+.ageUnit {
+  flex: 1;
+}
+
+.fieldError {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+.descriptionBlock {
+  margin-top: var(--space-4);
+}
+
+/* Instruction on the left, live counter on the right, as the prototype draws it. */
+.helperRow {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  margin-top: var(--space-1);
+}
+
+.helper {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.counter {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.notice {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-danger);
+}
+
+.pane {
+  padding: var(--space-3);
+  margin-top: var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.paneTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.caption {
+  font-size: var(--font-size-sm);
+  font-weight: normal;
+  color: var(--color-text-muted);
+}
+
+.formError {
+  min-height: 1.2em;
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-danger);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.submit,
+.cancel {
+  padding: var(--space-2) var(--space-3);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: bold;
+  cursor: pointer;
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: var(--radius-sm);
+}
+
+.submit {
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+}
+
+.cancel {
+  color: var(--color-ink);
+  background: var(--color-bg);
+}
+
+.submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.latency {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.paneHeading {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+.paneHeading:first-child {
+  margin-top: 0;
+}
+
+.signs {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.tips {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* The prototype's own breakpoint. The full tablet treatment is W-11, in 4.3;
+   this keeps the form usable and free of horizontal scrolling until then. */
+@media (max-width: 900px) {
+  .row {
+    flex-direction: column;
+  }
+
+  .card,
+  .sidePane {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .grid3,
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+}

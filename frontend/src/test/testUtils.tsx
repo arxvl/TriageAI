@@ -9,6 +9,9 @@
  * - `renderWithProviders` mounts the real `AuthProvider` over a stubbed `fetch`.
  *   Use it when the request itself matters (login, change password).
  *
+ * Both wrap `ToastProvider`, because it sits above the routes in `App.tsx` and a
+ * page that shows a confirmation must be able to reach it.
+ *
  * There is no MSW and no `user-event`: `vi.stubGlobal("fetch", ...)` and
  * `fireEvent` cover everything these screens do, and both avoid a new
  * dependency (CLAUDE.md §13).
@@ -21,6 +24,7 @@ import { vi } from "vitest";
 
 import type { AuthenticatedUser, UserRole } from "../api/auth";
 import { AuthProvider } from "../components/AuthProvider";
+import { ToastProvider } from "../components/ToastProvider";
 import { AuthContext, type AuthContextValue } from "../hooks/useAuth";
 
 /** A fictitious account (CLAUDE.md §9). Override whatever the test cares about. */
@@ -68,7 +72,9 @@ export function renderWithAuth(ui: ReactNode, options: AuthOptions = {}): Render
   return render(
     <QueryClientProvider client={newQueryClient()}>
       <MemoryRouter initialEntries={[options.route ?? "/"]}>
-        <AuthContext.Provider value={value}>{ui}</AuthContext.Provider>
+        <ToastProvider>
+          <AuthContext.Provider value={value}>{ui}</AuthContext.Provider>
+        </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -78,7 +84,9 @@ export function renderWithProviders(ui: ReactNode, options: { route?: string } =
   return render(
     <QueryClientProvider client={newQueryClient()}>
       <MemoryRouter initialEntries={[options.route ?? "/"]}>
-        <AuthProvider>{ui}</AuthProvider>
+        <ToastProvider>
+          <AuthProvider>{ui}</AuthProvider>
+        </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -113,7 +121,12 @@ export function stubFetch(routes: Record<string, StubbedResponse>) {
   return mock;
 }
 
-/** The error envelope every 4xx and 5xx uses (backend `core/errors.py`). */
-export function errorBody(code: string, message: string) {
-  return { error: { code, message } };
+/**
+ * The error envelope every 4xx and 5xx uses (backend `core/errors.py`).
+ *
+ * `field` is present only on a validation error, and names the input the message
+ * belongs to (IR-05).
+ */
+export function errorBody(code: string, message: string, field?: string) {
+  return { error: field === undefined ? { code, message } : { code, message, field } };
 }

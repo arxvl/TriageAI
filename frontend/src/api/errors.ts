@@ -6,6 +6,10 @@
  * Branch on `code`, never on `status` alone: 401 covers both
  * `NOT_AUTHENTICATED` and `INVALID_CREDENTIALS`, and 403 covers `FORBIDDEN`,
  * `PASSWORD_CHANGE_REQUIRED` and `CSRF_FAILED`.
+ *
+ * A validation error carries one more key, `field`, naming the input the message
+ * belongs to, so a form can show it beside that input rather than at the top of
+ * the page (IR-05, FR-04).
  */
 
 /**
@@ -22,6 +26,8 @@ export const ApiErrorCode = {
   currentPasswordIncorrect: "CURRENT_PASSWORD_INCORRECT",
   weakPassword: "WEAK_PASSWORD",
   validationError: "VALIDATION_ERROR",
+  /** Dog and cat only; anything else is triaged by hand (FR-02, BR-06). */
+  speciesOutOfScope: "SPECIES_OUT_OF_SCOPE",
   internalError: "INTERNAL_ERROR",
   /** Set by the client itself when the request never reached the API. */
   networkError: "NETWORK_ERROR",
@@ -30,12 +36,21 @@ export const ApiErrorCode = {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /**
+   * The input this message belongs to, or null when it belongs to no single one.
+   *
+   * Only validation errors carry it, and only ever one at a time: the server
+   * reports the first failure it finds (`_first_validation_message`). A form
+   * that wants every field checked at once has to do that itself.
+   */
+  readonly field: string | null;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, field: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.field = field;
   }
 }
 
