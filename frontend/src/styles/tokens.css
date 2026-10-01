@@ -1,12 +1,28 @@
+/**
+ * The design tokens every screen draws from.
+ *
+ * Light and dark are one list, not two: each themed token holds both values in a
+ * `light-dark()` pair, and `color-scheme` on `:root` decides which one applies.
+ * That keeps a single source of truth per token — adding a colour cannot leave a
+ * dark value behind in a second block — and it means the correct theme is painted
+ * on the first frame, before any script runs.
+ *
+ * `color-scheme: light dark` follows the operating system. `ThemeProvider` sets
+ * `data-theme` on `<html>` only when the user has picked a side (see
+ * `src/lib/theme.ts`); the two rules at the bottom are the whole mechanism.
+ */
 :root {
-  /* Neutral colors */
-  --color-bg: #ffffff;
-  --color-surface: #f7f7f8;
-  --color-border: #e2e2e6;
-  --color-text: #1a1a1f;
-  --color-text-muted: #5c5c66;
+  color-scheme: light dark;
 
-  /* VTL colors (CLAUDE.md §6) */
+  /* Neutral colors */
+  --color-bg: light-dark(#ffffff, #16171d);
+  --color-surface: light-dark(#f7f7f8, #1f2028);
+  --color-border: light-dark(#e2e2e6, #2e303a);
+  --color-text: light-dark(#1a1a1f, #f3f4f6);
+  --color-text-muted: light-dark(#5c5c66, #9ca3af);
+
+  /* VTL colors (CLAUDE.md §6). Fixed in both themes: a VTL colour carries
+     clinical meaning (IR-03), so it must mean the same thing in the dark. */
   --vtl-red: #c62828;
   --vtl-orange: #e65100;
   --vtl-yellow: #f9a825;
@@ -29,17 +45,17 @@
   /* Typography */
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-  /* Semantic colors. Values follow the wireframe prototype
+  /* Semantic colors. The light values follow the wireframe prototype
      (docs/prototype/TriageAI_Prototype.html --ink / --line / --red). "Ink" is
      the primary action and border color; it is deliberately near-black rather
      than a brand hue, so VTL colors stay the only meaningful color on screen
-     (IR-03). */
-  --color-ink: #1f1f1f;
-  --color-ink-contrast: #ffffff;
-  --color-line-strong: #9a9a9a;
-  --color-danger: #c62828;
-  --color-danger-bg: #fff7f6;
-  --color-focus: #1565c0;
+     (IR-03). In the dark theme ink and the page swap round. */
+  --color-ink: light-dark(#1f1f1f, #f3f4f6);
+  --color-ink-contrast: light-dark(#ffffff, #16171d);
+  --color-line-strong: light-dark(#9a9a9a, #6b7280);
+  --color-danger: light-dark(#c62828, #f87171);
+  --color-danger-bg: light-dark(#fff7f6, #2a1a1a);
+  --color-focus: light-dark(#1565c0, #7dd3fc);
 
   /* Borders. The prototype draws structural lines at 1.5px and emphasis at
      2px; keeping them as tokens stops the two drifting apart per screen. */
@@ -54,19 +70,12 @@
   --font-size-xl: 26px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #16171d;
-    --color-surface: #1f2028;
-    --color-border: #2e303a;
-    --color-text: #f3f4f6;
-    --color-text-muted: #9ca3af;
+/* A chosen theme pins `color-scheme`, which resolves every `light-dark()` pair
+   above and also tells the browser how to paint form controls and scrollbars. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
 
-    --color-ink: #f3f4f6;
-    --color-ink-contrast: #16171d;
-    --color-line-strong: #6b7280;
-    --color-danger: #f87171;
-    --color-danger-bg: #2a1a1a;
-    --color-focus: #7dd3fc;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }

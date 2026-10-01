@@ -23,6 +23,13 @@ describe("Login screen content (W-01)", () => {
     expect(screen.getByText("Sign in with your clinic account.")).toBeInTheDocument();
   });
 
+  it("carries no theme control: the sign-in screen follows the device", () => {
+    renderWithAuth(<Login />, { route: "/login" });
+
+    expect(screen.queryByRole("group", { name: "Theme" })).not.toBeInTheDocument();
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+
   it("labels both inputs and marks the password field as a password (IR-07)", () => {
     renderWithAuth(<Login />, { route: "/login" });
 
