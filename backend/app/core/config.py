@@ -66,6 +66,15 @@ class MockLLMBehavior(StrEnum):
     SLOW = "slow"
 
 
+# How long `slow` delays one model call. Long enough to show a real latency in
+# the stored `stage_ms` and in the UI, short enough that a test suite running the
+# whole behaviour matrix stays quick, and far inside `PIPELINE_TIMEOUT_S` — `slow`
+# means late, not timed out (P05 §5.2). It lives here, next to the enum that
+# selects it, so the mock stages and the mock provider share one value without
+# either importing the other.
+MOCK_SLOW_DELAY_S = 0.25
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -1,15 +1,22 @@
-"""The mock stages' generic answers (P05 §5.2's "no fixture match" case).
+"""The mock stages (P05 §5.2).
 
-Subphase 5.1 ships the skeletons, so this file covers what they return today: the
-generic answers, the provenance attributes, and `from_settings`. The fixture
-lookup and the per-behaviour matrix (`invalid_json`, `timeout`, `flaky`, `slow`)
-arrive with subphase 5.2 and are tested there.
+Three groups of tests, because the stages have three jobs. They replay the
+recorded demo scenarios; they fall back to a generic answer for anything the
+fixture file does not hold; and the two model stages simulate the failures
+`MOCK_LLM_BEHAVIOR` selects, which is what lets P05 §5.4 exercise its retry and
+failure paths with no network call.
 
-Two assertions are load-bearing beyond the mocks themselves. The generic passage
-score must stay *below* `retrieval_min_score`, and the generic primary complaint
-must stay `OTHER` — subphase 5.3's validator turns both into
-`low_confidence_reasons`, and the PD8 walkthrough depends on an unrecognised
-description looking uncertain rather than confident.
+Several assertions are load-bearing beyond the mocks themselves:
+
+- `DEMO_1` must replay a **YELLOW** draft together with a `MALE_CAT_NO_URINE` hit
+  at **ORANGE**. That pair is the input subphase 5.3's validator turns into the
+  ORANGE a reviewer sees, and it is how FR-23 is demonstrated on screen.
+- The generic passage score must stay *below* `retrieval_min_score`, and the
+  generic primary complaint must stay `OTHER` — the validator turns both into
+  `low_confidence_reasons`, and the walkthrough depends on an unrecognised
+  description looking uncertain rather than confident.
+- The screener must keep answering while the model stages are failing: a red-flag
+  alert has to reach the queue even when nothing else does (NFR-05, FR-12).
 
 All data here is fictitious (CLAUDE.md §9).
 """
@@ -18,9 +25,11 @@ import uuid
 
 import pytest
 
-from app.core.config import MockLLMBehavior, Settings
+from app.core.config import MOCK_SLOW_DELAY_S, MockLLMBehavior, Settings
 from app.models.enums import ConfidenceLevel, Species, VTLCategory
 from app.pipeline.config import PipelineConfig
+from app.pipeline.errors import LLMInvalidOutput, LLMTimeout, PipelineError
+from app.pipeline.mock_fixtures import MockFixture, load_fixtures
 from app.pipeline.mocks import (
     GENERIC_MISSING_INFORMATION,
     GENERIC_PASSAGE_SCORE,
@@ -53,6 +62,28 @@ ALL_MOCKS = [
 DESCRIPTION = (
     "She has been sneezing since yesterday and her left eye is watery. She still eats normally."
 )
+
+# The two stages that stand in for a model call, and so the two that simulate a
+# model failure. The screener and the retriever deliberately do not (P05 §5.2).
+MODEL_STAGES = [MockEntityExtractor, MockRecommendationGenerator]
+
+WORKING_SCENARIOS = ["DEMO_1", "DEMO_2", "DEMO_3"]
+
+
+def fixture(fixture_id: str) -> MockFixture:
+    return load_fixtures()[fixture_id]
+
+
+def call_model_stage(stage: object, fixture_id: str = "DEMO_1") -> object:
+    """Invoke whichever model stage this is with that scenario's input.
+
+    The behaviour matrix is the same for both, so the tests parametrise over the
+    classes and let this adapt the call.
+    """
+    scenario = fixture(fixture_id)
+    if isinstance(stage, MockEntityExtractor):
+        return stage.extract(scenario.description, scenario.species)
+    return stage.generate(scenario.extraction, scenario.passages)
 
 
 @pytest.fixture
@@ -102,7 +133,7 @@ def test_every_mock_reports_mock_provenance(
 def test_the_behavior_switch_is_read_from_settings(
     monkeypatch: pytest.MonkeyPatch, deps: PipelineDeps, behavior: MockLLMBehavior
 ) -> None:
-    """Every MOCK_LLM_BEHAVIOR value is accepted now; 5.2 gives each an effect."""
+    """The switch comes from settings, not from a constructor default."""
     for key, value in {**BASE_ENV, "MOCK_LLM_BEHAVIOR": behavior.value}.items():
         monkeypatch.setenv(key, value)
 
@@ -265,3 +296,242 @@ def test_the_mock_indexer_indexes_nothing(settings: Settings, deps: PipelineDeps
 
     assert stage.index_entry(entry_id) == 0
     assert stage.remove_entry(entry_id) is None
+
+
+# --- Fixture replay (P05 §5.2) -------------------------------------------
+
+
+@pytest.mark.parametrize("fixture_id", WORKING_SCENARIOS)
+def test_the_screener_replays_the_recorded_hits(
+    fixture_id: str, settings: Settings, deps: PipelineDeps
+) -> None:
+    scenario = fixture(fixture_id)
+    stage = MockRedFlagScreener.from_settings(settings, deps)
+
+    assert stage.screen(scenario.description, scenario.species, "MALE") == scenario.red_flags
+
+
+@pytest.mark.parametrize("fixture_id", WORKING_SCENARIOS)
+def test_the_extractor_replays_the_recorded_extraction(
+    fixture_id: str, settings: Settings, deps: PipelineDeps
+) -> None:
+    scenario = fixture(fixture_id)
+    stage = MockEntityExtractor.from_settings(settings, deps)
+
+    assert stage.extract(scenario.description, scenario.species) == scenario.extraction
+
+
+@pytest.mark.parametrize("fixture_id", WORKING_SCENARIOS)
+def test_the_retriever_replays_the_recorded_passages(
+    fixture_id: str, settings: Settings, deps: PipelineDeps
+) -> None:
+    """Found by the extraction alone — this stage never sees the text."""
+    scenario = fixture(fixture_id)
+    stage = MockRetriever.from_settings(settings, deps)
+
+    assert stage.retrieve(scenario.extraction, uuid.uuid4(), k=5) == scenario.passages
+
+
+@pytest.mark.parametrize("fixture_id", WORKING_SCENARIOS)
+def test_the_generator_replays_the_recorded_draft(
+    fixture_id: str, settings: Settings, deps: PipelineDeps
+) -> None:
+    scenario = fixture(fixture_id)
+    stage = MockRecommendationGenerator.from_settings(settings, deps)
+
+    assert stage.generate(scenario.extraction, scenario.passages) == scenario.draft
+
+
+def test_a_fixture_run_never_returns_more_than_k(settings: Settings, deps: PipelineDeps) -> None:
+    """DEMO_1 records three passages; `top_k` still caps what retrieval returns."""
+    scenario = fixture("DEMO_1")
+    stage = MockRetriever.from_settings(settings, deps)
+
+    assert len(scenario.passages) == 3
+    assert [p.rank for p in stage.retrieve(scenario.extraction, uuid.uuid4(), k=2)] == [1, 2]
+
+
+def test_demo_1_pairs_a_yellow_draft_with_an_orange_hit(
+    settings: Settings, deps: PipelineDeps
+) -> None:
+    """The FR-23 demonstration, end to end through the mocks.
+
+    Subphase 5.3's validator must raise this YELLOW to the ORANGE the red flag
+    requires. If the fixture ever drifted so the draft already matched the floor,
+    the safety floor would stop being visible in the walkthrough and the queue
+    would show the right answer for the wrong reason.
+    """
+    scenario = fixture("DEMO_1")
+    screener = MockRedFlagScreener.from_settings(settings, deps)
+    extractor = MockEntityExtractor.from_settings(settings, deps)
+    retriever = MockRetriever.from_settings(settings, deps)
+    generator = MockRecommendationGenerator.from_settings(settings, deps)
+
+    hits = screener.screen(scenario.description, Species.CAT, "MALE")
+    extraction = extractor.extract(scenario.description, Species.CAT)
+    passages = retriever.retrieve(extraction, uuid.uuid4(), k=5)
+    draft = generator.generate(extraction, passages)
+
+    assert [(h.rule_code, h.min_category) for h in hits] == [
+        ("MALE_CAT_NO_URINE", VTLCategory.ORANGE)
+    ]
+    assert draft.category == VTLCategory.YELLOW
+    assert all(p.score >= deps.config.retrieval_min_score for p in passages)
+    assert set(draft.cited_ranks) <= {p.rank for p in passages}
+
+
+# --- MOCK_LLM_BEHAVIOR (P05 §5.2) ----------------------------------------
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_ok_answers_normally(mock_class: type, deps: PipelineDeps) -> None:
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.OK)
+
+    assert call_model_stage(stage) is not None
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_invalid_json_fails_every_attempt(mock_class: type, deps: PipelineDeps) -> None:
+    """The orchestrator retries this one, then gives up (P05 §5.4 step 4)."""
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.INVALID_JSON)
+
+    with pytest.raises(LLMInvalidOutput):
+        call_model_stage(stage)
+    with pytest.raises(LLMInvalidOutput):
+        call_model_stage(stage)
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_timeout_raises_llm_timeout(mock_class: type, deps: PipelineDeps) -> None:
+    """Not retried: a timeout under load is not transient (app.pipeline.errors)."""
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.TIMEOUT)
+
+    with pytest.raises(LLMTimeout):
+        call_model_stage(stage)
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_flaky_fails_once_then_succeeds(mock_class: type, deps: PipelineDeps) -> None:
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.FLAKY)
+
+    with pytest.raises(LLMInvalidOutput):
+        call_model_stage(stage)
+
+    assert call_model_stage(stage) is not None
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_flaky_flakes_once_for_every_case_not_once_per_process(
+    mock_class: type, deps: PipelineDeps
+) -> None:
+    """The attempt count is per call, not per stage instance.
+
+    The registry builds each stage once at startup and shares it, so a per-stage
+    flag would flake on the first case the process ever saw and never again —
+    which would make the retry path untestable for everything after it.
+    """
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.FLAKY)
+
+    for fixture_id in WORKING_SCENARIOS:
+        with pytest.raises(LLMInvalidOutput):
+            call_model_stage(stage, fixture_id)
+        assert call_model_stage(stage, fixture_id) is not None
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_resetting_the_attempt_counts_makes_flaky_flake_again(
+    mock_class: type, deps: PipelineDeps
+) -> None:
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.FLAKY)
+
+    with pytest.raises(LLMInvalidOutput):
+        call_model_stage(stage)
+    call_model_stage(stage)
+    stage.reset_attempts()
+
+    with pytest.raises(LLMInvalidOutput):
+        call_model_stage(stage)
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+def test_slow_answers_late_but_answers(mock_class: type, deps: PipelineDeps) -> None:
+    """`slow` means late, not timed out, and the delay must stay inside the budget."""
+    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.SLOW)
+
+    assert call_model_stage(stage) is not None
+    assert stage.last_latency_ms >= int(MOCK_SLOW_DELAY_S * 1000)
+    assert MOCK_SLOW_DELAY_S < deps.config.timeout_s
+
+
+@pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
+@pytest.mark.parametrize(
+    "behavior", [MockLLMBehavior.INVALID_JSON, MockLLMBehavior.TIMEOUT], ids=lambda b: b.value
+)
+def test_latency_is_recorded_even_when_a_call_fails(
+    mock_class: type, deps: PipelineDeps, behavior: MockLLMBehavior
+) -> None:
+    """A failed attempt still took time, and the orchestrator stores what it reports."""
+    stage = mock_class(config=deps.config, behavior=behavior)
+
+    with pytest.raises(PipelineError):
+        call_model_stage(stage)
+
+    assert stage.last_latency_ms >= 0
+
+
+@pytest.mark.parametrize("behavior", list(MockLLMBehavior), ids=lambda b: b.value)
+def test_the_screener_answers_whatever_the_model_stages_are_doing(
+    deps: PipelineDeps, behavior: MockLLMBehavior
+) -> None:
+    """A red-flag alert must reach the queue even when the model path is down.
+
+    P05 §5.4 commits the alert rows before extraction runs, precisely so a failing
+    model cannot hide an urgent case (NFR-05, FR-12). That is only testable if the
+    screener itself refuses to fail with the rest.
+    """
+    scenario = fixture("DEMO_2")
+    stage = MockRedFlagScreener(config=deps.config, behavior=behavior)
+
+    assert stage.screen(scenario.description, scenario.species, "MALE") == scenario.red_flags
+
+
+@pytest.mark.parametrize("behavior", list(MockLLMBehavior), ids=lambda b: b.value)
+def test_the_retriever_answers_whatever_the_model_stages_are_doing(
+    deps: PipelineDeps, behavior: MockLLMBehavior
+) -> None:
+    """Retrieval is a database query in the real stage, not a model call."""
+    scenario = fixture("DEMO_2")
+    stage = MockRetriever(config=deps.config, behavior=behavior)
+
+    assert stage.retrieve(scenario.extraction, uuid.uuid4(), k=5) == scenario.passages
+
+
+# --- The forced-failure scenario (P05 §5.2, FR-15, NFR-09) ---------------
+
+
+def test_demo_4_fails_however_the_behavior_switch_is_set(
+    settings: Settings, deps: PipelineDeps
+) -> None:
+    """Its fixture forces the failure, so the walkthrough needs no `.env` change."""
+    scenario = fixture("DEMO_4")
+    stage = MockEntityExtractor.from_settings(settings, deps)
+
+    assert settings.mock_llm_behavior is MockLLMBehavior.OK
+    with pytest.raises(LLMInvalidOutput):
+        stage.extract(scenario.description, scenario.species)
+    with pytest.raises(LLMInvalidOutput):
+        stage.extract(scenario.description, scenario.species)
+
+
+def test_demo_4_failing_does_not_affect_the_other_scenarios(
+    settings: Settings, deps: PipelineDeps
+) -> None:
+    """One stage instance serves every case; a forced failure is per description."""
+    stage = MockEntityExtractor.from_settings(settings, deps)
+
+    with pytest.raises(LLMInvalidOutput):
+        stage.extract(fixture("DEMO_4").description, Species.DOG)
+
+    for fixture_id in WORKING_SCENARIOS:
+        scenario = fixture(fixture_id)
+        assert stage.extract(scenario.description, scenario.species) == scenario.extraction
