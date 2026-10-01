@@ -18,6 +18,7 @@ export const strings = {
     logOut: "Log out",
     skipToContent: "Skip to main content",
     loadingSession: "Checking your session…",
+    dismiss: "Dismiss",
     mainNavLabel: "Main",
   },
 
@@ -80,6 +81,94 @@ export const strings = {
       policy: "Use at least 12 characters, including at least one letter and one number.",
       mismatch: "The two new passwords do not match. Re-type them to continue.",
       unexpected: "The password could not be changed right now. Please try again.",
+    },
+  },
+
+  // W-03 Case Intake (FR-01, FR-02, FR-04, FR-07, FR-18).
+  caseIntake: {
+    title: "New Triage Case",
+
+    speciesLabel: "Species (required)",
+    species: {
+      DOG: "Dog",
+      CAT: "Cat",
+      OTHER: "Other species",
+    },
+
+    petNameLabel: "Pet name",
+    optionalSuffix: "(optional)",
+    ageLabel: "Age",
+    // Visually hidden: the visible "Age" label belongs to the number input, and
+    // the unit dropdown still needs a name of its own (NFR-21).
+    ageUnitLabel: "Age unit",
+    ageUnits: {
+      YEARS: "years",
+      MONTHS: "months",
+    },
+    // One control for two API fields, `sex` and `neutered`; the split happens in
+    // `lib/caseValidation.ts`.
+    sexLabel: "Sex and neuter status",
+    sexOptions: {
+      UNKNOWN: "Unknown",
+      MALE_INTACT: "Male, intact",
+      MALE_NEUTERED: "Male, neutered",
+      FEMALE_INTACT: "Female, intact",
+      FEMALE_SPAYED: "Female, spayed",
+    },
+    breedLabel: "Breed",
+    weightLabel: "Body weight (kg)",
+
+    intakeChannelLabel: "Intake channel",
+    intakeChannels: {
+      WALK_IN: "Walk-in",
+      PHONE: "Phone",
+      MESSAGE: "Message",
+    },
+
+    descriptionLabel: "Owner’s description of the problem (required, 20–2,000 characters)",
+    // The FR-18 instruction. Staff translate at intake; the system has no
+    // language detection and no translation component (ADR-16).
+    descriptionHelper:
+      "Enter the description in English. Translate any Filipino or Bikol words the owner " +
+      "used, and keep their exact wording in quotation marks if you are unsure of the " +
+      "meaning. Do not include the owner’s name or phone number here.",
+    // {count} and {max} are replaced with the live length and the limit.
+    descriptionCounter: "{count} / {max}",
+
+    ownerReferenceTitle: "Owner reference (optional)",
+    ownerReferenceCaption: "stored separately and never sent to AI services",
+    ownerNameLabel: "Owner name",
+    contactNumberLabel: "Contact number",
+
+    submit: "Submit for triage",
+    submitting: "Submitting…",
+    cancel: "Cancel",
+    latencyNote: "The recommendation usually appears within 10 seconds.",
+    // {caseNo} is replaced with the case number the server assigned.
+    submittedToast: "Case {caseNo} submitted",
+
+    // The same sentences as the server's `core/validation_messages.py`, so the
+    // form and the API cannot drift apart (IR-05). These keep the server's plain
+    // apostrophe, character for character; the labels above use the typographic
+    // one the wireframe draws.
+    errors: {
+      species: "Choose the species.",
+      // FR-02, BR-06. Identical to the server's SPECIES_OUT_OF_SCOPE message.
+      speciesOutOfScope: "Other species are not processed by the AI and must be triaged manually.",
+      descriptionMissing: "Enter the owner's description of the problem.",
+      descriptionTooShort:
+        "The description must be at least 20 characters. " +
+        "Add a little more detail about what the owner reported.",
+      descriptionTooLong: "The description must be 2,000 characters or fewer. Shorten it a little.",
+      petNameTooLong: "The pet name can be at most 60 characters.",
+      ageNotANumber: "Enter the age as a number, e.g. 3.",
+      ageOutOfRange: "Enter an age between 0 and 40.",
+      breedTooLong: "The breed can be at most 60 characters.",
+      weightNotANumber: "Enter the weight as a number, e.g. 4.2.",
+      weightOutOfRange: "Enter a weight between 0.1 and 120 kg.",
+      ownerNameTooLong: "The owner name can be at most 80 characters.",
+      contactNumberTooLong: "The contact number can be at most 30 characters.",
+      unexpected: "The case could not be submitted right now. Please try again.",
     },
   },
 

@@ -90,6 +90,39 @@ describe("apiFetch error mapping (IR-05)", () => {
     });
   });
 
+  it("keeps the field a validation error names, so a form can place it (FR-04)", async () => {
+    stub(422, {
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Enter the weight as a number, e.g. 4.2.",
+        field: "weight_kg",
+      },
+    });
+
+    const error = (await apiFetch("/cases", { method: "POST" }).catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
+
+    expect(error.code).toBe("VALIDATION_ERROR");
+    expect(error.field).toBe("weight_kg");
+  });
+
+  it("leaves the field null when the envelope names none", async () => {
+    stub(422, {
+      error: {
+        code: "SPECIES_OUT_OF_SCOPE",
+        message: "Other species are not processed by the AI and must be triaged manually.",
+      },
+    });
+
+    const error = (await apiFetch("/cases", { method: "POST" }).catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
+
+    expect(error.code).toBe("SPECIES_OUT_OF_SCOPE");
+    expect(error.field).toBeNull();
+  });
+
   it("falls back to a plain sentence when the body is not the envelope", async () => {
     stub(500, "<html>gateway error</html>");
 

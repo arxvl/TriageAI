@@ -1,0 +1,31 @@
+/* Always present so the live region exists before the first message; it has no
+   box of its own until one arrives. */
+.region {
+  position: fixed;
+  bottom: var(--space-3);
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+}
+
+.toast {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  font-weight: bold;
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+  border-radius: var(--radius-sm);
+}
+
+.dismiss {
+  padding: 0 var(--space-1);
+  font-family: inherit;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
