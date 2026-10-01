@@ -52,10 +52,18 @@ class GeneratorOption(StrEnum):
 
 
 class MockLLMBehavior(StrEnum):
+    """Which failure the mock stages simulate (P05 §5.2, ADR-17).
+
+    These are the paths that have to be demonstrable without a network call:
+    `invalid_json` fails every attempt, `flaky` fails the first and succeeds on
+    the retry, `timeout` and `slow` exercise the latency budget.
+    """
+
     OK = "ok"
+    INVALID_JSON = "invalid_json"
     TIMEOUT = "timeout"
-    INVALID_OUTPUT = "invalid_output"
-    UNAVAILABLE = "unavailable"
+    FLAKY = "flaky"
+    SLOW = "slow"
 
 
 class Settings(BaseSettings):
@@ -85,6 +93,17 @@ class Settings(BaseSettings):
     pipeline_generator: GeneratorOption = GeneratorOption.MOCK
 
     mock_llm_behavior: MockLLMBehavior = MockLLMBehavior.OK
+
+    # Pipeline run parameters (P05 §5.1 task 5). Read once into
+    # `app.pipeline.config.PipelineConfig`, which is what the stages receive;
+    # nothing outside the registry reads these fields directly.
+    pipeline_model_id: str = "mock"
+    pipeline_prompt_version: str = "mock-0"
+    pipeline_temperature: float = 0.0
+    pipeline_top_k: int = 5
+    pipeline_timeout_s: float = 30.0
+    pipeline_max_retries: int = 1
+    retrieval_min_score: float = 0.30
 
     @field_validator("embedding_provider", mode="before")
     @classmethod

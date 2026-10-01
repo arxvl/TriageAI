@@ -163,6 +163,65 @@ Until P05 adds the pipeline, a new case stays in `SUBMITTED` and every category
 comes back `null`; the queue shows "—". `POST /cases` becomes 202 at that point
 (FR-06).
 
+## Triage pipeline
+
+The AI stages are implemented manually by the team, guided by
+`docs/dev-prompts/M1`–`M7`. Everything around them — the contracts, the stage
+registry, the job queue, the deterministic safety validator — is ordinary
+application code, so the whole system runs end to end before any AI component
+exists (ADR-17).
+
+Each stage is a Protocol in `backend/app/pipeline/stages.py` with two
+implementations: a deterministic mock, and a real one written later. **All stage
+settings default to `mock`**, so a clean checkout starts, serves and passes its
+tests with no API key, no model download and no network.
+
+| Setting | Default | Real value | Guide |
+|---|---|---|---|
+| `PIPELINE_DEIDENTIFIER` | `mock` | `rules` | M1 |
+| `PIPELINE_REDFLAGS` | `mock` | `keywords` | M1 |
+| `LLM_PROVIDER` | `mock` | `hosted`, `ollama` | M2 |
+| `PIPELINE_EXTRACTOR` | `mock` | `llm` | M3 |
+| `EMBEDDING_PROVIDER` | *(blank)* | `sentence_transformer` | M4 |
+| `KB_INDEXER` | `mock` | `pgvector` | M5 |
+| `PIPELINE_RETRIEVER` | `mock` | `pgvector` | M6 |
+| `PIPELINE_GENERATOR` | `mock` | `llm` | M6 |
+
+`backend/app/pipeline/registry.py` imports a real stage's module **only if it is
+selected**. Selecting one before its guide has been followed is a startup error
+naming the guide, not an import traceback:
+
+```
+Stage PIPELINE_EXTRACTOR=llm selected but module not implemented yet
+(see M3: docs/dev-prompts/M3-entity-extraction.md).
+Set PIPELINE_EXTRACTOR=mock to run on the deterministic placeholder.
+```
+
+`EMBEDDING_PROVIDER` has no mock. Mock stages need no embeddings, so leaving it
+blank is the working configuration.
+
+**The de-identification guard.** The application refuses to start if
+`LLM_PROVIDER` is anything other than `mock` while `PIPELINE_DEIDENTIFIER` is
+still `mock` — the mock de-identifier returns the text unchanged, and only
+de-identified text may ever leave the server (IR-20, ADR-10). The check is in
+both `Settings` and the registry.
+
+`MOCK_LLM_BEHAVIOR` chooses which failure the mocks simulate — `ok`,
+`invalid_json`, `timeout`, `flaky` or `slow` — so the retry and manual-triage
+paths can be demonstrated without a network call. The remaining pipeline
+parameters (`PIPELINE_TOP_K`, `PIPELINE_TIMEOUT_S`, `PIPELINE_MAX_RETRIES`,
+`RETRIEVAL_MIN_SCORE`, …) are documented in `.env.example`; keep
+`PIPELINE_TEMPERATURE=0`, or a run stops being reproducible (ADR-14).
+
+A mock run is not a result. Every mock reports `model_id=mock` and
+`prompt_version=mock-0`, which is how a stored output can always be told apart
+from a real one (FR-26, NFR-23).
+
+Still to come in P05: the job queue and worker (§5.4), the safety validator
+(§5.3), and the fixture-driven mock answers from
+`backend/tests/fixtures/demo_cases.yaml` (§5.2). Until then the mocks return a
+generic `OTHER` extraction and a placeholder YELLOW draft.
+
 ## Web interface
 
 ```bash
