@@ -103,6 +103,42 @@ Authorisation is enforced on the server only: every endpoint except
 `/api/v1/health` and `/api/v1/auth/login` declares the `require_role(...)`
 dependency, and a test scans the route table to prove it (SR-05).
 
+## Web interface
+
+```bash
+cd frontend
+npm run lint      # ESLint
+npm run test      # Vitest + React Testing Library
+npm run build     # tsc -b, then the production bundle
+```
+
+Sign in at http://localhost:5173 with any seeded account and the password
+`ChangeMe!2026`. Every seeded account starts with a temporary password, so the
+first screen after login is always **Change password** (FR-61); nothing else is
+reachable until it is replaced.
+
+Navigation is role-aware (IR-02). The server enforces the same rules on every
+request, so the UI only hides what the API would refuse (SR-05):
+
+| Account | Lands on | Navigation |
+|---|---|---|
+| `intake@triageai.local` (Intake Staff) | `/queue` | Triage Queue, New Case, Case History |
+| `reviewer@triageai.local` (Veterinary Reviewer) | `/queue` | Triage Queue, New Case, Case History |
+| `approver@triageai.local` (Reviewer + `can_approve_kb`) | `/queue` | the three above, plus KB Approvals |
+| `admin@triageai.local` (Administrator) | `/admin/users` | Users, Knowledge Base, Evaluation, Exports |
+
+The feature screens behind those links are placeholders until P04-P09; the login
+screen, the change-password screen and the header shell are real.
+
+Interface text lives in `frontend/src/i18n/strings.ts` rather than inline, so a
+translated UI can be added without touching components (NFR-27). All of it is
+English (FR-18, ADR-16).
+
+`frontend/src/api/client.ts` is the only place that calls the API: it sends the
+session cookie, copies `triageai_csrf` into `X-CSRF-Token` on every mutating
+request, and turns the error envelope into a typed `ApiError` so screens branch
+on a code instead of a status (401 and 403 each cover several codes).
+
 ## Disclaimer
 The system provides decision support only. It never diagnoses, never recommends treatment, and
 never finalizes a category without a human decision.

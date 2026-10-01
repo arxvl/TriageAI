@@ -1,0 +1,15 @@
+.panel {
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.body {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+}
