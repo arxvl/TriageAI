@@ -732,8 +732,12 @@ def test_updated_at_moves_when_a_recommendation_lands(
 
 
 def test_updated_at_moves_when_a_decision_lands(service: CaseService, db_session: Session) -> None:
+    # Pinned to the fixed clock like every other row here. Left to the database
+    # default, the recommendation lands at the real current time, which is later
+    # than NOW for most of the day and makes the assertion below depend on when
+    # the suite is run.
     case = make_case(db_session, created_at=at(30))
-    make_recommendation(db_session, case=case, category=VTLCategory.GREEN)
+    make_recommendation(db_session, case=case, category=VTLCategory.GREEN, created_at=at(10))
     before = service.get_status(case.id).updated_at
 
     make_staff_decision(db_session, case=case, final_category=VTLCategory.GREEN, decided_at=NOW)
