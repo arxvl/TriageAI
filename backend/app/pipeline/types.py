@@ -24,6 +24,12 @@ from pydantic import BaseModel
 
 from app.models.enums import ConfidenceLevel, Species, VTLCategory
 
+# The complaint code for anything outside the supported set in
+# `presenting_complaints`. Defined here, with the contract that uses it, because
+# both the mock stages and the safety validator have to mean the same thing by
+# it (P05 §5.3 rule 4).
+OTHER_COMPLAINT = "OTHER"
+
 
 class RedFlagHit(BaseModel):
     """One red-flag rule that fired during the pre-screen (FR-12).
