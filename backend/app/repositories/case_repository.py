@@ -27,18 +27,21 @@ from sqlalchemy import ColumnElement, Row, Select, Sequence, exists, func, or_, 
 from sqlalchemy import case as sql_case
 from sqlalchemy.orm import Session
 
-from app.core.vtl import QUEUE_RANK, UNRANKED
+from app.core.vtl import QUEUE_RANK, UNRANKED, URGENCY_ORDER
 from app.models import (
     AgeUnit,
     Case,
     CaseStatus,
     ExtractionResult,
     IntakeChannel,
+    Job,
+    JobType,
     OwnerDescription,
     OwnerReference,
     PresentingComplaint,
     Recommendation,
     RedFlagAlert,
+    RedFlagRule,
     Sex,
     Signalment,
     Species,
@@ -288,6 +291,69 @@ class CaseRepository:
         statement = parts.join_onto(statement, with_complaint=False)
         statement = statement.where(Case.id == case_id)
         return self._session.execute(statement).one_or_none()
+
+    def latest_pipeline_job(self, case_id: uuid.UUID) -> Row | None:
+        """The newest `PIPELINE_RUN` job for a case: its status and its payload.
+
+        How far a run has got is reported from the job rather than from the case,
+        because `CaseStatus` has one value for the whole run — `PROCESSING` —
+        while W-03 wants to say which stage it is in (IR-22, P05 §5.4 task 6).
+        The newest job wins, so a re-run after recovery or a P07 regeneration
+        reports its own progress and not the previous attempt's.
+        """
+        statement = (
+            select(Job.status, Job.payload, Job.last_error)
+            .where(Job.case_id == case_id, Job.type == JobType.PIPELINE_RUN)
+            .order_by(Job.created_at.desc(), Job.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).one_or_none()
+
+    def unacknowledged_alerts(self) -> list[Row]:
+        """Red-flag alerts nobody has acknowledged yet, on open cases (FR-12).
+
+        The W-02 banner reads this. It joins `red_flag_rules` for the clinic's own
+        label rather than showing the rule code, and it carries no part of the
+        owner's description — `matched_text` is a substring of it, so it is not
+        selected here (CLAUDE.md §9, DR-04).
+
+        Ordered most urgent first by the rule's own minimum category, then oldest
+        first, so the banner leads with the case that cannot wait. Nothing writes
+        `acknowledged_at` until P07, so every alert on an open case shows until the
+        case is closed.
+        """
+        # Plain urgency order, not the queue's FR-29 rank: an alert always has a
+        # minimum category, so the "no category yet" slot does not apply.
+        rank = sql_case(
+            *[
+                (RedFlagAlert.min_category == category, position)
+                for position, category in enumerate(URGENCY_ORDER)
+            ],
+            else_=len(URGENCY_ORDER),
+        )
+        statement = (
+            select(
+                RedFlagAlert.id.label("alert_id"),
+                RedFlagAlert.rule_code,
+                RedFlagAlert.min_category,
+                RedFlagAlert.created_at,
+                Case.id.label("case_id"),
+                Case.case_no,
+                Case.species,
+                Signalment.pet_name,
+                RedFlagRule.label.label("rule_label"),
+            )
+            .select_from(RedFlagAlert)
+            .join(Case, Case.id == RedFlagAlert.case_id)
+            .join(RedFlagRule, RedFlagRule.code == RedFlagAlert.rule_code)
+            .outerjoin(Signalment, Signalment.case_id == Case.id)
+            .where(
+                RedFlagAlert.acknowledged_at.is_(None),
+                Case.status != CaseStatus.CLOSED,
+            )
+            .order_by(rank, RedFlagAlert.created_at.asc(), RedFlagAlert.id.asc())
+        )
+        return list(self._session.execute(statement).all())
 
 
 class _QueueParts:

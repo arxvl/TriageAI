@@ -123,7 +123,7 @@ dependency, and a test scans the route table to prove it (SR-05).
 
 | Endpoint | Roles | Purpose |
 |---|---|---|
-| `POST /api/v1/cases` | Intake Staff, Veterinary Reviewer | Create a case → `{id, case_no, status}` |
+| `POST /api/v1/cases` | Intake Staff, Veterinary Reviewer | Create a case and start its triage → 202 `{id, case_no, status}` |
 | `GET /api/v1/cases` | all roles | The Triage Queue, with filters and counters |
 | `GET /api/v1/cases/{id}/status` | Intake Staff, Veterinary Reviewer | Poll one case |
 
@@ -159,9 +159,18 @@ means the clinic's working day although every timestamp is stored in UTC (DR-03)
 The counters always describe the whole open queue and do not move when a filter is
 applied, so a counter can be used to apply one.
 
-Until P05 adds the pipeline, a new case stays in `SUBMITTED` and every category
-comes back `null`; the queue shows "—". `POST /cases` becomes 202 at that point
-(FR-06).
+The queue response also carries `red_flag_alerts`: every unacknowledged alert on
+an open case, with the case number, the species, the pet's name and the clinic's
+own label for the rule that fired. It is deliberately unfiltered — an alert is
+about a patient who needs someone now, and a filter the user happens to have on
+must not hide it — and it carries no part of the owner's description (FR-12,
+NFR-05).
+
+`GET /cases/{id}/status` answers `{status, category, has_red_flag, pipeline_stage,
+updated_at}`. `pipeline_stage` is `queued`, `deidentify`, `screen`, `extract`,
+`retrieve`, `generate`, `done` or `failed`, read from the case's newest
+`PIPELINE_RUN` job, so W-03 can say which step is running rather than only
+"processing" (IR-22).
 
 ## Triage pipeline
 
@@ -217,10 +226,66 @@ A mock run is not a result. Every mock reports `model_id=mock` and
 `prompt_version=mock-0`, which is how a stored output can always be told apart
 from a real one (FR-26, NFR-23).
 
-Still to come in P05: the job queue and worker (§5.4), the safety validator
-(§5.3), and the fixture-driven mock answers from
-`backend/tests/fixtures/demo_cases.yaml` (§5.2). Until then the mocks return a
-generic `OTHER` extraction and a placeholder YELLOW draft.
+### A run, end to end
+
+`POST /cases` writes the case and a `PIPELINE_RUN` job **in one transaction** and
+answers 202 (FR-06, ADR-08). There is no window in which a case exists that no
+worker will pick up. A worker thread started from the FastAPI lifespan claims jobs
+with `SELECT … FOR UPDATE SKIP LOCKED`, so two workers can never take the same one,
+and `TriagePipeline.run` then does, in order:
+
+1. `PROCESSING`, audit `PIPELINE_STARTED`.
+2. **De-identify.** The only place `owner_references` is read inside a run, and the
+   value is passed straight to the stage and bound to nothing (DR-04, ADR-10).
+3. **Pre-screen,** then insert each `RedFlagAlert` and **commit at once**. This is
+   the commit the design rests on: an alert reaches the queue within about two
+   seconds even when every model call after it times out (NFR-05, FR-12).
+4. **Extract,** retried `PIPELINE_MAX_RETRIES` times on unusable output and only on
+   that — a timeout under load is not transient, and retrying one would spend the
+   job's budget waiting (FR-15, IR-19).
+5. Store the `ExtractionResult` at version previous + 1. Outputs are versioned,
+   never updated, so a re-run after a crash leaves what a reviewer was shown
+   intact (ADR-14).
+6. Resolve the latest `KBVersion`, then **retrieve** and **generate**.
+7. Run the **safety validator**, then store the `Recommendation` and one
+   `RetrievedReference` per passage, each with the passage text copied and
+   `is_cited` set from the *validated* citation ranks (FR-22).
+8. `AWAITING_REVIEW`, audit `RECOMMENDATION_CREATED` — category and confidence
+   only, never the rationale or the description.
+
+The model never writes the stored category. `backend/app/pipeline/safety.py` takes
+the draft and applies four deterministic rules: invalid citations are dropped and
+their absence forces LOW confidence (FR-22); a red flag raises the category to its
+minimum and records the rule code, **never lowering it** (FR-23, NFR-08); a best
+retrieval score under `RETRIEVAL_MIN_SCORE` caps confidence at MEDIUM; and a
+primary complaint of `OTHER` recommends manual triage. Confidence can only ever
+fall (FR-24, ADR-09).
+
+**Every failure ends somewhere.** Any stage failure sets the case to
+`MANUAL_TRIAGE_REQUIRED`, writes `PIPELINE_FAILED` to the audit log and records a
+reason code — `EXTRACTION_TIMEOUT`, `GENERATION_INVALID_OUTPUT`,
+`KB_VERSION_MISSING`, … — in the job's `last_error`. A case is never lost and never
+left in `PROCESSING` (NFR-09). Jobs a crash left `RUNNING` for more than
+`JOB_STALE_AFTER_MINUTES` are returned to the queue on the next startup (NFR-13).
+
+A run needs the rows `scripts/seed.py` creates: the presenting complaints, the
+placeholder red-flag rules and knowledge-base version 0. Without a `KBVersion`
+there is nothing to cite, so the run fails to manual triage rather than inventing
+one (FR-22, FR-54).
+
+```bash
+docker compose exec backend python -m scripts.seed
+docker compose exec db psql -U triageai -d triageai \
+  -c "select action, entity_type, ts from audit_log order by id;"
+docker compose exec db psql -U triageai -d triageai \
+  -c "select type, status, attempts, last_error from jobs order by created_at;"
+```
+
+Paste the `DEMO_1` description from `backend/tests/fixtures/demo_cases.yaml` to see
+FR-23 on screen: the mock generator drafts **YELLOW**, the pre-screen reports
+`MALE_CAT_NO_URINE` at ORANGE, and the stored category is **ORANGE** with the rule
+code recorded. `DEMO_4` fails on its own, whatever `MOCK_LLM_BEHAVIOR` is set to,
+so the manual-triage path can be shown beside three working cases in one pass.
 
 ## Web interface
 
@@ -281,10 +346,13 @@ and still says exactly what the API would say. The form reports every invalid
 field at once; the API reports the first, and places it beside the named input
 through the envelope's `field` key (FR-04, IR-05).
 
-The remaining feature screens are placeholders until P05-P09; the login screen,
+The remaining feature screens are placeholders until P06-P09; the login screen,
 the change-password screen, the Triage Queue, the intake form and the header shell
-are real. The red-flag banner above the queue is built and empty: P05's
-deterministic pre-screen is what fills it (FR-12, NFR-05).
+are real. Submitting a case shows "Processing…" with the number just assigned and
+then moves to the queue, where the row carries the AI-pending chip until a reviewer
+decides (FR-06, FR-36, IR-04). The banner above the table announces every
+unacknowledged red-flag alert, naming the patient and the clinic's label for the
+rule — never the text the rule matched (FR-12, NFR-05, DR-04).
 
 Interface text lives in `frontend/src/i18n/strings.ts` rather than inline, so a
 translated UI can be added without touching components (NFR-27). All of it is

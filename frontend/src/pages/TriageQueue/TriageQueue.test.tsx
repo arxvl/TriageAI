@@ -14,7 +14,12 @@ import { fireEvent, screen, waitFor, within, act } from "@testing-library/react"
 import { Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { QUEUE_POLL_INTERVAL_MS, type CaseListResponse, type CaseQueueItem } from "../../api/cases";
+import {
+  QUEUE_POLL_INTERVAL_MS,
+  type CaseListResponse,
+  type CaseQueueItem,
+  type QueueRedFlagAlert,
+} from "../../api/cases";
 import { strings } from "../../i18n/strings";
 import { makeUser, renderWithAuth, stubFetch } from "../../test/testUtils";
 import { TriageQueue } from "./TriageQueue";
@@ -111,7 +116,33 @@ const PROCESSING_CASE: CaseQueueItem = {
   has_red_flag: false,
 };
 
-function queueResponse(items: CaseQueueItem[] = []): CaseListResponse {
+/** What the pipeline's pre-screen produces for the banner (FR-12, NFR-05). */
+const RED_FLAG_ALERT: QueueRedFlagAlert = {
+  case_id: RED_CASE.id,
+  case_no: RED_CASE.case_no,
+  species: "DOG",
+  pet_name: "Bantay",
+  rule_code: "NOT_BREATHING",
+  rule_label: "Not breathing",
+  min_category: "RED",
+  created_at: "2026-10-01T01:42:00Z",
+};
+
+const UNNAMED_ALERT: QueueRedFlagAlert = {
+  ...RED_FLAG_ALERT,
+  case_id: PROCESSING_CASE.id,
+  case_no: PROCESSING_CASE.case_no,
+  species: "CAT",
+  pet_name: null,
+  rule_code: "MALE_CAT_NO_URINE",
+  rule_label: "Male cat straining with no urine passed",
+  min_category: "ORANGE",
+};
+
+function queueResponse(
+  items: CaseQueueItem[] = [],
+  alerts: QueueRedFlagAlert[] = [],
+): CaseListResponse {
   return {
     items,
     counts: {
@@ -120,6 +151,7 @@ function queueResponse(items: CaseQueueItem[] = []): CaseListResponse {
       awaiting_review_count: 1,
       total: 4,
     },
+    red_flag_alerts: alerts,
     generated_at: "2026-10-01T01:43:00Z",
   };
 }
@@ -413,5 +445,69 @@ describe("TriageQueue polling", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // --- The red-flag banner (FR-12, NFR-05) ---------------------------------
+
+  it("announces an unacknowledged red-flag alert, naming the patient and the rule", async () => {
+    stubFetch({ "/cases": { body: queueResponse(FULL_QUEUE, [RED_FLAG_ALERT]) } });
+    renderQueue();
+
+    const banner = await screen.findByRole("alert", { name: copy.redFlagBannerLabel });
+
+    expect(banner).toHaveTextContent(RED_CASE.case_no);
+    expect(banner).toHaveTextContent("Dog · Bantay");
+    expect(banner).toHaveTextContent("Not breathing");
+    // DR-04: the banner never carries the text the rule matched.
+    expect(within(banner).getByRole("link", { name: copy.redFlagOpenCase })).toHaveAttribute(
+      "href",
+      `/cases/${RED_CASE.id}`,
+    );
+  });
+
+  it("leaves the patient's name out of the sentence when the case has none", async () => {
+    stubFetch({ "/cases": { body: queueResponse(FULL_QUEUE, [UNNAMED_ALERT]) } });
+    renderQueue();
+
+    const banner = await screen.findByRole("alert", { name: copy.redFlagBannerLabel });
+
+    expect(banner).toHaveTextContent("Cat – Male cat straining with no urine passed");
+  });
+
+  it("announces nothing when there are no alerts", async () => {
+    stubFetch({ "/cases": { body: queueResponse(FULL_QUEUE) } });
+    renderQueue();
+
+    await screen.findByText(RED_CASE.case_no);
+
+    expect(screen.queryByRole("alert", { name: copy.redFlagBannerLabel })).not.toBeInTheDocument();
+  });
+
+  // --- What the pipeline's output looks like in a row (FR-36, IR-04) --------
+
+  it("shows a recommended category as pending until a reviewer decides", async () => {
+    stubFetch({ "/cases": { body: queueResponse([RED_CASE]) } });
+    renderQueue();
+
+    const row = (await screen.findByText(RED_CASE.case_no)).closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText(strings.statusChip.awaitingReview)).toBeVisible();
+    // IR-03: the colour is never alone — the code and the target time are text.
+    expect(within(row as HTMLElement).getByText(strings.vtl.codes.RED)).toBeVisible();
+    expect(within(row as HTMLElement).getByText(strings.vtl.targets.RED)).toBeVisible();
+  });
+
+  it("marks a case the pipeline could not triage with the MANUAL badge", async () => {
+    stubFetch({ "/cases": { body: queueResponse([MANUAL_CASE]) } });
+    renderQueue();
+
+    const row = (await screen.findByText(MANUAL_CASE.case_no)).closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText(strings.vtl.codes.MANUAL)).toBeVisible();
+    expect(
+      within(row as HTMLElement).getByText(strings.statusChip.manualTriageRequired),
+    ).toBeVisible();
   });
 });

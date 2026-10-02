@@ -68,10 +68,12 @@ export interface CaseCreated {
 }
 
 /**
- * Record a new case (FR-01, FR-03).
+ * Record a new case and start its triage (FR-01, FR-03, FR-06).
  *
- * Answers 201 today; P05 starts the pipeline on submission and it becomes 202
- * (FR-06). `apiFetch` treats both as success, so nothing here changes then.
+ * Answers 202 Accepted: the case and its pipeline job are committed together and a
+ * worker picks the job up within about half a second, so the recommendation does
+ * not exist yet. The returned status is `SUBMITTED`; `getCaseStatus` reports the
+ * rest (ADR-08, IR-22).
  *
  * Throws `ApiError`: `VALIDATION_ERROR` naming a field (FR-04), or
  * `SPECIES_OUT_OF_SCOPE` with no field for a species the AI does not process
@@ -150,9 +152,36 @@ export interface CaseQueueCounts {
   total: number;
 }
 
+/**
+ * One entry in the W-02 red-flag banner (FR-12, NFR-05).
+ *
+ * Enough to recognise the patient and act, and no more: there is no field for the
+ * text the rule matched, because that is a substring of the owner's description
+ * and the banner is the most widely visible surface in the application (DR-04).
+ *
+ * `rule_label` is the clinic's own wording for the rule, not its code.
+ */
+export interface QueueRedFlagAlert {
+  case_id: string;
+  case_no: string;
+  species: Species;
+  pet_name: string | null;
+  rule_code: string;
+  rule_label: string;
+  min_category: VTLCategory;
+  /** ISO-8601 UTC. */
+  created_at: string;
+}
+
 export interface CaseListResponse {
   items: CaseQueueItem[];
   counts: CaseQueueCounts;
+  /**
+   * The banner above the table. Part of this response rather than its own
+   * endpoint, so the alerts and the rows a reviewer compares them against are read
+   * at the same instant. Unfiltered, like the counters (FR-12).
+   */
+  red_flag_alerts: QueueRedFlagAlert[];
   /** Drives the "Updated N s ago" indicator (IR-22). */
   generated_at: string;
 }
@@ -186,3 +215,33 @@ export async function listCases(filters: CaseQueueFilters = {}): Promise<CaseLis
   const query = params.toString();
   return apiFetch<CaseListResponse>(query === "" ? "/cases" : `/cases?${query}`);
 }
+
+/**
+ * How far the triage pipeline has got on one case (IR-22, ADR-08).
+ *
+ * `queued` is a job nobody has claimed yet; `done` and `failed` are the two
+ * finished states. The five in between are the orchestrator's own steps, so a case
+ * that is taking a long time says which stage it is in.
+ */
+export type PipelineStage =
+  "queued" | "deidentify" | "screen" | "extract" | "retrieve" | "generate" | "done" | "failed";
+
+/**
+ * The polling response while a case is being processed (IR-22).
+ *
+ * `pipeline_stage` is null for a case with no pipeline job — every case recorded
+ * before the pipeline existed.
+ */
+export interface CaseStatusOut {
+  status: CaseStatus;
+  category: VTLCategory | null;
+  has_red_flag: boolean;
+  pipeline_stage: PipelineStage | null;
+  /** ISO-8601 UTC. */
+  updated_at: string;
+}
+
+// `GET /cases/{id}/status` has no caller yet. The queue's own 15-second poll is
+// what W-02 refreshes from (IR-22), and the per-case polling this response is for
+// belongs to the Case Review screen in P06. The types above are the contract, kept
+// here with the rest of the endpoint's shapes.

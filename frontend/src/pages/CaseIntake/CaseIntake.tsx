@@ -46,6 +46,17 @@ const copy = strings.caseIntake;
 const DESCRIPTION_HELPER_ID = "description-helper";
 const SPECIES_NOTICE_ID = "species-notice";
 const FORM_ERROR_ID = "case-intake-error";
+const PROCESSING_ID = "case-intake-processing";
+
+/**
+ * How long the "Processing…" notice stays before the queue takes over (FR-06).
+ *
+ * A deliberate pause, not a wait for anything: the 202 has already arrived and the
+ * pipeline runs in the background (ADR-08). Without it the notice would exist for
+ * one microtask and nobody would read it — and what it tells the user is the thing
+ * the queue cannot, that *this* case is the one now being worked on.
+ */
+const PROCESSING_NOTICE_MS = 900;
 
 const SPECIES_OPTIONS: readonly { value: SpeciesInput; label: string }[] = [
   { value: "DOG", label: copy.species.DOG },
@@ -118,6 +129,14 @@ export function CaseIntake() {
   const [fieldErrors, setFieldErrors] = useState<CaseFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /**
+   * The case number the server just assigned, while the pipeline has it (FR-06).
+   *
+   * Set on a 202 and never cleared: the screen's job is finished at that point and
+   * the navigation to the queue follows, so the notice is what the user reads in
+   * between rather than a state the form returns from.
+   */
+  const [processingCaseNo, setProcessingCaseNo] = useState<string | null>(null);
 
   const isOtherSpecies = values.species === "OTHER";
 
@@ -188,12 +207,19 @@ export function CaseIntake() {
     setIsSubmitting(true);
     try {
       const created = await createCase(toCaseCreateRequest({ ...values, species: values.species }));
+      // 202: the case is recorded and a worker has the pipeline job (ADR-08). The
+      // notice says so before the queue takes over, so submitting never looks like
+      // nothing happened while the browser navigates.
+      setProcessingCaseNo(created.case_no);
       showToast(copy.submittedToast.replace("{caseNo}", created.case_no));
+      await new Promise((resolve) => setTimeout(resolve, PROCESSING_NOTICE_MS));
       await navigate("/queue");
     } catch (caught) {
-      reportServerError(caught);
-    } finally {
+      // Submitting is finished only on the failing path; on the successful one the
+      // button stays disabled through the navigation, so one case cannot be
+      // submitted twice.
       setIsSubmitting(false);
+      reportServerError(caught);
     }
   }
 
@@ -400,6 +426,12 @@ export function CaseIntake() {
           <p id={FORM_ERROR_ID} className={styles.formError} role="alert">
             {formError}
           </p>
+
+          {processingCaseNo !== null && (
+            <p id={PROCESSING_ID} className={styles.processing} role="status">
+              {copy.processingNotice.replace("{caseNo}", processingCaseNo)}
+            </p>
+          )}
 
           <div className={styles.actions}>
             <button

@@ -23,6 +23,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.jobs.queue import JobStage
 from app.models.enums import (
     AgeUnit,
     CaseStatus,
@@ -209,9 +210,36 @@ class CaseQueueCounts(BaseModel):
     total: int
 
 
+class QueueRedFlagAlert(BaseModel):
+    """One entry in the W-02 red-flag banner (FR-12, NFR-05).
+
+    Enough to recognise the patient and act: the case number, the species, the
+    pet's name and the clinic's own label for the rule that fired. Deliberately
+    **not** the alert's `matched_text` — that is a substring of the owner's
+    description, and the banner is the most widely visible surface in the
+    application (CLAUDE.md §9, DR-04).
+
+    `min_category` is the floor the rule imposes, so the banner can be ordered and
+    coloured with the category name beside it (IR-03).
+    """
+
+    case_id: uuid.UUID
+    case_no: str
+    species: Species
+    pet_name: str | None
+    rule_code: str
+    rule_label: str
+    min_category: VTLCategory
+    created_at: datetime
+
+
 class CaseListResponse(BaseModel):
     items: list[CaseQueueItem]
     counts: CaseQueueCounts
+    # The banner above the table. Part of the queue response rather than its own
+    # endpoint, so the alerts and the rows a reviewer compares them against are
+    # read at the same instant and cannot disagree (FR-12).
+    red_flag_alerts: list[QueueRedFlagAlert]
     # Drives the "Updated N s ago, auto-refresh every 15 s" indicator (IR-22).
     generated_at: datetime
 
@@ -219,10 +247,14 @@ class CaseListResponse(BaseModel):
 class CaseStatusOut(BaseModel):
     """The polling response while a case is being processed (IR-22, ADR-08).
 
-    P05 adds `pipeline_stage` here once the orchestrator records progress.
+    `pipeline_stage` comes from the case's newest `PIPELINE_RUN` job, so W-03 can
+    say which step is running instead of only "processing". It is `None` for a
+    case with no job — every case created before P05, and any case whose job row
+    has been pruned.
     """
 
     status: CaseStatus
     category: VTLCategory | None
     has_red_flag: bool
+    pipeline_stage: JobStage | None
     updated_at: datetime

@@ -168,6 +168,14 @@
   color: var(--color-danger);
 }
 
+/* The "Processing…" notice shown between the 202 and the move to the queue. */
+.processing {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+}
+
 .actions {
   display: flex;
   gap: var(--space-3);
