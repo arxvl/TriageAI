@@ -35,9 +35,13 @@ import {
   type CaseQueueItem,
   type CaseStatus,
   type QueueCategoryFilter,
+  type QueueRedFlagAlert,
   type Species,
 } from "../../api/cases";
-import { RedFlagBanner } from "../../components/RedFlagBanner";
+import {
+  RedFlagBanner,
+  type QueueRedFlagAlert as BannerAlert,
+} from "../../components/RedFlagBanner";
 import { StatusChip } from "../../components/StatusChip";
 import { VtlBadge } from "../../components/VtlBadge";
 import { strings } from "../../i18n/strings";
@@ -127,8 +131,8 @@ export function TriageQueue() {
 
   return (
     <div className={styles.page}>
-      {/* Empty until P05 runs the red-flag pre-screen (FR-12, NFR-05). */}
-      <RedFlagBanner alerts={[]} />
+      {/* Filled by the pipeline's deterministic pre-screen (FR-12, NFR-05). */}
+      <RedFlagBanner alerts={(data?.red_flag_alerts ?? []).map(toBannerAlert)} />
 
       <div className={styles.header}>
         <h1 className={styles.title}>{copy.title}</h1>
@@ -164,6 +168,31 @@ export function TriageQueue() {
       <p className={styles.colorNote}>{copy.colorNote}</p>
     </div>
   );
+}
+
+/**
+ * One API alert as the banner's own shape.
+ *
+ * The sentence is built here rather than in `RedFlagBanner`, which takes a
+ * finished `summary`: the component is about announcing something urgently and
+ * accessibly, and the wording of what is announced is a queue concern. The pet's
+ * name is included when there is one and left out when there is not, so the
+ * sentence never reads "Cat  – …".
+ *
+ * `case_id` is the key and the link target, so two alerts on one case would
+ * collide. That cannot happen yet — one rule fires once per case — and when it
+ * can, the key becomes the alert's own id.
+ */
+function toBannerAlert(alert: QueueRedFlagAlert): BannerAlert {
+  const patient = [copy.species[alert.species], alert.pet_name]
+    .filter((part) => part !== null && part !== "")
+    .join(" · ");
+
+  return {
+    caseId: alert.case_id,
+    caseNo: alert.case_no,
+    summary: copy.redFlagSummary.replace("{patient}", patient).replace("{rule}", alert.rule_label),
+  };
 }
 
 /**

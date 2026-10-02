@@ -12,10 +12,14 @@ All data here is fictitious (CLAUDE.md §9).
 import uuid
 from collections.abc import Generator, Iterator
 from datetime import UTC, datetime
+from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
+import yaml
 from alembic import command
 from alembic.config import Config
 from fastapi.dependencies.models import Dependant
@@ -23,15 +27,16 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import Connection, Engine, create_engine, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.cookies import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME
 from app.api.deps import ROLE_GUARD_ATTR
-from app.core.config import AppEnv, get_settings
+from app.core.config import AppEnv, Settings, get_settings
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.main import create_app
 from app.models import (
+    AgeUnit,
     AuditEntry,
     Case,
     CaseStatus,
@@ -40,10 +45,16 @@ from app.models import (
     DecisionType,
     ExtractionResult,
     IntakeChannel,
+    Job,
+    JobStatus,
+    JobType,
+    KBVersion,
     OwnerDescription,
+    OwnerReference,
     Recommendation,
     RedFlagAlert,
     RedFlagRule,
+    Sex,
     Signalment,
     Species,
     StaffDecision,
@@ -51,8 +62,19 @@ from app.models import (
     UserRole,
     VTLCategory,
 )
+from app.pipeline.registry import build_pipeline
+from app.repositories.case_repository import (
+    CaseRepository,
+    OwnerReferenceValues,
+    SignalmentValues,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+# The demo scenarios the mock stages replay (P05 §5.2). Read here as well as by
+# `app.pipeline.mock_fixtures` so a test can build the *case* a scenario describes,
+# which the loader's `MockFixture` deliberately does not carry.
+DEMO_CASES_PATH = BACKEND_ROOT / "tests" / "fixtures" / "demo_cases.yaml"
 
 # Used to create the test database itself; always present in a PostgreSQL
 # cluster, so it is safe to connect to while `triageai_test` does not exist.
@@ -155,27 +177,65 @@ def owner_engine(migrated_database: str) -> Generator[Engine, None, None]:
     engine.dispose()
 
 
-def rolled_back_session(engine: Engine) -> Generator[Session, None, None]:
-    """Yield a session whose work is always rolled back.
-
-    `create_savepoint` keeps a deliberately failing statement from poisoning
-    the outer transaction, so a test can assert on a rejection and still clean
-    up.
-    """
+def rolled_back_connection(engine: Engine) -> Generator[Connection, None, None]:
+    """Yield a connection inside a transaction that is always rolled back."""
     connection: Connection = engine.connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
     try:
-        yield session
+        yield connection
     finally:
-        session.close()
         transaction.rollback()
         connection.close()
 
 
+def session_on(connection: Connection) -> Session:
+    """A session nested in `connection`'s transaction.
+
+    `create_savepoint` is what makes two things possible at once: a deliberately
+    failing statement does not poison the outer transaction, so a test can assert
+    on a rejection and still clean up — and a session that *commits* (which the
+    pipeline does, several times per run) only releases its savepoint, so the
+    outer rollback still removes everything.
+    """
+    return Session(bind=connection, join_transaction_mode="create_savepoint")
+
+
+def rolled_back_session(engine: Engine) -> Generator[Session, None, None]:
+    """Yield a session whose work is always rolled back."""
+    for connection in rolled_back_connection(engine):
+        session = session_on(connection)
+        try:
+            yield session
+        finally:
+            session.close()
+
+
 @pytest.fixture
-def db_session(app_engine: Engine) -> Generator[Session, None, None]:
-    yield from rolled_back_session(app_engine)
+def db_connection(app_engine: Engine) -> Generator[Connection, None, None]:
+    """One rolled-back transaction, shared by the test and the code under test."""
+    yield from rolled_back_connection(app_engine)
+
+
+@pytest.fixture
+def db_session(db_connection: Connection) -> Generator[Session, None, None]:
+    session = session_on(db_connection)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def app_session_factory(db_connection: Connection) -> sessionmaker:
+    """A `sessionmaker` the pipeline and the worker can open sessions from.
+
+    Bound to the same connection as `db_session`, so a row the orchestrator
+    commits is visible to the test that asserts on it and still vanishes when the
+    outer transaction rolls back. This is the whole reason `build_pipeline` takes
+    a `session_factory` override: without it a run would have to touch the
+    development database.
+    """
+    return sessionmaker(bind=db_connection, join_transaction_mode="create_savepoint")
 
 
 @pytest.fixture
@@ -398,6 +458,140 @@ def make_red_flag_alert(
     return alert
 
 
+def make_owner_reference(
+    session: Session,
+    *,
+    case: Case,
+    owner_name: str | None = "Owner Placeholder",
+    contact_number: str | None = "0999-000-0000",
+) -> OwnerReference:
+    """Insert a fictitious owner reference (FR-07, DR-04).
+
+    Only the de-identifier may read these columns, so the tests that create one
+    are the de-identification tests and the pipeline tests that prove nothing else
+    does (CLAUDE.md §9).
+    """
+    reference = OwnerReference(
+        case_id=case.id, owner_name=owner_name, contact_number=contact_number
+    )
+    session.add(reference)
+    session.flush()
+    return reference
+
+
+def make_kb_version(session: Session, *, version_no: int = 0) -> KBVersion:
+    """Get or create a knowledge-base version for a run to be pinned to (FR-54).
+
+    A run with no version at all takes the failure path, which is its own test; the
+    rest need one to exist, exactly as `scripts/seed.py` creates version 0.
+    """
+    existing = session.query(KBVersion).filter_by(version_no=version_no).one_or_none()
+    if existing is not None:
+        return existing
+    version = KBVersion(version_no=version_no, note="Fixture – no entries")
+    session.add(version)
+    session.flush()
+    return version
+
+
+def make_job(
+    session: Session,
+    *,
+    case: Case | None = None,
+    job_type: JobType = JobType.PIPELINE_RUN,
+    status: JobStatus = JobStatus.QUEUED,
+    attempts: int = 0,
+    payload: dict | None = None,
+    run_after: datetime | None = None,
+    created_at: datetime | None = None,
+    updated_at: datetime | None = None,
+) -> Job:
+    """Insert a job row directly.
+
+    `updated_at` is settable because the recovery sweep measures staleness from it
+    and a test must be able to place a job two minutes in the past without
+    sleeping.
+    """
+    job = Job(
+        type=job_type,
+        case_id=None if case is None else case.id,
+        payload=payload,
+        status=status,
+        attempts=attempts,
+        run_after=run_after,
+    )
+    if created_at is not None:
+        job.created_at = created_at
+    if updated_at is not None:
+        job.updated_at = updated_at
+    session.add(job)
+    session.flush()
+    return job
+
+
+@lru_cache(maxsize=1)
+def demo_cases() -> dict[str, dict[str, Any]]:
+    """The demo scenarios by fixture id, straight from the YAML."""
+    document = yaml.safe_load(DEMO_CASES_PATH.read_text(encoding="utf-8")) or {}
+    return {case["id"]: case for case in document.get("cases") or []}
+
+
+def make_demo_case(
+    session: Session,
+    fixture_id: str,
+    *,
+    created_by: User | None = None,
+    owner_name: str | None = None,
+    contact_number: str | None = None,
+    created_at: datetime | None = None,
+) -> Case:
+    """Insert the case one demo scenario describes, through the real write path.
+
+    `CaseRepository.insert_case` rather than hand-built rows, so the description
+    and the signalment a run reads are written exactly as intake writes them — the
+    mock stages match a fixture by the description, and a test that stored it
+    differently would silently fall through to the generic answers.
+    """
+    spec = demo_cases()[fixture_id]
+    signalment = spec.get("signalment") or {}
+    arrived_at = created_at or datetime.now(UTC)
+    repository = CaseRepository(session)
+
+    return repository.insert_case(
+        case_no=repository.next_case_no(),
+        species=Species(spec["species"]),
+        intake_channel=IntakeChannel(spec.get("intake_channel", "WALK_IN")),
+        status=CaseStatus.SUBMITTED,
+        created_by=(created_by or make_user(session)).id,
+        arrived_at=arrived_at,
+        description=spec["description"],
+        signalment=SignalmentValues(
+            pet_name=signalment.get("pet_name"),
+            age_value=(
+                None
+                if signalment.get("age_value") is None
+                else Decimal(str(signalment["age_value"]))
+            ),
+            age_unit=(
+                None if signalment.get("age_unit") is None else AgeUnit(signalment["age_unit"])
+            ),
+            sex=Sex(signalment.get("sex", "UNKNOWN")),
+            neutered=signalment.get("neutered"),
+            breed=signalment.get("breed"),
+            weight_kg=(
+                None
+                if signalment.get("weight_kg") is None
+                else Decimal(str(signalment["weight_kg"]))
+            ),
+        ),
+        owner_reference=(
+            OwnerReferenceValues(owner_name=owner_name, contact_number=contact_number)
+            if owner_name is not None or contact_number is not None
+            else None
+        ),
+    )
+
+
 def insert_audit_entry(session: Session, *, action: str = "CASE_CREATED") -> int:
     """Insert an audit row through raw SQL and return its id.
 
@@ -416,6 +610,40 @@ def insert_audit_entry(session: Session, *, action: str = "CASE_CREATED") -> int
 # --- HTTP client (P03) ----------------------------------------------------
 
 
+# --- The pipeline, on the test transaction (P05) ---------------------------
+
+
+def test_settings(**overrides: object) -> Settings:
+    """The application settings with fields replaced, for one test.
+
+    `model_copy` rather than `Settings(...)`: the cached settings already carry the
+    passwords and URLs from `.env`, and a test that wants a different
+    `MOCK_LLM_BEHAVIOR` should not have to restate them.
+    """
+    return get_settings().model_copy(update=overrides)
+
+
+@pytest.fixture
+def pipeline_factory(app_session_factory: sessionmaker):
+    """Build a fully mocked `TriagePipeline` that runs on the test transaction.
+
+    One per call, not one per session: the mock stages keep the attempt counts the
+    `flaky` behaviour needs, so a test that wants a first-attempt failure must
+    start from a pipeline that has not seen that case yet.
+    """
+
+    def build(**overrides: object):
+        return build_pipeline(test_settings(**overrides), session_factory=app_session_factory)
+
+    return build
+
+
+@pytest.fixture
+def pipeline(pipeline_factory):
+    """The default pipeline: every stage mocked, `MOCK_LLM_BEHAVIOR=ok`."""
+    return pipeline_factory()
+
+
 @pytest.fixture
 def api_client(db_session: Session) -> Generator[TestClient, None, None]:
     """A client whose requests run inside the test's rolled-back transaction.
@@ -425,6 +653,11 @@ def api_client(db_session: Session) -> Generator[TestClient, None, None]:
 
     The app is built per test rather than imported, because
     `dependency_overrides` is app-wide state.
+
+    The job worker is off (ADR-08). It would run on `SessionLocal`, which points at
+    the *development* database — nothing in a test should start a thread that
+    processes real cases — and the tests drive the queue with
+    `run_pending_jobs_once` so a run is finished when the assertion reads it.
     """
     settings = get_settings()
     assert settings.app_env is AppEnv.DEV, (
@@ -432,7 +665,7 @@ def api_client(db_session: Session) -> Generator[TestClient, None, None]:
         f"development and cookies are Secure outside it (got {settings.app_env.value})"
     )
 
-    app = create_app()
+    app = create_app(test_settings(job_worker_enabled=False))
     app.dependency_overrides[get_db] = lambda: db_session
     try:
         with TestClient(app) as client:

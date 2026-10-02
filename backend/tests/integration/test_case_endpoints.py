@@ -14,13 +14,28 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import CaseStatus, OwnerReference, Species, User, UserRole, VTLCategory
+from app.core.config import MockLLMBehavior
+from app.jobs.queue import JobStage
+from app.jobs.worker import run_pending_jobs_once
+from app.models import (
+    CaseStatus,
+    Job,
+    JobStatus,
+    JobType,
+    OwnerReference,
+    Species,
+    User,
+    UserRole,
+    VTLCategory,
+)
+from scripts.seed import seed
 from tests.conftest import (
     csrf_headers,
     make_case,
     make_recommendation,
+    make_red_flag_alert,
     make_user,
     sign_in,
 )
@@ -72,15 +87,39 @@ def error_of(response: Any) -> dict[str, str]:
 # --- POST /cases ----------------------------------------------------------
 
 
-def test_creating_a_case_returns_201_and_the_case_number(intake_client: TestClient) -> None:
+def test_creating_a_case_returns_202_and_the_case_number(intake_client: TestClient) -> None:
+    """202, not 201: the triage pipeline has been accepted, not finished (FR-06)."""
     response = post_case(intake_client)
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     body = response.json()
     assert set(body) == {"id", "case_no", "status"}
     assert body["status"] == CaseStatus.SUBMITTED.value
     assert body["case_no"].startswith("C-")
     uuid.UUID(body["id"])
+
+
+def test_creating_a_case_enqueues_one_pipeline_run_job(
+    intake_client: TestClient, db_session: Session
+) -> None:
+    """FR-06, ADR-08. The job is committed with the case, so it is there already."""
+    case_id = uuid.UUID(post_case(intake_client).json()["id"])
+
+    jobs = list(db_session.scalars(select(Job).where(Job.case_id == case_id)))
+
+    assert len(jobs) == 1
+    assert jobs[0].type is JobType.PIPELINE_RUN
+    assert jobs[0].status is JobStatus.QUEUED
+    assert jobs[0].attempts == 0
+
+
+def test_an_out_of_scope_species_enqueues_nothing(
+    intake_client: TestClient, db_session: Session
+) -> None:
+    """FR-02. No case row, and so no job to process one."""
+    assert post_case(intake_client, species="OTHER").status_code == 422
+
+    assert db_session.scalars(select(Job)).all() == []
 
 
 def test_a_case_needs_only_species_and_a_description(intake_client: TestClient) -> None:
@@ -90,7 +129,7 @@ def test_a_case_needs_only_species_and_a_description(intake_client: TestClient) 
         headers=csrf_headers(intake_client),
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 202
 
 
 def test_other_species_is_refused_with_the_manual_triage_message(
@@ -208,7 +247,7 @@ def test_no_response_contains_the_owner_name_or_contact_number(
     ]
 
     for response in responses:
-        assert response.status_code in (200, 201)
+        assert response.status_code in (200, 202)
         assert OWNER_NAME not in response.text
         assert CONTACT_NUMBER not in response.text
         assert "owner_name" not in response.text
@@ -297,6 +336,47 @@ def test_a_bad_page_size_reports_a_plain_message(intake_client: TestClient) -> N
     assert error["message"] == "Ask for between 1 and 500 cases at a time."
 
 
+def test_the_queue_carries_no_red_flag_alerts_when_there_are_none(
+    intake_client: TestClient,
+) -> None:
+    post_case(intake_client)
+
+    assert intake_client.get(CASES_URL).json()["red_flag_alerts"] == []
+
+
+def test_the_queue_lists_an_unacknowledged_red_flag_alert(
+    intake_client: TestClient, db_session: Session
+) -> None:
+    """FR-12, NFR-05. What the W-02 banner reads."""
+    case = make_case(db_session, species=Species.CAT, pet_name="Mingming")
+    make_red_flag_alert(
+        db_session, case=case, rule_code="MALE_CAT_NO_URINE", min_category=VTLCategory.ORANGE
+    )
+
+    alerts = intake_client.get(CASES_URL).json()["red_flag_alerts"]
+
+    assert len(alerts) == 1
+    assert alerts[0]["case_no"] == case.case_no
+    assert alerts[0]["species"] == Species.CAT.value
+    assert alerts[0]["pet_name"] == "Mingming"
+    assert alerts[0]["rule_code"] == "MALE_CAT_NO_URINE"
+    assert alerts[0]["min_category"] == VTLCategory.ORANGE.value
+    # The clinic's own wording for the rule, not the code.
+    assert alerts[0]["rule_label"]
+    # `matched_text` is a substring of the owner's description, so the most widely
+    # visible surface in the application does not carry it (CLAUDE.md §9).
+    assert "matched_text" not in alerts[0]
+
+
+def test_an_alert_on_a_closed_case_is_not_announced(
+    intake_client: TestClient, db_session: Session
+) -> None:
+    case = make_case(db_session, status=CaseStatus.CLOSED)
+    make_red_flag_alert(db_session, case=case)
+
+    assert intake_client.get(CASES_URL).json()["red_flag_alerts"] == []
+
+
 # --- GET /cases/{id}/status ----------------------------------------------
 
 
@@ -310,6 +390,8 @@ def test_reading_the_status_of_a_new_case(intake_client: TestClient) -> None:
         "status": CaseStatus.SUBMITTED.value,
         "category": None,
         "has_red_flag": False,
+        # The job exists and no worker has claimed it yet (IR-22, ADR-08).
+        "pipeline_stage": JobStage.QUEUED.value,
         "updated_at": response.json()["updated_at"],
     }
 
@@ -343,7 +425,7 @@ def test_an_administrator_cannot_create_a_case(api_client: TestClient, db_sessio
 def test_a_reviewer_can_create_a_case(api_client: TestClient, db_session: Session) -> None:
     signed_in(api_client, db_session, UserRole.VETERINARY_REVIEWER)
 
-    assert post_case(api_client).status_code == 201
+    assert post_case(api_client).status_code == 202
 
 
 @pytest.mark.parametrize(
@@ -398,3 +480,66 @@ def test_a_user_with_a_temporary_password_cannot_create_a_case(
 
     assert response.status_code == 403
     assert error_of(response)["code"] == "PASSWORD_CHANGE_REQUIRED"
+
+
+# --- Submit, then let the worker run it (FR-06, ADR-08) ------------------
+
+
+def test_a_submitted_case_is_triaged_by_the_worker(
+    intake_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """The whole path a clinic sees: 202, a queued job, then a category.
+
+    `VALID_CASE`'s description is not one of the demo fixtures, so the mocks answer
+    generically and the case comes back YELLOW at LOW confidence — triaged, with
+    the reasons recorded, which is the honest answer from a mock (ADR-17).
+    """
+    seed(db_session)
+    db_session.flush()
+    case_id = post_case(intake_client).json()["id"]
+
+    before = intake_client.get(f"{CASES_URL}/{case_id}/status").json()
+    assert before["status"] == CaseStatus.SUBMITTED.value
+    assert before["pipeline_stage"] == JobStage.QUEUED.value
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    after = intake_client.get(f"{CASES_URL}/{case_id}/status").json()
+    assert after["status"] == CaseStatus.AWAITING_REVIEW.value
+    assert after["category"] == VTLCategory.YELLOW.value
+    assert after["pipeline_stage"] == JobStage.DONE.value
+
+    item = intake_client.get(CASES_URL).json()["items"][0]
+    assert item["category"] == VTLCategory.YELLOW.value
+    assert item["recommended_category"] == VTLCategory.YELLOW.value
+    # IR-04: a category exists and is explicitly not final until a reviewer decides.
+    assert item["confirmed_category"] is None
+    assert item["status"] == CaseStatus.AWAITING_REVIEW.value
+
+
+def test_a_failing_pipeline_leaves_the_case_in_manual_triage(
+    intake_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline_factory,
+) -> None:
+    """NFR-09: the case is still in the queue, marked for a human."""
+    seed(db_session)
+    db_session.flush()
+    case_id = post_case(intake_client).json()["id"]
+
+    run_pending_jobs_once(
+        app_session_factory, pipeline_factory(mock_llm_behavior=MockLLMBehavior.TIMEOUT)
+    )
+
+    status = intake_client.get(f"{CASES_URL}/{case_id}/status").json()
+    assert status["status"] == CaseStatus.MANUAL_TRIAGE_REQUIRED.value
+    assert status["category"] is None
+    assert status["pipeline_stage"] == JobStage.FAILED.value
+
+    item = intake_client.get(CASES_URL).json()["items"][0]
+    assert item["status"] == CaseStatus.MANUAL_TRIAGE_REQUIRED.value
+    assert item["category"] is None

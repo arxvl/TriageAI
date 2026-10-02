@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCase } from "../../api/cases";
@@ -19,8 +20,23 @@ const DESCRIPTION =
 
 const DESCRIPTION_LABEL = /description of the problem/;
 
+/** What a 202 answers with: the case exists, the pipeline has not finished (FR-06). */
+const CREATED = {
+  id: "00000000-0000-4000-8000-000000000010",
+  case_no: "C-0007",
+  status: "SUBMITTED",
+} as const;
+
+const expectedNotice = copy.processingNotice.replace("{caseNo}", CREATED.case_no);
+
 function renderIntake() {
-  return renderWithAuth(<CaseIntake />, { user: makeUser(), route: "/cases/new" });
+  return renderWithAuth(
+    <Routes>
+      <Route path="/cases/new" element={<CaseIntake />} />
+      <Route path="/queue" element={<p>triage queue</p>} />
+    </Routes>,
+    { user: makeUser(), route: "/cases/new" },
+  );
 }
 
 function chooseSpecies(label: string) {
@@ -322,11 +338,7 @@ describe("CaseIntake submission (FR-01, FR-03, FR-07)", () => {
   });
 
   it("confirms the case number the server assigned", async () => {
-    createCaseMock.mockResolvedValue({
-      id: "00000000-0000-4000-8000-000000000010",
-      case_no: "C-0007",
-      status: "SUBMITTED",
-    });
+    createCaseMock.mockResolvedValue(CREATED);
     renderIntake();
 
     chooseSpecies(copy.species.DOG);
@@ -334,5 +346,39 @@ describe("CaseIntake submission (FR-01, FR-03, FR-07)", () => {
     submit();
 
     expect(await screen.findByText("Case C-0007 submitted")).toBeInTheDocument();
+  });
+
+  it("says the case is being processed, then moves to the queue (FR-06)", async () => {
+    createCaseMock.mockResolvedValue(CREATED);
+    renderIntake();
+
+    chooseSpecies(copy.species.DOG);
+    typeIn(DESCRIPTION_LABEL, DESCRIPTION);
+    submit();
+
+    // `role="status"`, not `alert`: this is progress, not something that should
+    // interrupt what a screen reader is in the middle of (IR-07).
+    expect(await screen.findByText(expectedNotice)).toBeInTheDocument();
+    expect(screen.getByText(expectedNotice)).toHaveAttribute("role", "status");
+    // Still on the form, so the notice is a state the user can actually read.
+    expect(screen.queryByText("triage queue")).not.toBeInTheDocument();
+
+    expect(await screen.findByText("triage queue")).toBeInTheDocument();
+  });
+
+  it("keeps submission disabled while the notice is up, so one case is sent once", async () => {
+    createCaseMock.mockResolvedValue(CREATED);
+    renderIntake();
+
+    chooseSpecies(copy.species.DOG);
+    typeIn(DESCRIPTION_LABEL, DESCRIPTION);
+    submit();
+
+    await screen.findByText(expectedNotice);
+
+    expect(screen.getByRole("button", { name: copy.submitting })).toBeDisabled();
+    // There is no "Submit for triage" control to press a second time.
+    expect(screen.queryByRole("button", { name: copy.submit })).not.toBeInTheDocument();
+    expect(createCaseMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -103,6 +103,15 @@ class Settings(BaseSettings):
 
     mock_llm_behavior: MockLLMBehavior = MockLLMBehavior.OK
 
+    # The background job worker (P05 §5.4 task 2, ADR-08). Enabled by default so
+    # a clean `docker compose up` triages the cases it is given; `false` in tests,
+    # where `run_pending_jobs_once` runs the queue synchronously instead.
+    job_worker_enabled: bool = True
+    job_poll_interval_s: float = 0.5
+    # How long a job may sit in RUNNING before the startup sweep assumes the
+    # worker holding it is gone (NFR-13).
+    job_stale_after_minutes: int = 2
+
     # Pipeline run parameters (P05 §5.1 task 5). Read once into
     # `app.pipeline.config.PipelineConfig`, which is what the stages receive;
     # nothing outside the registry reads these fields directly.

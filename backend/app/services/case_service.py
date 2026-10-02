@@ -10,8 +10,10 @@ exact age instead of sleeping. One `now` is used for every row in a response and
 for `generated_at`, so a queue is a consistent snapshot rather than a set of rows
 measured a few milliseconds apart.
 
-Nothing here starts the pipeline. A new case stays in `SUBMITTED`; P05 adds the
-job (FR-06).
+Submitting a case **enqueues** the triage pipeline in the same transaction as the
+case itself, and the case stays in `SUBMITTED` until a worker claims it (FR-06,
+ADR-08). One transaction, not two: a commit between the case and its job would
+leave a window in which a crash produces a case no worker will ever pick up.
 """
 
 import uuid
@@ -25,9 +27,12 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.core.errors import CaseNotFound, SpeciesOutOfScope
 from app.core.vtl import is_overdue, target_minutes
+from app.jobs.queue import STAGE_KEY, JobQueue, JobStage
 from app.models import (
     CaseStatus,
     IntakeChannel,
+    JobStatus,
+    JobType,
     Sex,
     Species,
     User,
@@ -47,6 +52,7 @@ from app.schemas.case import (
     CaseQueueItem,
     CaseStatusOut,
     QueueCategoryFilter,
+    QueueRedFlagAlert,
     SpeciesInput,
 )
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
@@ -73,6 +79,7 @@ class CaseService:
     ) -> None:
         self._session = session
         self._cases = CaseRepository(session)
+        self._jobs = JobQueue(session)
         self._audit = AuditService(session)
         self._now = now or _utc_now
         self._display_timezone = ZoneInfo((settings or get_settings()).tz_display)
@@ -149,6 +156,11 @@ class CaseService:
             },
         )
 
+        # The pipeline job, in this same transaction (FR-06, ADR-08). An
+        # out-of-scope species returned above, so no job is ever created for a
+        # case the AI must not process (FR-02).
+        self._jobs.enqueue(JobType.PIPELINE_RUN, case_id=created.id)
+
         self._session.commit()
         return created
 
@@ -183,6 +195,22 @@ class CaseService:
         return CaseListResponse(
             items=[self._to_queue_item(row, now) for row in rows],
             counts=self._queue_counts(),
+            # Unfiltered, like the counters: an alert is about a patient who needs
+            # someone now, and a filter the user happens to have on must not hide
+            # it (FR-12, NFR-05).
+            red_flag_alerts=[
+                QueueRedFlagAlert(
+                    case_id=row.case_id,
+                    case_no=row.case_no,
+                    species=Species(row.species),
+                    pet_name=row.pet_name,
+                    rule_code=row.rule_code,
+                    rule_label=row.rule_label,
+                    min_category=VTLCategory(row.min_category),
+                    created_at=row.created_at,
+                )
+                for row in self._cases.unacknowledged_alerts()
+            ],
             generated_at=now,
         )
 
@@ -195,8 +223,37 @@ class CaseService:
             status=CaseStatus(row.status),
             category=_as_category(row.category),
             has_red_flag=row.has_red_flag,
+            pipeline_stage=self._pipeline_stage(case_id),
             updated_at=row.updated_at,
         )
+
+    def _pipeline_stage(self, case_id: uuid.UUID) -> JobStage | None:
+        """How far the case's newest pipeline run has got (IR-22, P05 §5.4).
+
+        Three of the eight values are derived from the job's status rather than
+        read from its payload: a job that has not started cannot have recorded a
+        stage, and one that has finished should report its outcome rather than the
+        last stage it happened to be in. A `RUNNING` job with no marker yet reads
+        `queued`, which is true — it has been claimed and has not reported
+        progress.
+        """
+        row = self._cases.latest_pipeline_job(case_id)
+        if row is None:
+            return None
+
+        status = JobStatus(row.status)
+        if status is JobStatus.DONE:
+            return JobStage.DONE
+        if status is JobStatus.FAILED:
+            return JobStage.FAILED
+        if status is JobStatus.QUEUED:
+            return JobStage.QUEUED
+
+        recorded = (row.payload or {}).get(STAGE_KEY)
+        try:
+            return JobStage(recorded)
+        except ValueError:
+            return JobStage.QUEUED
 
     # --- Internals --------------------------------------------------------
 

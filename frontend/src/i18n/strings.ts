@@ -161,6 +161,9 @@ export const strings = {
     latencyNote: "The recommendation usually appears within 10 seconds.",
     // {caseNo} is replaced with the case number the server assigned.
     submittedToast: "Case {caseNo} submitted",
+    // Shown between the 202 and the move to the queue: the case is recorded and
+    // the pipeline has it (FR-06). {caseNo} is the number just assigned.
+    processingNotice: "Case {caseNo} recorded. Processing… the queue will show it shortly.",
 
     // The same sentences as the server's `core/validation_messages.py`, so the
     // form and the API cannot drift apart (IR-05). These keep the server's plain
@@ -246,6 +249,10 @@ export const strings = {
     redFlagBannerLabel: "Red-flag alerts",
     // {caseNo} and {summary} come from the alert.
     redFlagAlert: "Red-flag alert – {caseNo}: {summary}",
+    // The {summary} the banner shows: the patient and the rule that fired, never
+    // the text the rule matched (DR-04). {patient} is built from the species, the
+    // pet's name and {rule}, the clinic's label for the rule.
+    redFlagSummary: "{patient} – {rule}",
     redFlagOpenCase: "Open case",
 
     countersLabel: "Case counts by urgency",

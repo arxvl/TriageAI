@@ -34,6 +34,13 @@ class AuditAction(StrEnum):
     LOGOUT = "LOGOUT"
     PASSWORD_CHANGED = "PASSWORD_CHANGED"  # noqa: S105 - an audit action name
     CASE_CREATED = "CASE_CREATED"
+    # The triage pipeline (P05 §5.4). Written with no user_id: the pipeline is not
+    # a person, and the decision a person makes about its output is audited
+    # separately in P06.
+    PIPELINE_STARTED = "PIPELINE_STARTED"
+    RED_FLAG_ALERT = "RED_FLAG_ALERT"
+    RECOMMENDATION_CREATED = "RECOMMENDATION_CREATED"
+    PIPELINE_FAILED = "PIPELINE_FAILED"
 
 
 class AuditService:
