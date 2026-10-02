@@ -51,6 +51,7 @@ from app.pipeline.mock_fixtures import (
     normalize,
 )
 from app.pipeline.types import (
+    OTHER_COMPLAINT,
     DraftRecommendation,
     ExtractedComplaint,
     ExtractionOutput,
@@ -82,10 +83,6 @@ __all__ = [
 
 MOCK_MODEL_ID = "mock"
 MOCK_PROMPT_VERSION = "mock-0"
-
-# The complaint code for anything outside the supported set. A primary `OTHER`
-# is what makes the safety validator recommend manual triage (P05 §5.3 rule 4).
-OTHER_COMPLAINT = "OTHER"
 
 # What a generic extraction admits it does not know. Fixed wording, because the
 # review screen's "missing information" list is asserted on in tests and shown in
