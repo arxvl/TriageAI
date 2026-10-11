@@ -1,4 +1,5 @@
 """Keyword red-flag screener (M1). Deterministic; runs before any LLM call (NFR-05)."""
+
 from __future__ import annotations
 
 import re
@@ -10,7 +11,7 @@ import yaml
 from app.pipeline.types import RedFlagHit
 
 NEGATORS = {"no", "not", "never", "without", "none", "denies"}
-PHRASES_PATH = Path("/knowledge_base/red_flag_phrases.yaml")   # mounted in Step 6
+PHRASES_PATH = Path("/knowledge_base/red_flag_phrases.yaml")  # mounted in Step 6
 
 
 def normalize(text: str) -> str:
@@ -21,7 +22,7 @@ def normalize(text: str) -> str:
 
 class KeywordRedFlagScreener:
     model_id = "keywords"
-    prompt_version = "redflag-phrases-v1"     # bump when the YAML changes
+    prompt_version = "redflag-phrases-v1"  # bump when the YAML changes
     last_latency_ms = 0
 
     def __init__(self, phrases: dict, rules_provider):
@@ -30,14 +31,15 @@ class KeywordRedFlagScreener:
             code: {
                 "negatable": spec.get("negatable", False),
                 "requires": spec.get("requires", {}) or {},
-                "patterns": [re.compile(rf"\b{re.escape(normalize(p))}\b")
-                             for p in spec["phrases"]],
+                "patterns": [
+                    re.compile(rf"\b{re.escape(normalize(p))}\b") for p in spec["phrases"]
+                ],
             }
             for code, spec in phrases.items()
         }
 
     @classmethod
-    def from_settings(cls, settings, deps) -> "KeywordRedFlagScreener":
+    def from_settings(cls, settings, deps) -> KeywordRedFlagScreener:
         with open(PHRASES_PATH, encoding="utf-8") as fh:
             phrases = yaml.safe_load(fh)
         return cls(phrases, deps.rules_provider)
@@ -48,13 +50,13 @@ class KeywordRedFlagScreener:
         hits: list[RedFlagHit] = []
         for code, spec in self._compiled.items():
             rule = active.get(code)
-            if rule is None:          # rule not approved or retired → never fires
+            if rule is None:  # rule not approved or retired → never fires
                 continue
             req = spec["requires"]
             if req.get("species") and req["species"] != getattr(species, "value", species):
                 continue
             if req.get("sex") and sex not in (None, "UNKNOWN", req["sex"]):
-                continue              # unknown sex still triggers, on purpose
+                continue  # unknown sex still triggers, on purpose
             for pat in spec["patterns"]:
                 m = pat.search(norm)
                 if not m:
@@ -63,7 +65,10 @@ class KeywordRedFlagScreener:
                     preceding = norm[: m.start()].split(" ")[-4:-1]
                     if NEGATORS.intersection(preceding):
                         continue
-                hits.append(RedFlagHit(rule_code=code, matched_text=m.group(0),
-                                       min_category=rule.min_category))
-                break                 # one hit per rule
+                hits.append(
+                    RedFlagHit(
+                        rule_code=code, matched_text=m.group(0), min_category=rule.min_category
+                    )
+                )
+                break  # one hit per rule
         return hits

@@ -78,11 +78,13 @@ CASES = [
         None,
         {"BLUE_GUMS_CYANOSIS"},
     ),
-    (   "pale gums float to orange, not red",
+    (
+        "pale gums float to orange, not red",
         "His gums look pale this morning.",
         Species.DOG,
         None,
-        {"PALE_GUMS"}),
+        {"PALE_GUMS"},
+    ),
     (
         "dog seizure 10 minutes ago",
         "The dog had a seizure 10 minutes ago.",
@@ -120,20 +122,20 @@ CASES = [
     ids=[case[0] for case in CASES],
 )
 def test_screen(screener, case_id, text, species, sex, expected):
-    assert {
-        hit.rule_code
-        for hit in screener.screen(text, species, sex)
-    } == expected
+    assert {hit.rule_code for hit in screener.screen(text, species, sex)} == expected
 
 
 def test_unapproved_rule_never_fires(screener):
     screener._rules_provider = lambda: []
 
-    assert screener.screen(
-        "not breathing",
-        Species.DOG,
-        None,
-    ) == []
+    assert (
+        screener.screen(
+            "not breathing",
+            Species.DOG,
+            None,
+        )
+        == []
+    )
 
 
 def test_is_fast(screener):

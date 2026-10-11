@@ -37,7 +37,6 @@ CASES = [
         [],
         ["grace"],
     ),
-
     # Philippine mobile numbers
     (
         "mobile number format 1",
@@ -71,7 +70,6 @@ CASES = [
         ["639171234567"],
         ["Owner phone"],
     ),
-
     # Landline
     (
         "landline with area code",
@@ -81,7 +79,6 @@ CASES = [
         ["(054) 123 4567"],
         ["Home phone"],
     ),
-
     # Email
     (
         "email address",
@@ -91,7 +88,6 @@ CASES = [
         ["grace.cruz@example.com"],
         ["Email the owner at"],
     ),
-
     # Address fragments
     (
         "address block and lot",
@@ -117,7 +113,6 @@ CASES = [
         ["12 Magsaysay Ave"],
         ["The clinic is near"],
     ),
-
     # Clinical numbers must remain
     (
         "vomiting frequency",
@@ -151,7 +146,6 @@ CASES = [
         [],
         ["since 9 am"],
     ),
-
     # Empty owner reference
     (
         "empty owner reference",
@@ -164,8 +158,9 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("case_id,text,name,contact,absent,present",
-                         CASES, ids=[c[0] for c in CASES])
+@pytest.mark.parametrize(
+    "case_id,text,name,contact,absent,present", CASES, ids=[c[0] for c in CASES]
+)
 def test_deidentify(deid, case_id, text, name, contact, absent, present):
     out = deid.deidentify(text, name, contact)
     for a in absent:

@@ -4,8 +4,10 @@ import re
 
 from app.pipeline.errors import PipelineError
 
+
 class DeidentificationFailed(PipelineError):
     pass
+
 
 PH_MOBILE = re.compile(r"(?<!\d)(?:\+?63|0)\s?9\d{2}[\s-]?\d{3}[\s-]?\d{4}(?!\d)")
 LANDLINE = re.compile(r"(?<!\d)(?:\(0\d{1,2}\)|0\d{1,2})?[\s-]?\d{3,4}[\s-]\d{4}(?!\d)")
@@ -17,19 +19,21 @@ ADDRESS = re.compile(
     re.IGNORECASE,
 )
 
+
 def _digits_pattern(number: str) -> re.Pattern[str] | None:
     digits = re.sub(r"\D", "", number or "")
     if len(digits) < 7:
         return None
     return re.compile(r"[\s-]?".join(re.escape(d) for d in digits))
 
+
 class RuleBasedDeidentifier:
-    model_id = "rules"            # stage attributes required by CLAUDE.md §8.2
+    model_id = "rules"  # stage attributes required by CLAUDE.md §8.2
     prompt_version = "deidentify-rules-v1"
     last_latency_ms = 0
 
     @classmethod
-    def from_settings(cls, settings, deps) -> "RuleBasedDeidentifier":
+    def from_settings(cls, settings, deps) -> RuleBasedDeidentifier:
         return cls()
 
     def deidentify(self, text: str, owner_name: str | None, owner_contact: str | None) -> str:
