@@ -19,3 +19,10 @@ repos:
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: strip-ai-trailers
+        name: strip AI attribution trailers
+        entry: bash scripts/strip-ai-trailers.sh
+        language: system
+        stages: [commit-msg]

@@ -393,6 +393,8 @@ leave the server (IR-20, ADR-10).
 ## 11. Git rules
 
 - Work on the branch named in the phase prompt, created from `develop`.
+- Do not add Co-Authored-By trailers or "Generated with Claude Code" lines to commit messages or PR descriptions.
+- I will commit this myself (just give me the commands)
 - Use Conventional Commits with requirement IDs, e.g.
   `feat(cases): validate description length (FR-04)`.
 - Keep commits small. Never commit to `main` or `develop` directly.
