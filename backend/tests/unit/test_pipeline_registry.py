@@ -17,7 +17,9 @@ from app.adapters.llm.mock import MockLLMProvider
 from app.core.config import DeidentifierOption, LLMProviderOption, Settings
 from app.pipeline import mocks
 from app.pipeline.config import PipelineConfig
+from app.pipeline.deidentify_rules import RuleBasedDeidentifier
 from app.pipeline.orchestrator import TriagePipeline
+from app.pipeline.redflags_keywords import KeywordRedFlagScreener
 from app.pipeline.registry import (
     PipelineDeps,
     StageNotImplementedError,
@@ -47,12 +49,18 @@ MOCK_STAGES: list[tuple[str, type, type]] = [
     ("kb_indexer", mocks.MockKBIndexer, KBIndexer),
 ]
 
-# Every non-mock option, with the M-guide its error message must name. The
-# LLM_PROVIDER and EMBEDDING_PROVIDER rows also set a real de-identifier, so it
-# is the missing module that trips and not the safety guard.
+# The stages M1 has written, with the attribute the registry must put them on.
+IMPLEMENTED_CASES: list[tuple[dict[str, str], str, type]] = [
+    ({"PIPELINE_DEIDENTIFIER": "rules"}, "deidentifier", RuleBasedDeidentifier),
+    ({"PIPELINE_REDFLAGS": "keywords"}, "red_flag_screener", KeywordRedFlagScreener),
+]
+
+# Every non-mock option whose module is still to be written, with the M-guide its
+# error message must name. M1 is merged, so `rules` and `keywords` are in
+# IMPLEMENTED_CASES above instead. The LLM_PROVIDER and EMBEDDING_PROVIDER rows
+# also set a real de-identifier, so it is the missing module that trips and not
+# the safety guard.
 NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
-    ({"PIPELINE_DEIDENTIFIER": "rules"}, "PIPELINE_DEIDENTIFIER=rules", "M1"),
-    ({"PIPELINE_REDFLAGS": "keywords"}, "PIPELINE_REDFLAGS=keywords", "M1"),
     ({"PIPELINE_EXTRACTOR": "llm"}, "PIPELINE_EXTRACTOR=llm", "M3"),
     ({"KB_INDEXER": "pgvector"}, "KB_INDEXER=pgvector", "M5"),
     ({"PIPELINE_RETRIEVER": "pgvector"}, "PIPELINE_RETRIEVER=pgvector", "M6"),
@@ -208,6 +216,34 @@ def test_rules_provider_reads_rules_on_each_call() -> None:
 
 
 # --- Lazy imports ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("overrides", "attribute", "expected"),
+    IMPLEMENTED_CASES,
+    ids=["PIPELINE_DEIDENTIFIER=rules", "PIPELINE_REDFLAGS=keywords"],
+)
+def test_an_implemented_stage_is_built_instead_of_its_mock(
+    monkeypatch: pytest.MonkeyPatch,
+    session_factory: FakeSessionFactory,
+    overrides: dict[str, str],
+    attribute: str,
+    expected: type,
+) -> None:
+    """Selecting a stage M1 has written builds that class, not the mock.
+
+    The other half of the lazy import: a module that exists is imported and
+    constructed, so the setting is the only thing that has to change to run the
+    real stage (ADR-17). Neither M1 stage opens a session in `from_settings` —
+    `deps.rules_provider` is stored, not called — so this still needs no engine.
+    """
+    settings = settings_with(monkeypatch, **overrides)
+
+    pipeline = build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+
+    assert type(getattr(pipeline, attribute)) is expected
+    assert pipeline.is_fully_mocked is False
+    assert session_factory.calls == 0
 
 
 @pytest.mark.parametrize(
