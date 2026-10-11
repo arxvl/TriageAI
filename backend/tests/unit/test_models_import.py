@@ -80,7 +80,7 @@ def test_staff_decisions_has_reason_code_check() -> None:
 
 
 def test_models_import_star_works_as_subprocess() -> None:
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - a fixed argv, not caller input
         [sys.executable, "-c", "from app.models import *"],
         capture_output=True,
         text=True,
