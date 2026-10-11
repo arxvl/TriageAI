@@ -77,6 +77,7 @@ from app.models import (
     User,
     UserRole,
     VTLCategory,
+    kb_version_entries,
 )
 from app.pipeline.registry import build_pipeline
 from app.repositories.case_repository import (
@@ -520,6 +521,7 @@ def make_kb_entry(
     title: str = "Fixture entry",
     content: str = "Fixture content.",
     created_by: User | None = None,
+    kb_version: KBVersion | None = None,
 ) -> KBEntry:
     """Insert a knowledge-base entry of either kind (ADR-18).
 
@@ -531,6 +533,11 @@ def make_kb_entry(
     `complaint_code` defaults to a complaint `scripts/seed.py` always creates,
     but the constraint tests run on a database the seed has not touched, so the
     row is inserted here if it is missing.
+
+    `kb_version` links the entry into that version's entry set. A lookup pinned
+    to a KB version — `baseline_actions` is the first — finds nothing without
+    that link, so the caller has to say which version the entry belongs to
+    (FR-54, ADR-14).
     """
     author = created_by or make_user(session, role=UserRole.VETERINARY_REVIEWER)
     if complaint_code is not None:
@@ -551,6 +558,11 @@ def make_kb_entry(
     )
     session.add(entry)
     session.flush()
+    if kb_version is not None:
+        session.execute(
+            kb_version_entries.insert().values(kb_version_id=kb_version.id, entry_id=entry.id)
+        )
+        session.flush()
     return entry
 
 

@@ -42,6 +42,9 @@ from app.models import (
     ConfidenceLevel,
     ExtractionResult,
     KBChunk,
+    KBEntry,
+    KBEntryKind,
+    KBEntryStatus,
     KBVersion,
     OwnerDescription,
     OwnerReference,
@@ -54,6 +57,7 @@ from app.models import (
     Species,
     VTLCategory,
     extraction_complaints,
+    kb_version_entries,
 )
 from app.pipeline.types import OTHER_COMPLAINT, ExtractionOutput, Passage, RedFlagHit
 
@@ -165,6 +169,31 @@ class PipelineRepository:
         return self._session.scalars(
             select(KBVersion.id).order_by(KBVersion.version_no.desc()).limit(1)
         ).first()
+
+    def active_urgency_actions_content(
+        self, category: VTLCategory, kb_version_id: uuid.UUID
+    ) -> str | None:
+        """The ACTIVE baseline action entry for one category, or None (FR-72).
+
+        Pinned to a knowledge-base version like every other read a run makes, so
+        reopening an old case shows the baseline set as it was then (FR-54,
+        ADR-14). `uq_kb_entries_active_urgency_actions` is what makes the row
+        unambiguous: at most one ACTIVE entry exists per category, so a second
+        one cannot quietly shadow the first.
+
+        Returns the entry content; splitting it into actions belongs to
+        `app.pipeline.action_validator.baseline_actions`.
+        """
+        return self._session.execute(
+            select(KBEntry.content)
+            .join(kb_version_entries, kb_version_entries.c.entry_id == KBEntry.id)
+            .where(
+                kb_version_entries.c.kb_version_id == kb_version_id,
+                KBEntry.kind == KBEntryKind.URGENCY_ACTIONS,
+                KBEntry.status == KBEntryStatus.ACTIVE,
+                KBEntry.urgency_category == category,
+            )
+        ).scalar_one_or_none()
 
     def next_extraction_version(self, case_id: uuid.UUID) -> int:
         return self._next_version(ExtractionResult, case_id)
