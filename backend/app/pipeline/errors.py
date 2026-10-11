@@ -7,6 +7,12 @@ caller is the orchestrator, which maps any of them to the failure path — the c
 moves to `MANUAL_TRIAGE_REQUIRED` with a reason code, and the case is never lost
 and never left in `PROCESSING` (NFR-09, ADR-08).
 
+`ActionsFailed` is the one exception to that mapping: suggested actions are not
+part of the triage decision, so the orchestrator records `actions_status =
+failed` with a reason code, leaves the case in `AWAITING_REVIEW` and shows the
+baseline actions on their own. It never routes the case to manual triage
+(FR-77, ADR-18 §3).
+
 The split is between *transport* failures of a provider (`LLMTimeout`,
 `LLMUnavailable`, `LLMInvalidOutput`, raised by an `LLMProvider`) and *stage*
 failures (`ExtractionFailed`, `RetrievalFailed`, `GenerationFailed`, raised by a
@@ -45,3 +51,12 @@ class RetrievalFailed(PipelineError):
 
 class GenerationFailed(PipelineError):
     """The generation stage could not produce a `DraftRecommendation`."""
+
+
+class ActionsFailed(PipelineError):
+    """The actions stage could not produce suggested actions.
+
+    Non-blocking, unlike every other failure here: the recommendation is already
+    stored and the case stays in `AWAITING_REVIEW` with its baseline actions
+    (FR-77). Only `recommendations.actions_status` and `actions_error` change.
+    """

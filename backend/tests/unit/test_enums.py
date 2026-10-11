@@ -1,7 +1,12 @@
 from app.models.enums import (
+    ActionSource,
+    ActionsStatus,
+    ActionStatus,
     CaseStatus,
     ConfidenceLevel,
     DecisionType,
+    JobType,
+    KBEntryKind,
     KBEntryStatus,
     Species,
     UserRole,
@@ -59,3 +64,44 @@ def test_confidence_level_matches_claude_md() -> None:
 
 def test_species_matches_claude_md() -> None:
     assert {member.value for member in Species} == {"DOG", "CAT"}
+
+
+def test_kb_entry_kind_matches_claude_md() -> None:
+    assert {member.value for member in KBEntryKind} == {"COMPLAINT", "URGENCY_ACTIONS"}
+
+
+def test_action_source_matches_claude_md() -> None:
+    assert {member.value for member in ActionSource} == {"BASELINE", "AI", "REVIEWER"}
+
+
+def test_action_status_matches_claude_md() -> None:
+    assert {member.value for member in ActionStatus} == {
+        "SUGGESTED",
+        "KEPT",
+        "EDITED",
+        "REMOVED",
+        "ADDED",
+    }
+
+
+def test_actions_status_covers_the_four_job_outcomes() -> None:
+    """Not in CLAUDE.md §6; P05b §5b.1 names the field, not an enum.
+
+    UPPERCASE, as every other status enum here is.
+    """
+    assert {member.value for member in ActionsStatus} == {
+        "PENDING",
+        "READY",
+        "FAILED",
+        "NOT_APPLICABLE",
+    }
+
+
+def test_job_type_matches_claude_md() -> None:
+    assert {member.value for member in JobType} == {
+        "PIPELINE_RUN",
+        "REGENERATE",
+        "SUGGEST_ACTIONS",
+        "EVAL_RUN",
+        "KB_INDEX",
+    }

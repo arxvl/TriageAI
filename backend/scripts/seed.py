@@ -16,8 +16,9 @@ import argparse
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, insert, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import AppEnv, Settings, get_settings
@@ -25,6 +26,9 @@ from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import SessionLocal
 from app.models import (
+    KBEntry,
+    KBEntryKind,
+    KBEntryStatus,
     KBVersion,
     PresentingComplaint,
     RedFlagRule,
@@ -32,6 +36,7 @@ from app.models import (
     User,
     UserRole,
     VTLCategory,
+    kb_version_entries,
 )
 
 # A deliberately weak, publicly documented development credential. Every seeded
@@ -128,7 +133,66 @@ RED_FLAG_RULES: tuple[SeedRedFlagRule, ...] = (
 )
 
 SEED_KB_VERSION_NO = 0
-SEED_KB_VERSION_NOTE = "Seed – no entries"
+SEED_KB_VERSION_NOTE = "Seed – baseline urgency action entries only"
+
+# Placeholder baseline action sets, one per VTL category (FR-71, FR-72).
+#
+# Replaced with sourced, veterinarian-authored content in M5 Part D. Every
+# entry is prefixed with SAMPLE_MARKER so an unreplaced placeholder is obvious
+# in the UI and in a KB export, and none of this text names a medication, a
+# dose or a diagnosis — it already satisfies the action validator and FR-28.
+#
+# They are seeded ACTIVE and linked into KB version 0 so that the actions
+# lookup has something to return while the pipeline runs on mocks; the approval
+# workflow in P08 is what produces a real ACTIVE entry.
+SAMPLE_MARKER = "SAMPLE – replace with sourced content in M5"
+BASELINE_SOURCE_TITLE = "TriageAI seed placeholder"
+
+URGENCY_ACTIONS: tuple[tuple[VTLCategory, str, tuple[str, ...]], ...] = (
+    (
+        VTLCategory.RED,
+        "Immediate (RED) — baseline staff actions",
+        (
+            "Move the patient to the treatment area now.",
+            "Alert the veterinarian immediately.",
+            "Prepare oxygen and monitoring equipment.",
+        ),
+    ),
+    (
+        VTLCategory.ORANGE,
+        "Very urgent (ORANGE) — baseline staff actions",
+        (
+            "Tell the veterinarian the patient is waiting.",
+            "Recheck breathing effort and alertness every few minutes.",
+            "Keep the patient quiet and handling to a minimum.",
+        ),
+    ),
+    (
+        VTLCategory.YELLOW,
+        "Urgent (YELLOW) — baseline staff actions",
+        (
+            "Add the patient to the next available consultation slot.",
+            "Recheck the patient every 15 minutes while waiting.",
+            "Ask the owner whether anything has changed since arrival.",
+        ),
+    ),
+    (
+        VTLCategory.GREEN,
+        "Standard (GREEN) — baseline staff actions",
+        (
+            "Seat the owner in the waiting area and state the expected waiting time.",
+            "Ask the owner to report any change in the patient straight away.",
+        ),
+    ),
+    (
+        VTLCategory.BLUE,
+        "Non-urgent (BLUE) — baseline staff actions",
+        (
+            "Offer the next routine appointment.",
+            "Explain which changes would mean coming back sooner.",
+        ),
+    ),
+)
 
 # Not part of Base.metadata, so a reset has to restart it by name.
 CASE_NO_SEQUENCE = "case_no_seq"
@@ -236,11 +300,14 @@ def seed_red_flag_rules(session: Session, report: SeedReport) -> None:
 
 
 def seed_kb_version(session: Session, report: SeedReport) -> None:
-    """Create the empty KB version 0.
+    """Create KB version 0.
 
-    It has no entries and no publisher: it exists so a recommendation produced
-    while the mocks run has a kb_version_id to point at. The first real version
-    is published through the P08 approval workflow.
+    It has no publisher: it exists so a recommendation produced while the mocks
+    run has a kb_version_id to point at. Its only entries are the five
+    placeholder baseline action sets added by
+    `seed_urgency_action_entries()`, which needs an ACTIVE entry in a version to
+    look up (FR-72). The first real version is published through the P08
+    approval workflow.
     """
     created = int(
         _get_or_create(
@@ -258,6 +325,74 @@ def seed_kb_version(session: Session, report: SeedReport) -> None:
     report.record("kb_versions", created=created, skipped=1 - created)
 
 
+def seed_urgency_action_entries(session: Session, report: SeedReport) -> None:
+    """Create the five baseline action sets and link them to KB version 0.
+
+    Keyed on `(kind, urgency_category)`: at most one ACTIVE `URGENCY_ACTIONS`
+    entry may exist per category (uq_kb_entries_active_urgency_actions), so a
+    re-run must find the existing row rather than insert a second one.
+
+    `complaint_code` is None — a baseline set belongs to a category, not to a
+    presenting complaint (ck_kb_entries_complaint_code_iff_complaint).
+    """
+    author = session.execute(
+        select(User).where(User.email == "approver@triageai.local")
+    ).scalar_one()
+    version = session.execute(
+        select(KBVersion).where(KBVersion.version_no == SEED_KB_VERSION_NO)
+    ).scalar_one()
+    approved_at = datetime.now(UTC)
+
+    created = 0
+    linked = 0
+    for category, title, actions in URGENCY_ACTIONS:
+        content = "\n".join(actions)
+        if _get_or_create(
+            session,
+            KBEntry,
+            lookup={"kind": KBEntryKind.URGENCY_ACTIONS, "urgency_category": category},
+            build=lambda c=category, t=title, body=content: KBEntry(
+                kind=KBEntryKind.URGENCY_ACTIONS,
+                complaint_code=None,
+                urgency_category=c,
+                title=f"{t} [{SAMPLE_MARKER}]",
+                content=body,
+                species=[Species.DOG, Species.CAT],
+                source_title=BASELINE_SOURCE_TITLE,
+                source_publisher=None,
+                source_url=None,
+                access_date=None,
+                status=KBEntryStatus.ACTIVE,
+                created_by=author.id,
+                approved_by=author.id,
+                approved_at=approved_at,
+                review_comments=SAMPLE_MARKER,
+            ),
+        ):
+            created += 1
+
+        entry_id = session.execute(
+            select(KBEntry.id).where(
+                KBEntry.kind == KBEntryKind.URGENCY_ACTIONS,
+                KBEntry.urgency_category == category,
+            )
+        ).scalar_one()
+        already_linked = session.execute(
+            select(kb_version_entries.c.entry_id).where(
+                kb_version_entries.c.kb_version_id == version.id,
+                kb_version_entries.c.entry_id == entry_id,
+            )
+        ).first()
+        if already_linked is None:
+            session.execute(
+                insert(kb_version_entries).values(kb_version_id=version.id, entry_id=entry_id)
+            )
+            linked += 1
+
+    report.record("kb_entries", created=created, skipped=len(URGENCY_ACTIONS) - created)
+    report.record("kb_version_entries", created=linked, skipped=len(URGENCY_ACTIONS) - linked)
+
+
 def seed(session: Session) -> SeedReport:
     """Insert the seed rows that are missing. Flushes; never commits.
 
@@ -269,6 +404,7 @@ def seed(session: Session) -> SeedReport:
     seed_presenting_complaints(session, report)
     seed_red_flag_rules(session, report)
     seed_kb_version(session, report)
+    seed_urgency_action_entries(session, report)
     return report
 
 

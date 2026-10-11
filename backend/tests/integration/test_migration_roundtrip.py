@@ -21,7 +21,15 @@ ROUNDTRIP_DATABASE = "triageai_migration_check"
 
 # A representative slice of the schema: one table per aggregate the SRS's
 # integrity rules touch.
-EXPECTED_TABLES = ("users", "cases", "owner_descriptions", "audit_log", "kb_version_entries")
+EXPECTED_TABLES = (
+    "users",
+    "cases",
+    "owner_descriptions",
+    "audit_log",
+    "kb_version_entries",
+    "action_suggestions",
+    "final_actions",
+)
 
 
 def table_names(engine: Engine) -> set[str]:
@@ -101,6 +109,7 @@ def test_protections_are_reapplied_by_the_second_upgrade(roundtrip_database_url:
                 "trg_audit_log_prevent_modify",
                 "trg_owner_descriptions_prevent_modify",
                 "trg_kb_version_entries_prevent_modify",
+                "trg_final_actions_prevent_modify",
             }
 
             audit_update = connection.execute(
@@ -111,5 +120,15 @@ def test_protections_are_reapplied_by_the_second_upgrade(roundtrip_database_url:
             ).scalar_one()
             assert audit_update is False
             assert audit_insert is True
+
+            # Added by migration 0003 (DR-09): append-only, same shape.
+            final_update = connection.execute(
+                text("SELECT has_table_privilege('triageai_app', 'final_actions', 'UPDATE')")
+            ).scalar_one()
+            final_insert = connection.execute(
+                text("SELECT has_table_privilege('triageai_app', 'final_actions', 'INSERT')")
+            ).scalar_one()
+            assert final_update is False
+            assert final_insert is True
     finally:
         engine.dispose()

@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CreatedAtMixin, UUIDPKMixin
-from app.models.enums import ConfidenceLevel, VTLCategory, pg_enum
+from app.models.enums import ActionsStatus, ConfidenceLevel, VTLCategory, pg_enum
 
 
 class ExtractionResult(Base, UUIDPKMixin, CreatedAtMixin):
@@ -76,6 +76,23 @@ class Recommendation(Base, UUIDPKMixin, CreatedAtMixin):
     prompt_version: Mapped[str] = mapped_column(String(50), nullable=False)
     params: Mapped[dict | None] = mapped_column(JSONB)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+
+    # Suggested actions arrive after the recommendation, in their own
+    # SUGGEST_ACTIONS job (ADR-18 §3). These three columns are what the UI
+    # polls; they live here rather than in a side table so one query returns
+    # the recommendation and the progress of its actions together.
+    actions_status: Mapped[ActionsStatus] = mapped_column(
+        pg_enum(ActionsStatus, "actions_status"),
+        nullable=False,
+        default=ActionsStatus.PENDING,
+        server_default=ActionsStatus.PENDING.value,
+    )
+    # A reason code such as ACTIONS_TIMEOUT — never a model message, which
+    # could carry action text (SR-17).
+    actions_error: Mapped[str | None] = mapped_column(String(100))
+    actions_rejected_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     __table_args__ = (
         CheckConstraint(

@@ -35,6 +35,19 @@ class KBEntryStatus(StrEnum):
     RETIRED = "RETIRED"
 
 
+class KBEntryKind(StrEnum):
+    """What a knowledge-base entry is for (CLAUDE.md §6, ADR-18).
+
+    `COMPLAINT` entries are the retrievable clinical content. `URGENCY_ACTIONS`
+    entries hold the baseline action set for one VTL category: there is at most
+    one ACTIVE entry per category, it is looked up by category, and it is never
+    similarity-searched, so it cannot displace a clinical passage in retrieval.
+    """
+
+    COMPLAINT = "COMPLAINT"
+    URGENCY_ACTIONS = "URGENCY_ACTIONS"
+
+
 class DecisionType(StrEnum):
     CONFIRM = "CONFIRM"
     ADJUST = "ADJUST"
@@ -50,6 +63,51 @@ class ConfidenceLevel(StrEnum):
 class Species(StrEnum):
     DOG = "DOG"
     CAT = "CAT"
+
+
+class ActionSource(StrEnum):
+    """Where one suggested action came from (CLAUDE.md §6, IR-23).
+
+    Shown as a tag on every row of the W-04 checklist, so a reviewer can always
+    tell curated content from model output.
+    """
+
+    BASELINE = "BASELINE"
+    AI = "AI"
+    REVIEWER = "REVIEWER"
+
+
+class ActionStatus(StrEnum):
+    """What the reviewer did with one action when finalizing the list (FR-76).
+
+    `SUGGESTED` is the state of a suggestion that has not been finalized; the
+    other four are the outcomes recorded on the append-only `final_actions`
+    rows, which is what makes keep/edit/remove rates measurable (ADR-18).
+    """
+
+    SUGGESTED = "SUGGESTED"
+    KEPT = "KEPT"
+    EDITED = "EDITED"
+    REMOVED = "REMOVED"
+    ADDED = "ADDED"
+
+
+class ActionsStatus(StrEnum):
+    """Progress of the `SUGGEST_ACTIONS` job for one recommendation (FR-77).
+
+    Not in the CLAUDE.md §6 enum list: P05b §5b.1 requires the field but names
+    no enum for it, so it follows the same UPPERCASE native-enum convention as
+    every other status column here.
+
+    `FAILED` never changes the case status — the case stays in
+    `AWAITING_REVIEW` and the baseline actions are shown on their own
+    (ADR-18 §3).
+    """
+
+    PENDING = "PENDING"
+    READY = "READY"
+    FAILED = "FAILED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 # Enums required by the P02 §2.1 model field lists but not listed in
@@ -81,6 +139,7 @@ class DecisionDirection(StrEnum):
 class JobType(StrEnum):
     PIPELINE_RUN = "PIPELINE_RUN"
     REGENERATE = "REGENERATE"
+    SUGGEST_ACTIONS = "SUGGEST_ACTIONS"
     EVAL_RUN = "EVAL_RUN"
     KB_INDEX = "KB_INDEX"
 

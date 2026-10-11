@@ -22,7 +22,7 @@ import uuid
 
 from pydantic import BaseModel
 
-from app.models.enums import ConfidenceLevel, Species, VTLCategory
+from app.models.enums import ActionSource, ConfidenceLevel, Species, VTLCategory
 
 # The complaint code for anything outside the supported set in
 # `presenting_complaints`. Defined here, with the contract that uses it, because
@@ -136,3 +136,50 @@ class FinalRecommendation(BaseModel):
     safety_floor_applied: bool
     safety_floor_rule_codes: list[str]
     low_confidence_reasons: list[str]
+
+
+class SuggestedAction(BaseModel):
+    """One suggested staff action, before the reviewer decides on it (FR-73).
+
+    Triage-level handling only: escalate, prepare, monitor, what to ask the
+    owner, transport precautions. Never a diagnosis, a medication, a dose or a
+    treatment protocol (FR-28, ADR-18 §1) — and that boundary is enforced by the
+    deterministic action validator, not by the shape of this model and not by
+    prompt wording alone (FR-74).
+
+    `cited_ranks` are `Passage.rank` values, as in `DraftRecommendation`. An
+    action left with no valid citation is dropped rather than shown with lowered
+    confidence, which is where FR-74 is stricter than FR-22: a recommendation
+    with no citation is still a recommendation, an uncited action is just noise.
+
+    `text` is at most 25 words and is untrusted model output throughout: plain
+    text, never markup, and never written to a log (SR-17).
+    """
+
+    text: str
+    cited_ranks: list[int]
+    source: ActionSource
+
+
+class ActionPlan(BaseModel):
+    """Everything the actions stage produced for one recommendation (ADR-18 §2).
+
+    Two layers, because `baseline` must always be there and `tailored` is best
+    effort. `baseline` comes verbatim from the ACTIVE `URGENCY_ACTIONS` entry for
+    `category`, so every one of the five categories shows something useful even
+    with the language model switched off entirely (FR-71, FR-72).
+
+    `category` is the category the actions were generated for, recorded so that
+    a later change of category marks the tailored list outdated instead of
+    silently re-labelling it (FR-78).
+
+    `rejected_count` and `rejection_reasons` are the validator's tally. They are
+    surfaced so a high rejection rate is visible as a prompt problem (M6b) —
+    never as a reason to loosen the validator.
+    """
+
+    category: VTLCategory
+    baseline: list[str]
+    tailored: list[SuggestedAction]
+    rejected_count: int
+    rejection_reasons: list[str]

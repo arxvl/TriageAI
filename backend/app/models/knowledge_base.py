@@ -3,20 +3,23 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CreatedAtMixin, UUIDPKMixin
-from app.models.enums import KBEntryStatus, Species, VTLCategory, pg_enum
+from app.models.enums import KBEntryKind, KBEntryStatus, Species, VTLCategory, pg_enum
 
 
 class PresentingComplaint(Base):
@@ -28,10 +31,32 @@ class PresentingComplaint(Base):
 
 
 class KBEntry(Base, UUIDPKMixin):
+    """One knowledge-base entry: clinical content, or a baseline action set.
+
+    `kind` splits the two (ADR-18). A `COMPLAINT` entry is retrievable and hangs
+    off a presenting complaint; an `URGENCY_ACTIONS` entry holds the baseline
+    actions for one VTL category and is looked up by category, never
+    similarity-searched. The two check constraints make that exclusive, so a
+    row cannot be both or neither.
+
+    Storing baseline actions here rather than in a config file is deliberate:
+    they then inherit the citation, approval and versioning machinery of
+    ADR-14 like any other clinical content (BR-04, BR-10).
+    """
+
     __tablename__ = "kb_entries"
 
-    complaint_code: Mapped[str] = mapped_column(
-        ForeignKey("presenting_complaints.code"), nullable=False
+    kind: Mapped[KBEntryKind] = mapped_column(
+        pg_enum(KBEntryKind, "kb_entry_kind"),
+        nullable=False,
+        default=KBEntryKind.COMPLAINT,
+        server_default=KBEntryKind.COMPLAINT.value,
+    )
+    # Null on an URGENCY_ACTIONS entry, which belongs to a category, not a
+    # complaint (ck_kb_entries_complaint_code_iff_complaint).
+    complaint_code: Mapped[str | None] = mapped_column(ForeignKey("presenting_complaints.code"))
+    urgency_category: Mapped[VTLCategory | None] = mapped_column(
+        pg_enum(VTLCategory, "vtl_category")
     )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -49,6 +74,26 @@ class KBEntry(Base, UUIDPKMixin):
     approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_comments: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(urgency_category IS NOT NULL) = (kind = 'URGENCY_ACTIONS')",
+            name="ck_kb_entries_urgency_category_iff_urgency_actions",
+        ),
+        CheckConstraint(
+            "(complaint_code IS NOT NULL) = (kind = 'COMPLAINT')",
+            name="ck_kb_entries_complaint_code_iff_complaint",
+        ),
+        # At most one ACTIVE baseline set per category, so the lookup in
+        # `baseline_actions()` can never be ambiguous (FR-72). Partial, so
+        # superseded DRAFT or RETIRED revisions still coexist.
+        Index(
+            "uq_kb_entries_active_urgency_actions",
+            "urgency_category",
+            unique=True,
+            postgresql_where=text("kind = 'URGENCY_ACTIONS' AND status = 'ACTIVE'"),
+        ),
+    )
 
 
 class RedFlagRule(Base, UUIDPKMixin):

@@ -15,6 +15,11 @@ Order in a run, and why the seam is where it is:
    about two seconds even if the model is slow or down (NFR-05, FR-12).
 3. `EntityExtractor` → 4. `Retriever` → 5. `RecommendationGenerator`.
 
+`ActionSuggester` is not part of that run either. It executes in its own
+`SUGGEST_ACTIONS` job after the recommendation has been stored and the case is
+already in `AWAITING_REVIEW`, so a slow or failed actions call cannot delay the
+category or send the case to manual triage (FR-77, NFR-29, ADR-18).
+
 `KBIndexer` is not part of a triage run. It belongs to the knowledge-base
 approval workflow (P08) and is here because it is selected by the same registry.
 
@@ -26,12 +31,13 @@ storage code has no special case (FR-26, NFR-23, ADR-14).
 import uuid
 from typing import Protocol, runtime_checkable
 
-from app.models.enums import Species
+from app.models.enums import Species, VTLCategory
 from app.pipeline.types import (
     DraftRecommendation,
     ExtractionOutput,
     Passage,
     RedFlagHit,
+    SuggestedAction,
 )
 
 
@@ -124,6 +130,36 @@ class RecommendationGenerator(Protocol):
             GenerationFailed: no usable output after the stage's own retries.
         """
         ...
+
+
+@runtime_checkable
+class ActionSuggester(Protocol):
+    """Proposes tailored actions for a category that has already been decided.
+
+    Runs in the `SUGGEST_ACTIONS` job, never inside the triage run (ADR-18 §3).
+
+    Its inputs are the structured extraction, the final category and the
+    retrieved passages — deliberately **not** the owner's description, not even
+    the de-identified one. That keeps the privacy boundary of ADR-10 and shrinks
+    the prompt-injection surface (ADR-18 §5).
+
+    The returned actions are unvalidated. `app.pipeline.action_validator` is the
+    single place the citation, word-limit and drug/dose/diagnosis rules live, as
+    the safety validator is for the category (FR-74, ADR-09). A stage must not
+    screen its own output.
+
+    Raises:
+        ActionsFailed: no usable output after the stage's own retries. The case
+            keeps its category and stays in `AWAITING_REVIEW` (FR-77).
+    """
+
+    def suggest(
+        self,
+        extraction: ExtractionOutput,
+        category: VTLCategory,
+        passages: list[Passage],
+        max_items: int,
+    ) -> list[SuggestedAction]: ...
 
 
 @runtime_checkable

@@ -60,9 +60,13 @@ from app.models import (
     Job,
     JobStatus,
     JobType,
+    KBEntry,
+    KBEntryKind,
+    KBEntryStatus,
     KBVersion,
     OwnerDescription,
     OwnerReference,
+    PresentingComplaint,
     Recommendation,
     RedFlagAlert,
     RedFlagRule,
@@ -504,6 +508,50 @@ def make_kb_version(session: Session, *, version_no: int = 0) -> KBVersion:
     session.add(version)
     session.flush()
     return version
+
+
+def make_kb_entry(
+    session: Session,
+    *,
+    kind: KBEntryKind = KBEntryKind.COMPLAINT,
+    complaint_code: str | None = "LETHARGY",
+    urgency_category: VTLCategory | None = None,
+    status: KBEntryStatus = KBEntryStatus.DRAFT,
+    title: str = "Fixture entry",
+    content: str = "Fixture content.",
+    created_by: User | None = None,
+) -> KBEntry:
+    """Insert a knowledge-base entry of either kind (ADR-18).
+
+    The defaults describe a `COMPLAINT` entry, which is what most callers want.
+    A caller testing the `URGENCY_ACTIONS` side passes
+    `kind=..., complaint_code=None, urgency_category=...`; the check constraints
+    deliberately reject any other combination.
+
+    `complaint_code` defaults to a complaint `scripts/seed.py` always creates,
+    but the constraint tests run on a database the seed has not touched, so the
+    row is inserted here if it is missing.
+    """
+    author = created_by or make_user(session, role=UserRole.VETERINARY_REVIEWER)
+    if complaint_code is not None:
+        existing = session.get(PresentingComplaint, complaint_code)
+        if existing is None:
+            session.add(PresentingComplaint(code=complaint_code, name=complaint_code, sort_order=1))
+            session.flush()
+
+    entry = KBEntry(
+        kind=kind,
+        complaint_code=complaint_code,
+        urgency_category=urgency_category,
+        title=title,
+        content=content,
+        species=[Species.DOG, Species.CAT],
+        status=status,
+        created_by=author.id,
+    )
+    session.add(entry)
+    session.flush()
+    return entry
 
 
 def make_job(

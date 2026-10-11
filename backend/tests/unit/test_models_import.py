@@ -14,6 +14,8 @@ EXPECTED_TABLES = {
     "extraction_complaints",
     "recommendations",
     "retrieved_references",
+    "action_suggestions",
+    "final_actions",
     "red_flag_alerts",
     "staff_decisions",
     "clinical_notes",
@@ -85,3 +87,18 @@ def test_models_import_star_works_as_subprocess() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_kb_entries_has_the_urgency_actions_checks() -> None:
+    from app.models.knowledge_base import KBEntry
+
+    names = {c.name for c in KBEntry.__table_args__ if hasattr(c, "name")}
+    assert "ck_kb_entries_urgency_category_iff_urgency_actions" in names
+    assert "ck_kb_entries_complaint_code_iff_complaint" in names
+
+
+def test_action_suggestions_has_case_xor_vignette_check() -> None:
+    from app.models.action import ActionSuggestion
+
+    names = {c.name for c in ActionSuggestion.__table_args__ if hasattr(c, "name")}
+    assert "ck_action_suggestions_case_xor_vignette" in names

@@ -1,3 +1,4 @@
+from app.models.action import ActionSuggestion, FinalAction
 from app.models.ai_output import (
     ExtractionResult,
     Recommendation,
@@ -9,6 +10,9 @@ from app.models.audit import AuditEntry
 from app.models.case import Case, OwnerDescription, OwnerReference, Signalment
 from app.models.decision import ClinicalNote, StaffDecision
 from app.models.enums import (
+    ActionSource,
+    ActionsStatus,
+    ActionStatus,
     AgeUnit,
     CaseStatus,
     ConfidenceLevel,
@@ -17,6 +21,7 @@ from app.models.enums import (
     IntakeChannel,
     JobStatus,
     JobType,
+    KBEntryKind,
     KBEntryStatus,
     Sex,
     Species,
@@ -37,6 +42,9 @@ from app.models.user import User
 
 __all__ = [
     # enums
+    "ActionSource",
+    "ActionStatus",
+    "ActionsStatus",
     "AgeUnit",
     "CaseStatus",
     "ConfidenceLevel",
@@ -45,12 +53,14 @@ __all__ = [
     "IntakeChannel",
     "JobStatus",
     "JobType",
+    "KBEntryKind",
     "KBEntryStatus",
     "Sex",
     "Species",
     "UserRole",
     "VTLCategory",
     # models
+    "ActionSuggestion",
     "AuditEntry",
     "Case",
     "ClinicalNote",
@@ -58,6 +68,7 @@ __all__ = [
     "EvaluationRun",
     "EvaluationSet",
     "ExtractionResult",
+    "FinalAction",
     "Job",
     "KBChunk",
     "KBEntry",
