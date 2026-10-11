@@ -13,7 +13,7 @@
 - **Related** cross-references other requirements, ADRs in `docs/adr/`, and wireframes (W-xx) in `docs/prototype/TriageAI_Prototype.html`.
 - New requirements get a new ID at the end of the category. Never reuse or renumber an ID.
 
-**Coverage:** FR-01 to FR-70, 70 requirements, no gaps and no duplicates.
+**Coverage:** FR-01 to FR-79, 79 requirements, no gaps and no duplicates. FR-71 to FR-79 were added in SRS v1.2 for suggested actions.
 
 
 ## 4.1 Case Intake and Symptom Capture
@@ -142,10 +142,28 @@ Screen W-10. Implemented by `app/eval/`. Metrics are deterministic code; runs ag
 | **FR-69** | Metric export | The system SHALL export evaluation metrics and per-vignette outputs in CSV and JSON formats. | Must | Later | Metrics and per-vignette outputs can be exported as CSV and JSON. | FR-47, BR-08 |
 | **FR-70** | SUS response form | The system SHOULD provide a form to record System Usability Scale (SUS) responses and compute SUS scores. **Note:** If this form is not implemented, SUS responses will be collected with an external form and scored separately. | Should | Later | If not implemented in the application, SUS responses are collected externally and scored separately. | NFR-19 |
 
+## 4.9 Suggested Actions per Urgency Level
+
+Added in SRS v1.2. Screen W-04 panel 3. Implemented by `app/pipeline/action_validator.py` (deterministic) and the `ActionSuggester` stage; the real stage is built manually in guide M6b. See [ADR-18](../adr/ADR-18-llm-suggested-actions.md). Baseline actions are `URGENCY_ACTIONS` knowledge-base entries, so they inherit the citation, approval and versioning rules of [ADR-14](../adr/ADR-14-versioning-reproducibility.md).
+
+| ID | Requirement | Description | Priority | PD8 scope | Acceptance criteria | Related |
+|---|---|---|---|---|---|---|
+| **FR-71** | Actions for every urgency level | For every recommendation, the system SHALL present suggested staff actions for the final urgency category, in all five VTL categories. | Must | Must | Each of RED, ORANGE, YELLOW, GREEN and BLUE returns a non-empty action list in the UI. | FR-72, FR-20, IR-23 |
+| **FR-72** | Baseline action set | The system SHALL hold a fixed baseline action set for each VTL category as an approved knowledge-base entry, and SHALL display it even when the language model is unavailable. | Must | Must | With `PIPELINE_ACTIONS=mock` and the LLM disabled, every category still shows its baseline actions. | FR-49, FR-54, BR-10 |
+| **FR-73** | Case-specific tailored actions | The system SHOULD generate up to five case-specific suggested actions using the language model, from the extracted findings, the final urgency category and the retrieved knowledge-base passages only. | Should | Should | The actions stage receives no raw owner text; at most `ACTIONS_MAX_ITEMS` actions are stored. | FR-19, FR-26, SR-08 |
+| **FR-74** | Action content validation | Each tailored action SHALL cite at least one retrieved passage, and SHALL be rejected if it contains a medication name, a dose expression, or a diagnosis. | Must | Must | Validator unit tests reject each blocked pattern; rejected actions are counted and never displayed. | FR-22, FR-28, NFR-30 |
+| **FR-75** | Actions labelled until approved | Suggested actions SHALL be labelled as AI-generated and not finalized until a Veterinary Reviewer finalizes them. | Must | Must | The "AI-suggested actions – require staff approval" label is present until finalization and absent afterwards. | FR-36, IR-04, IR-23 |
+| **FR-76** | Reviewer finalizes the action list | A Veterinary Reviewer SHALL be able to keep, edit, remove and add actions and finalize the list; the original suggestions SHALL be preserved unchanged. | Must | Must | Finalizing writes `final_actions` rows with per-item status; `action_suggestions` rows are unchanged. | FR-48, BR-10, DR-09 |
+| **FR-77** | Action failure is non-blocking | Failure of action generation SHALL NOT delay the urgency recommendation and SHALL NOT route the case to manual triage. | Must | Must | With the actions stage forced to fail, the case still reaches AWAITING_REVIEW with baseline actions shown and `actions_status = failed`. | NFR-09, FR-06, ADR-08 |
+| **FR-78** | Actions follow a changed category | If the final category differs from the category the actions were generated for, the system SHALL display the baseline actions of the new category and SHALL mark the tailored actions as outdated. | Must | Must | Adjusting ORANGE to RED swaps the baseline set immediately and flags tailored actions as outdated. | FR-33, FR-27 |
+| **FR-79** | Visibility of unapproved actions | Intake Staff SHALL see baseline and finalized actions; AI-tailored actions that have not been finalized SHALL be visible only to Veterinary Reviewers. | Should | Should | An Intake Staff view of an undecided case shows baseline actions only. | FR-35, SR-05, BR-10 |
+
 ## Notes
 
 - **FR-18** changed in SRS v1.1: best-effort handling of code-switched English–Filipino text was replaced by English-only input. See [ADR-16](../adr/ADR-16-english-only-input.md).
 - **FR-19** (`k`, default 5) and **FR-24** (confidence threshold) depend on open items TBD-7 and TBD-8. Use the defaults in `PipelineConfig` until those are closed.
 - **FR-23 and FR-25 together** define the safety behaviour: the generation prompt prefers the more urgent category on a tie, and the deterministic validator may raise but never lower it. Neither may be relaxed without a new ADR.
 - **FR-12 has two detection paths.** The deterministic pre-screen must run before any model call, so NFR-05 (2-second alert) holds regardless of LLM latency.
+- **FR-28 was narrowed in SRS v1.2.** It previously excluded any "treatment recommendation", which conflicted with the suggested-actions feature in PD1. It now excludes diagnosis, prognosis, medications, doses and treatment protocols. Triage-level handling actions (escalate, prepare, monitor, ask the owner, transport precautions) are in scope and governed by FR-71 to FR-79.
+- **FR-52 and FR-58 name "licensed veterinarians" in their SRS text, which stands for a real deployment.** For this academic project the professor has waived external veterinary sign-off: the `can_approve_kb` permission and the whole approval workflow remain, and the team holds the approving account. Content must instead be traceable to a published, veterinarian-authored source, and the absence of clinical validation is reported as a limitation. The requirement text is unchanged; see the note in `business-rules.md`.
 - **FR-70** may be satisfied outside the application; if so, record the method in the evaluation protocol rather than marking the requirement unmet.

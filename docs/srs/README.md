@@ -5,14 +5,16 @@
 
 | File | Category | Range | Count |
 |---|---|---|---|
-| [functional-requirements.md](functional-requirements.md) | Functional | FR-01 – FR-70 | 70 |
-| [non-functional-requirements.md](non-functional-requirements.md) | Non-functional (performance, safety, quality) | NFR-01 – NFR-28 | 28 |
-| [interface-requirements.md](interface-requirements.md) | Interface (UI, hardware, software, communications) | IR-01 – IR-22 | 22 |
-| [business-rules.md](business-rules.md) | Business rules | BR-01 – BR-09 | 9 |
-| [database-requirements.md](database-requirements.md) | Database | DR-01 – DR-08 | 8 |
-| [security-requirements.md](security-requirements.md) | Security | SR-01 – SR-16 | 16 |
+| [functional-requirements.md](functional-requirements.md) | Functional | FR-01 – FR-79 | 79 |
+| [non-functional-requirements.md](non-functional-requirements.md) | Non-functional (performance, safety, quality) | NFR-01 – NFR-30 | 30 |
+| [interface-requirements.md](interface-requirements.md) | Interface (UI, hardware, software, communications) | IR-01 – IR-23 | 23 |
+| [business-rules.md](business-rules.md) | Business rules | BR-01 – BR-10 | 10 |
+| [database-requirements.md](database-requirements.md) | Database | DR-01 – DR-09 | 9 |
+| [security-requirements.md](security-requirements.md) | Security | SR-01 – SR-17 | 17 |
 
-**Total:** 153 requirements.
+**Total:** 168 requirements (SRS v1.2).
+
+**v1.2 changes:** FR-28 narrowed; FR-71–FR-79, NFR-29, NFR-30, IR-23, BR-10, DR-09 and SR-17 added for suggested actions per urgency level. External veterinary sign-off waived for the project; the approval workflow and `can_approve_kb` permission remain.
 
 ## Rules for changing these files
 
@@ -38,3 +40,4 @@
 | Knowledge base | FR-49–FR-56, BR-04, DR-05 |
 | Auth and roles | FR-57–FR-63, SR-01–SR-05, BR-02, BR-05 |
 | Evaluation | FR-64–FR-70, NFR-16–NFR-23, DR-06, BR-08 |
+| Suggested actions | FR-71–FR-79, NFR-29, NFR-30, IR-23, BR-10, DR-09, SR-17 |

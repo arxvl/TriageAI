@@ -29,7 +29,9 @@ Every step is audited and visible on a per-case timeline.
    - configuration (`model_id`, `prompt_version`, `kb_version_no`, generated time, latency)
    - red-flag alerts, the latest decision, notes, and `permissions: {can_decide, can_regenerate, can_close}`
 2. Opening the case as a reviewer sets `acknowledged_at` on its alerts. The queue banner then disappears.
-3. `POST /cases/{id}/decision` (reviewer only, FR-35) with body `{type, final_category?, reason_code?, reason_text?, note?}`:
+3. `POST /cases/{id}/decision` (reviewer only, FR-35) with body `{type, final_category?, reason_code?, reason_text?, note?, final_actions?}`:
+   - `final_actions` is an ordered list of `{text, source, status, suggestion_id?}` (FR-76). The service writes append-only `final_actions` rows and leaves `action_suggestions` untouched. If the key is absent, store the baseline set plus any kept tailored actions as `KEPT` — a reviewer who does not touch the list still produces a record of what they accepted.
+   - Audit: `ACTIONS_FINALIZED` with counts per status only, never action text (SR-17).
    - **`CONFIRM`:** `final_category` = the recommendation's category. Requires status `AWAITING_REVIEW`.
    - **`ADJUST`:** requires a `final_category` different from the recommendation, and a `reason_code` from the list below. Compute `direction` (UP or DOWN).
    - **`MANUAL`:** allowed from `MANUAL_TRIAGE_REQUIRED` or `AWAITING_REVIEW`. Requires `final_category` and `note` (FR-34). Sets status `MANUALLY_TRIAGED`.
@@ -84,12 +86,20 @@ Build `pages/CaseReview` to match W-04.
    - a confidence indicator with low-confidence reasons in plain language
    - the reference list with rank, entry title, source, a passage excerpt of 300 characters with "Show more", and a "cited" marker
    - the configuration footnote
+   - **the suggested-actions checklist** (IR-23, ADR-18), directly beneath the rationale:
+     - baseline actions first, each tagged `Baseline`, always present
+     - tailored actions tagged `AI-suggested`, each showing its citation, under the heading "AI-suggested actions – require staff approval" (FR-75)
+     - while `actions_status = pending`, show a loading row; when `failed`, show one quiet line: "Case-specific suggestions unavailable – baseline actions shown" (never an error dialog: FR-77)
+     - each row has a checkbox (keep), an edit pencil, and a remove control, plus an "Add action" field at the end — all disabled until the user is a reviewer (FR-79)
+     - Intake Staff see baseline and finalized actions only
 6. **Fixed decision bar**
    - buttons: Confirm \<Category\>, Adjust category…, Mark for manual triage, Add note, View audit
-   - the disclaimer: "Decision support only – this is not a diagnosis. The final urgency category is decided by veterinary staff." (IR-06)
+   - the disclaimer: "Decision support only – this is not a diagnosis. The final urgency category and actions are decided by veterinary staff." (IR-06, BR-10)
    - The buttons are hidden, with a read-only notice, for users without `can_decide`.
 7. **Confirm** opens a small confirmation dialog (IR-08), then posts the decision and returns to the queue with a toast.
 8. **Keyboard access:** every action is reachable by Tab, and dialogs trap focus.
+
+**Tests (actions):** baseline actions render for all five categories; the AI-suggested label hides after finalization; Intake Staff see no unfinalized tailored actions; a `failed` actions status shows the quiet line and never blocks the decision bar.
 
 **Tests:** the AI label shows before a decision and hides after; the safety-floor notice renders; decision buttons are hidden for Intake Staff; references mark cited items.
 

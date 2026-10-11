@@ -115,8 +115,9 @@ All persistent tables exist, managed by Alembic, with the integrity rules the SR
    - **Users**, each with the password `ChangeMe!2026` and `must_change_password=true`:
      - `admin@triageai.local` — ADMINISTRATOR
      - `intake@triageai.local` — INTAKE_STAFF, "J. Cruz"
-     - `reviewer@triageai.local` — VETERINARY_REVIEWER, "Dr. M. Santos"
-     - `approver@triageai.local` — VETERINARY_REVIEWER with `can_approve_kb=true`, "Dr. A. Rivera"
+     - `reviewer@triageai.local` — VETERINARY_REVIEWER, "Reviewer Demo"
+     - `approver@triageai.local` — VETERINARY_REVIEWER with `can_approve_kb=true`, "KB Approver Demo"
+     - Use neutral demo names, not "Dr." names: screenshots must not imply that a licensed veterinarian reviewed this content (external veterinary sign-off is waived for this project).
    - **Presenting complaints:** the 20 SRS complaints (SRS §4.2.1) with stable codes, e.g. `RESPIRATORY_DISTRESS`, `COLLAPSE`, `SEIZURES`, `TRAUMA`, `BLEEDING`, `VOMITING`, `DIARRHEA`, `TOXIN_INGESTION`, `FOREIGN_BODY`, `URINARY_OBSTRUCTION`, `ABDOMINAL_DISTENSION`, `DYSTOCIA`, `HEAT_STRESS`, `LETHARGY`, `INAPPETENCE`, `COUGH_SNEEZE`, `LAMENESS`, `EYE`, `SKIN_ITCH`, `EAR`, plus `OTHER`.
    - **Placeholder red-flag rules** with `is_placeholder=true`:
      - `NOT_BREATHING` → RED
@@ -126,7 +127,7 @@ All persistent tables exist, managed by Alembic, with the integrity rules the SR
      - `MALE_CAT_NO_URINE` → ORANGE
      - `TOXIN_INGESTION` → ORANGE
      - `PALE_OR_BLUE_GUMS` → RED
-   - Add a comment: *"Placeholder — replaced by vet-approved rules in P08/M5."*
+   - Add a comment: *"Placeholder — replaced by sourced, team-verified rules in P08/M1/M5."*
    - **An empty KB version:** `version_no=0`, note "Seed – no entries".
 2. Write `backend/tests/fixtures/demo_cases.yaml` with the four demo scenarios from the PD8 roadmap. Each has a fixture ID, species, signalment, the owner's text, and the expected category.
    - `DEMO_1`: male cat, urinary, expected ORANGE with the safety floor

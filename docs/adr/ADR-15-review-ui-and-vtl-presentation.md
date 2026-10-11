@@ -1,6 +1,7 @@
 # ADR-15: Three-panel review screen and human-in-the-loop presentation
 
 - **Status:** Accepted
+- **Date:** 2026-09-21
 - **Requirements:** FR-29 to FR-38, IR-03 to IR-08, NFR-10, NFR-11, NFR-20 to NFR-22, BR-01, BR-02, BR-09
 - **Related:** ADR-02, ADR-09, ADR-11, ADR-16
 

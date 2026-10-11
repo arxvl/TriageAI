@@ -114,7 +114,8 @@ RED_FLAG_RULES: tuple[SeedRedFlagRule, ...] = (
     SeedRedFlagRule(
         "UNCONTROLLED_BLEEDING", "Bleeding that will not stop", VTLCategory.RED, BOTH_SPECIES
     ),
-    SeedRedFlagRule("PALE_OR_BLUE_GUMS", "Pale or bluish gums", VTLCategory.RED, BOTH_SPECIES),
+    SeedRedFlagRule("BLUE_GUMS_CYANOSIS", "Bluish gums", VTLCategory.RED, BOTH_SPECIES),
+    SeedRedFlagRule("PALE_GUMS", "Pale Gums", VTLCategory.ORANGE, BOTH_SPECIES),
     SeedRedFlagRule(
         "MALE_CAT_NO_URINE",
         "Male cat straining with no urine passed",

@@ -1,6 +1,7 @@
 # ADR-14: Versioned prompts, knowledge base and AI outputs
 
 - **Status:** Accepted
+- **Date:** 2026-09-21
 - **Requirements:** FR-26, FR-27, FR-51, FR-54, FR-55, NFR-23, DR-05, BR-04
 - **Related:** ADR-05, ADR-06, ADR-07, ADR-09, ADR-12
 

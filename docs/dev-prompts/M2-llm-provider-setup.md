@@ -23,7 +23,7 @@ Pick **one hosted API** and **one local model**. Hosted is the default; local is
 | JSON output | Does it support a JSON mode or JSON-schema ("structured output")? |
 | API style | Does it offer an **OpenAI-compatible** Chat Completions endpoint? If yes, you can reuse the adapter in Step 3. If not, write a small adapter with the provider's SDK that implements the same interface. |
 | Data use | Is API data excluded from model training by default, or can you opt out? Record this for ADR-06 and RA 10173. |
-| Cost | The price per million input and output tokens. Budget roughly 1,500 input and 400 output tokens per call, and 2 calls per case. |
+| Cost | The price per million input and output tokens. Budget roughly 1,500 input and 400 output tokens per call, and **3 calls per case** (extraction, generation, suggested actions — ADR-18). |
 | Rate limits | Requests per minute on your tier. |
 | Latency | Measured in Step 6, not taken from marketing pages. |
 

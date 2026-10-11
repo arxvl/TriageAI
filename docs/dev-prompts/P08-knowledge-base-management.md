@@ -5,7 +5,7 @@
 
 ## Goal
 
-Knowledge-base entries and red-flag rules move through Draft → Pending Review → Active → Retired. Only a licensed-veterinarian approver can activate them. Every approval or retirement publishes a new **immutable KB version**. Entries can be imported from YAML files in `knowledge_base/`.
+Knowledge-base entries and red-flag rules move through Draft → Pending Review → Active → Retired. Only an account holding `can_approve_kb` can activate them. Every approval or retirement publishes a new **immutable KB version**. Entries can be imported from YAML files in `knowledge_base/`.
 
 Indexing is called through the `KBIndexer` interface. Its real implementation (chunking, embedding, pgvector) is built **manually in M5**. In this phase it is the mock.
 
@@ -107,18 +107,36 @@ rules:
    - Upsert by `slug` / `code`. New or changed content becomes `DRAFT` (entries) or unapproved (rules).
    - **Never modify an ACTIVE entry in place.** A changed file for an active entry creates a new draft revision with slug `<slug>` and the column `revises_entry_id` set (add it in the same migration as 8.1).
    - Print a summary table: created, updated, unchanged, errors.
-2. Include two **sample** entries and the placeholder rules, each clearly marked `SAMPLE – not vet-approved` in its content, so the workflow can be tested. The team replaces them with real content in M5.
+2. Include two **sample** entries and the placeholder rules, each clearly marked `SAMPLE – not source-verified` in its content, so the workflow can be tested. The team replaces them with real content in M5.
 
 **Tests:** schema validation errors; idempotent re-import; an active entry is never overwritten; dry-run writes nothing.
 
 ---
+
+## Subphase 8.2b — Urgency-action entries
+
+P05b added `kind` (`COMPLAINT` | `URGENCY_ACTIONS`) and `urgency_category` to
+`kb_entries`. Extend this phase's work to handle them (ADR-18):
+
+1. The importer accepts `kind` and `urgency_category`, and validates that an
+   `URGENCY_ACTIONS` file sets both and names a category.
+2. `kb_service` enforces: at most one ACTIVE `URGENCY_ACTIONS` entry per
+   category, and retiring one warns that the category will fall back to no
+   baseline actions until a replacement is approved.
+3. Indexing: `URGENCY_ACTIONS` entries are **not chunked or embedded** — they
+   are looked up by category, never similarity-searched. `index_entry` returns 0
+   for them.
+4. Publishing a version includes them like any other ACTIVE entry.
+
+**Tests:** the uniqueness rule; a `COMPLAINT` entry rejected if it sets
+`urgency_category`; retrieval never returns an `URGENCY_ACTIONS` chunk.
 
 ## Subphase 8.3 — Knowledge Base screen (W-08)
 
 Build `pages/KnowledgeBase` to match W-08.
 
 1. **Header:** "Published version: vN · M active entries".
-2. **Tabs:** Draft, Pending review, Active, Retired, with counts. The entry list sits on the left and the detail/editor panel on the right.
+2. **Tabs:** Draft, Pending review, Active, Retired, with counts. Add a filter or badge for entry kind, so the five urgency-action entries are easy to find. The entry list sits on the left and the detail/editor panel on the right.
 3. **Editor** (administrator):
    - title
    - complaint (select from the fixed list)

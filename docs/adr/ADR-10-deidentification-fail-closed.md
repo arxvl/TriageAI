@@ -1,6 +1,7 @@
 # ADR-10: De-identify before any external call, and fail closed
 
 - **Status:** Accepted
+- **Date:** 2026-09-19
 - **Requirements:** FR-12, IR-20, SR-07, SR-08, DR-04, BR-07, BR-08
 - **Related:** ADR-05, ADR-06, ADR-07, ADR-12, ADR-16
 

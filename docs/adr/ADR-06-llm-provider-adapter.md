@@ -1,6 +1,7 @@
 # ADR-06: LLM access through a provider adapter, hosted API first
 
 - **Status:** Accepted (model selection recorded in the decision log below)
+- **Date:** 2026-09-17 (revised 2026-09-28)
 - **Requirements:** IR-12, IR-18, IR-19, NFR-01, NFR-09, NFR-28, SR-08
 - **Open item:** TBD-1 is closed once the selection table below is filled in
 - **Related:** ADR-05, ADR-08, ADR-09, ADR-10, ADR-17

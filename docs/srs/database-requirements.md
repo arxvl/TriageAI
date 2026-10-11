@@ -4,7 +4,7 @@
 **Source:** SRS v1.1. IDs and the text in the Description column are authoritative: do not renumber, reword, or delete them. Priority follows the SRS keyword (`SHALL` = Must, `SHOULD` = Should, `MAY` = May).
 **Sibling files:** [functional](functional-requirements.md) · [non-functional](non-functional-requirements.md) · [interface](interface-requirements.md) · [business rules](business-rules.md) · [database](database-requirements.md) · [security](security-requirements.md)
 
-**Coverage:** DR-01 to DR-08, 8 requirements, no gaps.
+**Coverage:** DR-01 to DR-09, 9 requirements, no gaps. DR-09 was added in SRS v1.2.
 
 The physical schema follows [ADR-04](../adr/ADR-04-postgres-pgvector.md) (one PostgreSQL 16 instance with pgvector) and [ADR-12](../adr/ADR-12-append-only-audit.md) (immutability enforced in the database). All schema changes go through Alembic migrations; no manual schema edits.
 
@@ -18,6 +18,12 @@ The physical schema follows [ADR-04](../adr/ADR-04-postgres-pgvector.md) (one Po
 | **DR-06** | Separated evaluation data | Evaluation data SHALL be stored separately from clinical case data. | Must | Vignettes, runs and results are stored apart from clinical case tables. | Evaluation rows use vignette_id; a row carrying both case_id and vignette_id is rejected. | FR-65, BR-08 |
 | **DR-07** | Backup retention | Daily database backups SHALL be retained for at least 7 days during the evaluation period. | Must | Daily encrypted dumps retained for at least 7 days during evaluation. | The backup container produces a dump per day and prunes beyond 7; a restore has been tested once. | SR-15, ADR-13 |
 | **DR-08** | Capacity | The database design SHALL accommodate at least 10,000 cases and 5,000 knowledge base chunks without changes to the schema. | Must | Schema supports at least 10,000 cases and 5,000 KB chunks unchanged. | Index plan and HNSW parameters hold at that size without schema change. | NFR-02, NFR-06, ADR-04 |
+
+## Suggested actions (added in SRS v1.2)
+
+| ID | Requirement | Description | Priority | Implementation constraint | Acceptance criteria | Related |
+|---|---|---|---|---|---|---|
+| **DR-09** | Separated and provenanced action storage | Suggested actions and finalized actions SHALL be stored in separate tables; finalized action rows SHALL be append-only and SHALL record the model, prompt version, knowledge base version, and cited chunks used to produce the suggestion. | Must | `action_suggestions` and `final_actions`; `prevent_modify` trigger on `final_actions`. | An UPDATE on `final_actions` is rejected by the database; every suggestion row carries its provenance columns. | FR-74, FR-76, DR-05, ADR-12 |
 
 ## Notes
 

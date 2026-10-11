@@ -4,7 +4,7 @@
 **Source:** SRS v1.1. IDs and the text in the Description column are authoritative: do not renumber, reword, or delete them. Priority follows the SRS keyword (`SHALL` = Must, `SHOULD` = Should, `MAY` = May).
 **Sibling files:** [functional](functional-requirements.md) · [non-functional](non-functional-requirements.md) · [interface](interface-requirements.md) · [business rules](business-rules.md) · [database](database-requirements.md) · [security](security-requirements.md)
 
-**Coverage:** NFR-01 to NFR-28, 28 requirements, no gaps.
+**Coverage:** NFR-01 to NFR-30, 30 requirements, no gaps. NFR-29 and NFR-30 were added in SRS v1.2 for suggested actions.
 
 NFR-07 to NFR-15 are the clinical safety requirements. They constrain every feature and may not be relaxed for performance, cost or schedule; a change needs a new ADR and veterinary review.
 
@@ -57,9 +57,17 @@ Targets NFR-16 and NFR-17 are reported in PD8 as early results on a 20–30 vign
 | **NFR-27** | Localization | **Localization:** The user interface, the supported input, and the documentation SHALL be in English. All interface text SHALL be stored in resource files so that a Filipino translation can be added in a later release without code changes. | Must | UI, input and documentation are English; interface strings live in resource files. | FR-18, ADR-16 |
 | **NFR-28** | Cost efficiency | **Sustainability and cost efficiency:** The system SHALL avoid redundant LLM calls by storing results and re-processing a case only when its input is edited, and SHALL record AI service usage so that it can be kept within the project budget (PD4). | Must | Results are stored and reused; a case is re-processed only when its input changes, and AI usage is recorded. | FR-27, ADR-06 |
 
+## Suggested actions (5.4, added in SRS v1.2)
+
+| ID | Requirement | Description | Priority | Verification / acceptance criteria | Related |
+|---|---|---|---|---|---|
+| **NFR-29** | Action latency is separate | Tailored suggested actions SHOULD appear within 10 s (median) after the urgency recommendation is shown, and SHALL NOT count toward the end-to-end recommendation latency budget. | Should | Measure the `SUGGEST_ACTIONS` job duration over 20 cases; NFR-01 measured on the recommendation only. | NFR-01, FR-77, ADR-08 |
+| **NFR-30** | No unsafe action content | In review of evaluation outputs, no displayed suggested action SHALL contain a medication name, a dose expression, or a diagnosis. | Must | The action validator rejects every blocked pattern in unit tests, and a manual pass over one full evaluation run finds zero violations. | FR-74, FR-28, NFR-14 |
+
 ## Notes
 
 - **NFR-16, NFR-17, NFR-19, NFR-20 and NFR-23 are measured, not asserted.** Report the measured value with the sample size, even when a target is missed; a missed target with an honest error analysis is a valid result (see guide M7).
 - **NFR-25** requires a traceability table by PD8. Generate it from `@pytest.mark.req("FR-xx")` markers into `docs/traceability.md`.
+- **NFR-14 and NFR-19 assume a veterinary reviewer in the SRS text.** For this project the professor has waived external veterinary sign-off, so under-triage review and vignette labelling are done by the team against a written rubric derived from the published VTL, with inter-rater agreement reported. This is a stated limitation, not a dropped requirement.
 - **NFR-27** now states English-only input and UI; see [ADR-16](../adr/ADR-16-english-only-input.md).
 - **NFR-05 and NFR-01 interact:** the red-flag pre-screen must not wait for the LLM. This is why red-flag alerts are committed before extraction ([ADR-08](../adr/ADR-08-async-jobs-polling.md)).

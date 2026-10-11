@@ -1,6 +1,7 @@
 # ADR-12: Append-only audit trail enforced in the database
 
 - **Status:** Accepted
+- **Date:** 2026-09-20
 - **Requirements:** FR-05, FR-41 to FR-46, FR-48, SR-12, SR-14, DR-05, BR-03
 - **Related:** ADR-04, ADR-10, ADR-11, ADR-14
 

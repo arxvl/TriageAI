@@ -1,6 +1,7 @@
 # ADR-11: Cookie sessions with server-side role checks
 
 - **Status:** Accepted
+- **Date:** 2026-09-19
 - **Requirements:** FR-57 to FR-62, SR-01 to SR-05, SR-09, SR-12, IR-02
 - **Related:** ADR-02, ADR-03, ADR-12, ADR-15
 

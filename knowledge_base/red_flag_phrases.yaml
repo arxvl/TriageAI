@@ -1,0 +1,148 @@
+# Red-flag phrases (M1). Matched on normalized text: lower-cased, punctuation -> space.
+#   negatable: true  -> skip the match if a negation word appears within ~3 words before it
+#   requires:        -> optional species/sex condition; unknown sex still triggers (fail safe)
+# English only (FR-18). Written as clinic staff would type what the owner reported.
+# Codes and minimum categories live in red_flags.yaml - never duplicate categories here.
+# DRAFT until approved by the veterinary reviewer.
+
+NOT_BREATHING:
+  negatable: false
+  phrases:
+    - "not breathing"
+    - "stopped breathing"
+    - "barely breathing"
+    - "struggling to breathe"
+    - "can't breathe"
+    - "cannot breathe"
+    - "gasping"
+    - "gasping for air"
+    - "choking"
+    - "fighting for air"
+    - "breathing very hard"
+    - "severe difficulty breathing"
+
+UNRESPONSIVE:
+  negatable: false
+  phrases:
+    - "unresponsive"
+    - "unconscious"
+    - "won't wake up"
+    - "will not wake up"
+    - "can't wake him up"
+    - "can't wake her up"
+    - "not responding"
+    - "passed out"
+    - "collapsed and won't get up"
+    - "limp and not moving"
+
+ACTIVE_SEIZURE:
+  negatable: true
+  phrases:
+    - "having a seizure now"
+    - "still seizing"
+    - "seizing right now"
+    - "convulsing now"
+    - "still convulsing"
+    - "won't stop seizing"
+    - "seizure that won't stop"
+    - "seizure for more than five minutes"
+    - "several seizures today"
+    - "multiple seizures"
+    - "seizures one after another"
+    - "second seizure today"
+    - "third seizure today"
+    - "keeps having seizures"
+    - "shaking and won't stop"
+    - "had a seizure recently"
+    - "seizure 10 minutes ago"
+    # Deliberately NOT included: bare "seizure", "had a seizure".
+    # A recovered isolated seizure is a low-urgency presentation in the source list.
+
+UNCONTROLLED_BLEEDING:
+  negatable: true
+  phrases:
+    - "won't stop bleeding"
+    - "will not stop bleeding"
+    - "bleeding won't stop"
+    - "still bleeding after pressure"
+    - "bleeding heavily"
+    - "blood everywhere"
+    - "blood is pouring"
+    - "profuse bleeding"
+    - "soaked through the towel"
+    - "losing a lot of blood"
+
+BLUE_GUMS_CYANOSIS:
+  negatable: true
+  phrases:
+    - "blue gums"
+    - "bluish gums"
+    - "purple gums"
+    - "gums look blue"
+    - "gums are blue"
+    - "blue tongue"
+    - "tongue looks blue"
+    - "turning blue"
+
+PALE_GUMS:
+  negatable: true
+  phrases:
+    - "pale gums"
+    - "white gums"
+    - "gums look pale"
+    - "gums are very pale"
+    - "gums look white"
+    - "gums have no colour"
+    - "gums have no color"
+
+MALE_CAT_NO_URINE:
+  negatable: false
+  requires: {species: CAT, sex: MALE}
+  phrases:
+    - "no urine"
+    - "nothing comes out"
+    - "nothing is coming out"
+    - "not peeing"
+    - "not urinating"
+    - "can't pee"
+    - "cannot pee"
+    - "can't urinate"
+    - "cannot urinate"
+    - "straining to pee"
+    - "straining to urinate"
+    - "straining in the litter box"
+    - "keeps going to the litter box"
+    - "in and out of the litter box"
+    - "crying in the litter box"
+    - "trying to pee but nothing"
+    - "only a few drops"
+    - "licking himself and crying"
+
+TOXIN_INGESTION:
+  negatable: true
+  phrases:
+    - "rat poison"
+    - "rodenticide"
+    - "ate poison"
+    - "swallowed poison"
+    - "snail bait"
+    - "slug bait"
+    - "antifreeze"
+    - "ate chocolate"
+    - "ate grapes"
+    - "ate raisins"
+    - "ate onions"
+    - "ate garlic"
+    - "xylitol"
+    - "sugar free gum"
+    - "ate my medicine"
+    - "ate human medicine"
+    - "swallowed pills"
+    - "ate paracetamol"
+    - "ate ibuprofen"
+    - "ate sago palm"
+    - "ate mushrooms"
+    - "drank chemicals"
+    - "licked something toxic"
+    - "dog flea treatment on the cat"
+    - "permethrin"

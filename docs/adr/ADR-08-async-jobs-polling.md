@@ -1,6 +1,7 @@
 # ADR-08: Database-backed job queue and client polling
 
 - **Status:** Accepted
+- **Date:** 2026-09-18
 - **Requirements:** FR-06, FR-07, IR-22, NFR-01, NFR-07, NFR-09, NFR-13
 - **Related:** ADR-01, ADR-04, ADR-06, ADR-09
 

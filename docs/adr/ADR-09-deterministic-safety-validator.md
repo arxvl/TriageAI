@@ -1,6 +1,7 @@
 # ADR-09: Deterministic safety and citation validator after generation
 
 - **Status:** Accepted
+- **Date:** 2026-09-18
 - **Requirements:** FR-22, FR-23, FR-25, FR-28, NFR-08, NFR-11, NFR-14, BR-02
 - **Related:** ADR-05, ADR-06, ADR-14, ADR-15
 

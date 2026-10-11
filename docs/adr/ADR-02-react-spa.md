@@ -1,6 +1,7 @@
 # ADR-02: React single-page application for the front end
 
 - **Status:** Accepted
+- **Date:** 2026-09-15
 - **Requirements:** IR-01 to IR-08, IR-22, NFR-20, NFR-21, NFR-22
 - **Related:** ADR-01, ADR-08, ADR-15
 

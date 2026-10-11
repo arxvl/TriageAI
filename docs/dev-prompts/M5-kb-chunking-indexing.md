@@ -7,13 +7,14 @@ You will:
 
 - write the curated knowledge-base entries;
 - implement the chunker and the `PgVectorKBIndexer`, so that approving an entry in W-08 creates embedded chunks;
-- publish the first real KB version, reviewed by the veterinarian.
+- write the five `URGENCY_ACTIONS` entries that supply baseline suggested actions (ADR-18);
+- publish the first real KB version, source-verified by the team.
 
 ## Prerequisites
 
 - [ ] M4 done: the vector column, the index, and the embedder work.
 - [ ] P08 merged: the workflow, versions, `import_kb`, and W-08 exist, with the mock indexer.
-- [ ] The veterinary reviewer session is booked for KB review.
+- [ ] Each planned entry has an identified published source. **External veterinary sign-off is waived for this project**; entries must be traceable to a published, veterinarian-authored source and verified by a second team member.
 
 ---
 
@@ -35,7 +36,7 @@ Write the entries in this order:
   2. **Warning signs that raise urgency:** these are the discriminators.
   3. **Signs of lower urgency:** when it can usually wait.
   4. **What staff should ask the owner.**
-- Do not write treatment advice or doses. TriageAI never recommends treatment.
+- Do not write diagnoses, prognoses, medication names, doses or treatment protocols. Triage-level handling guidance (escalate, prepare, monitor, ask the owner, transport precautions) is allowed and is what the `URGENCY_ACTIONS` entries in Part D contain (FR-28 as revised, ADR-18).
 - Cite the specific page: title, publisher, URL, and access date. Allowed sources are the Merck Veterinary Manual, WSAVA guidelines, and the VTL papers listed in SRS §1.5.
 - Link red-flag codes (`red_flag_codes`) only when the entry covers that red flag.
 
@@ -45,9 +46,9 @@ Create one YAML file per entry in `knowledge_base/entries/`, using the P08 forma
 
 **Check A3.** `docker compose exec backend python -m scripts.import_kb --dry-run` reports no errors.
 
-### Step A4. Vet review (BR-04)
+### Step A4. Source verification (BR-04, project variant)
 
-1. Export the entries as one PDF or document for the reviewer, together with `red_flags.yaml` and `red_flag_phrases.yaml` from M1.
+1. Collect the entries together with `red_flags.yaml` and `red_flag_phrases.yaml` from M1. For each, confirm the cited source is published and veterinarian-authored, and that the content matches what that source says.
 2. Record each decision in `knowledge_base/APPROVALS.md`:
 
    | Date | Item | Reviewer | Decision | Comment |
@@ -228,6 +229,59 @@ class PgVectorKBIndexer:
 
    **Check C5.** The correct entry is ranked first, or at least in the top 3, for each demo case.
 
+
+---
+
+## Part D — Urgency-action entries (baseline suggested actions)
+
+These five entries supply the baseline actions shown for every case in that
+category (FR-72, ADR-18). They are ordinary KB entries with
+`kind: URGENCY_ACTIONS`, so they carry citations and versioning like any other
+content, but they are looked up by category and never similarity-searched.
+
+### Step D1. Write `knowledge_base/entries/actions-<category>.yaml`, one per category
+
+```yaml
+slug: actions-orange
+kind: URGENCY_ACTIONS
+urgency_category: ORANGE
+title: Suggested staff actions - Orange (very urgent, within 15 minutes)
+species: [DOG, CAT]
+content: |
+  Alert the veterinarian now and move the patient to the treatment area.
+  TODO: one action per line, imperative, under 20 words.
+  TODO: escalate / prepare / monitor / ask the owner / handling precautions only.
+source:
+  title: TODO
+  publisher: TODO
+  url: TODO
+  access_date: 2026-10-__
+```
+
+**Rules for the content lines:**
+
+- One action per line. The importer splits on newlines.
+- Imperative, under 20 words, written for clinic staff.
+- **No medication, dose, route or frequency. No diagnosis.** The action
+  validator (P05b) will reject tailored actions that break this, but baseline
+  text is shown verbatim, so it is on you to keep it clean. Run the validator
+  over your baseline lines once as a check.
+- 3 to 6 actions per category. Red and Orange should be shortest and most
+  directive.
+
+### Step D2. Import, approve, verify
+
+The entries go through the normal workflow in W-08. Then check all five exist
+and are ACTIVE in the published version:
+
+```sql
+select urgency_category, status, left(content, 60)
+from kb_entries where kind = 'URGENCY_ACTIONS' order by urgency_category;
+```
+
+**Check D2.** Five rows, all ACTIVE, none still marked SAMPLE, each with a real
+source. Submit one case per category and confirm baseline actions appear.
+
 ## Step 6. Compare the embedding models (closes TBD-2)
 
 1. Write 15–20 short queries in the format produced by the M6 query builder, each with its expected entry slug. Write them in English (FR-18), and include 3–5 that use lay wording rather than clinical terms.
@@ -241,7 +295,8 @@ class PgVectorKBIndexer:
 
 ## Done when
 
-- [ ] All demo entries, and as many of the others as possible, are vet-approved and Active. `APPROVALS.md` is filled in.
+- [ ] All demo entries, and as many of the others as possible, are source-verified and Active. `APPROVALS.md` is filled in.
+- [ ] All five `URGENCY_ACTIONS` entries are written, sourced and Active (Part D).
 - [ ] Checks C4 and C5 pass, and the chunking and indexer tests pass.
 - [ ] ADR-07 is updated with the final model and its Recall@5.
 - [ ] `KB_INDEXER=pgvector` is committed in `.env.example` as the documented real value.

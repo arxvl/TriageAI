@@ -1,0 +1,59 @@
+# Red-flag rules. min_category = the lowest VTL category the safety floor may assign
+# when this rule fires (FR-23). The floor can raise a recommendation, never lower it.
+#
+# Category assignments derived from the veterinary triage list in:
+#   Thomovsky E, Ilie L. Basic triage in dogs and cats: Part I.
+#   Can Vet J. 2024;65(2):162-172. Figure 1, adapted from Ruys et al. (2012).
+# Target waiting times per category come from Ruys et al. 2012, not from this paper.
+#
+# DRAFT - every rule below requires veterinary approval before is_placeholder = false.
+
+rules:
+  - code: NOT_BREATHING
+    label: Not breathing or severe difficulty breathing
+    min_category: RED
+    species: [DOG, CAT]
+    phrases_ref: NOT_BREATHING
+
+  - code: UNRESPONSIVE
+    label: Unresponsive or cannot be roused
+    min_category: RED
+    species: [DOG, CAT]
+    phrases_ref: UNRESPONSIVE
+
+  - code: ACTIVE_SEIZURE
+    label: Seizure in progress, prolonged, or clustered
+    min_category: RED
+    species: [DOG, CAT]
+    phrases_ref: ACTIVE_SEIZURE
+    # A single seizure the animal has recovered from is NOT this rule (Green in source).
+
+  - code: UNCONTROLLED_BLEEDING
+    label: Profuse or uncontrolled haemorrhage
+    min_category: RED
+    species: [DOG, CAT]
+    phrases_ref: UNCONTROLLED_BLEEDING
+
+  - code: BLUE_GUMS_CYANOSIS
+    label: Cyanosis - blue or purple gums or tongue
+    min_category: RED
+    species: [DOG, CAT]
+    phrases_ref: BLUE_GUMS_CYANOSIS
+
+  - code: PALE_GUMS
+    label: Pale or white mucous membranes
+    min_category: ORANGE
+    species: [DOG, CAT]
+    phrases_ref: PALE_GUMS
+
+  - code: MALE_CAT_NO_URINE
+    label: Male cat unable to pass urine - suspected urethral obstruction
+    min_category: ORANGE
+    species: [CAT]
+    phrases_ref: MALE_CAT_NO_URINE
+
+  - code: TOXIN_INGESTION
+    label: Suspected toxin ingestion or exposure
+    min_category: ORANGE
+    species: [DOG, CAT]
+    phrases_ref: TOXIN_INGESTION

@@ -1,6 +1,7 @@
 # ADR-01: Modular monolith for the backend
 
 - **Status:** Accepted
+- **Date:** 2026-09-15 (revised 2026-09-28)
 - **Deciders:** Letada, Alzaga, Bataller
 - **Requirements:** NFR-24, NFR-26, NFR-06
 - **Supersedes / superseded by:** —

@@ -38,6 +38,7 @@ The table lists every step in order and maps it to your PD8 roadmap. "CC" means 
 | 3 | P03 Authentication and RBAC | CC | P02 | 0 |
 | 4 | P04 Case intake and Triage Queue | CC | P03 | 1 |
 | 5 | P05 Triage pipeline framework (mocks) | CC | P04 | 1 |
+| 5b | P05b Suggested actions framework (mocks) | CC | P05 | 1–2 |
 | 6 | M1 De-identification and red-flag screening | You | P05 | 2 |
 | 7 | M2 LLM provider setup and selection | You | P05 | 1 (spike) |
 | 8 | M3 Clinical entity extraction | You | M1, M2 | 2 |
@@ -46,12 +47,15 @@ The table lists every step in order and maps it to your PD8 roadmap. "CC" means 
 | 11 | P08 Knowledge base management | CC | P06 | 2–3 |
 | 12 | M5 KB authoring, chunking, and indexing | You | M4, P08 | 2 |
 | 13 | M6 Retrieval and recommendation generation | You | M3, M5 | 2 |
+| 13b | M6b LLM action suggestion | You | M6, P05b | 2–3 |
 | 14 | P07 Resilience, regeneration, and history | CC | P06 | 3 |
 | 15 | P09 Admin: users, evaluation harness, exports | CC | P07 | 3 |
 | 16 | M7 Evaluation with the real model | You | M6, P09 | 3–4 |
 | 17 | P10 Hardening, deployment, and release | CC + You | all | 4 |
 
 P08 comes before P07 on purpose. The knowledge-base workflow must exist before M5 can index real entries.
+
+P05b comes before P06 because the Case Review screen renders the action checklist; building P06 first would mean reworking it.
 
 The Claude Code lane (P06, P08, P07, P09) and the manual AI lane (M1–M6) can run **in parallel**, because the app runs on mocks until each manual guide switches a stage to real.
 
@@ -98,6 +102,7 @@ subphase X.Y.
 | `P03-auth-rbac.md` | Login, sessions, lockout, `require_role`, login screen, app shell |
 | `P04-case-intake-and-queue.md` | Case API, W-03 intake, W-02 queue with polling |
 | `P05-pipeline-framework.md` | Contracts, job queue worker, orchestrator, mocks, safety validator |
+| `P05b-suggested-actions-framework.md` | Suggested actions: schema, baseline KB entries, action validator, SUGGEST_ACTIONS job, mock stage |
 | `P06-case-review-and-decisions.md` | W-04, W-05, W-06, decisions, audit timeline |
 | `P07-resilience-regeneration-history.md` | Failure handling, retry, correction and regenerate, W-07 search |
 | `P08-knowledge-base-management.md` | KB API and workflow, versions, YAML importer, W-08 |
@@ -109,4 +114,5 @@ subphase X.Y.
 | `M4-pgvector-embeddings.md` | Manual: pgvector column and index, embedding model, embedder |
 | `M5-kb-chunking-indexing.md` | Manual: writing KB entries, chunker, indexer, versions |
 | `M6-retrieval-generation.md` | Manual: retriever, generation prompt, switching the pipeline to real |
+| `M6b-action-suggestion.md` | Manual: actions prompt, LLM action suggester, golden tests, switching actions to real |
 | `M7-evaluation-real-model.md` | Manual: vignette set, evaluation runs, interpreting metrics |

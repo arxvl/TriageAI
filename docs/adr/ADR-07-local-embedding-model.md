@@ -1,6 +1,7 @@
 # ADR-07: Local sentence-embedding model for retrieval
 
 - **Status:** Accepted (final model recorded below)
+- **Date:** 2026-09-17 (revised 2026-09-28)
 - **Requirements:** FR-19, NFR-02, NFR-17, NFR-23, NFR-28, SR-08
 - **Open item:** TBD-2 is closed when the comparison table is filled in
 - **Related:** ADR-04, ADR-05, ADR-10, ADR-14

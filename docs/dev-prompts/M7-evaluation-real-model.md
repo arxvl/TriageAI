@@ -1,6 +1,6 @@
 # M7 — Evaluation with the Real Pipeline (Manual)
 
-**Owner:** Lane B, with the whole team and the veterinary reviewer · **Branch:** `eval/m7-<set-name>`
+**Owner:** Lane B, with the whole team · **Branch:** `eval/m7-<set-name>`
 **Do after:** M6, P09 · **Requirements:** FR-64–FR-68, NFR-01, NFR-14, NFR-16, NFR-17, NFR-19, NFR-23 · TBD-10, TBD-12
 
 You will build the labeled vignette set, run the P09 harness on the real pipeline, and interpret the results against the SRS targets. The results are reported honestly in PD8 (early results) and in the final presentation (full set).
@@ -9,7 +9,7 @@ You will build the labeled vignette set, run the P09 harness on the real pipelin
 
 - [ ] M6 done: all stages are real, and the demo passes.
 - [ ] P09 merged: the importer, runner, metrics, W-10, and the report CLI exist.
-- [ ] The veterinary reviewer has agreed to label the vignettes.
+- [ ] A written labelling rubric exists, derived from the published VTL, and two team members are available to label independently. **External veterinary labelling is waived for this project**; report inter-rater agreement instead and state the absence of clinical validation as a limitation.
 
 ---
 
@@ -33,9 +33,11 @@ You will build the labeled vignette set, run the P09 harness on the real pipelin
    - Run the test split **once per frozen configuration**.
    - Never tune on the test split. That would make the metrics meaningless.
 4. **Reference labels.**
-   - The veterinary reviewer assigns `reference_category` to each vignette **without seeing the model's answer**.
-   - The reviewer also lists `relevant_entry_slugs`: which KB entries a good answer should rely on.
-   - Record the reviewer's name and the date in `evaluation/vignettes/LABELS.md`.
+   - **Two team members independently** assign `reference_category` to each vignette **without seeing the model's answer**, each applying the written rubric.
+   - Disagreements are resolved by discussion against the rubric, and the rubric is clarified where it was ambiguous.
+   - Compute and report Cohen's kappa for the two independent passes. Below about 0.6, the rubric is too vague to support the metrics — fix it before running the test split.
+   - Also list `relevant_entry_slugs`: which KB entries a good answer should rely on.
+   - Record the labellers' names, the rubric version, the kappa and the date in `evaluation/vignettes/LABELS.md`.
 5. Save the files in the P09 CSV format. Import both splits:
 
    ```bash
@@ -107,7 +109,7 @@ How to read the numbers:
 ## Step 5. Under-triage review (NFR-14)
 
 1. Export the under-triaged list from W-10.
-2. The veterinary reviewer reviews each case and classifies it:
+2. Two team members review each case together and classify it:
    - (a) a model error
    - (b) the reference label should change
    - (c) a KB gap
@@ -115,14 +117,34 @@ How to read the numbers:
 4. **Changing a reference label after seeing model output must be reported openly**, with its reason.
 5. This review must be completed before any usability session with clinic staff (NFR-14).
 
+## Step 5b. Suggested-action appropriateness (PD1 objective 3)
+
+PD1 requires evaluating suggested-action appropriateness, so report these from
+the same run. All four are computable without a veterinarian:
+
+| Metric | How | Target |
+|---|---|---|
+| Validator rejection rate | rejected / generated, from `action_suggestions` and the stored `rejected_count` | ≤ 20% |
+| Unsafe content surviving | manual scan of every displayed action for a drug, dose or diagnosis | **0** (NFR-30) |
+| Citation validity | share of displayed tailored actions with a valid citation | 100% by construction; verify |
+| Coverage | share of cases where at least one tailored action was displayed, by category | report per category |
+
+If reviewers have used the system (the usability session), also report the
+**keep / edit / remove rate** of tailored actions from `final_actions`. This is
+the strongest available signal of appropriateness, since it is a real user
+judging a real suggestion.
+
+State plainly in the report that appropriateness here means "safe, grounded and
+accepted by the reviewer", not "clinically validated".
+
 ## Step 6. Report
 
 For PD8, include an "Early evaluation" table containing:
 
-- the metrics
+- the metrics, including the suggested-action metrics from Step 5b
 - the vignette counts
 - the configuration: model ID, prompt versions, KB version, and embedding model
-- the limitations: small set, fictitious vignettes, single reviewer
+- the limitations: small set, fictitious vignettes, team labelling with no external veterinary validation (report the kappa)
 
 Keep the full run exports in `evaluation/results/`. They are git-ignored, except for the markdown reports and the review file.
 

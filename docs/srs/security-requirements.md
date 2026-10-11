@@ -4,7 +4,7 @@
 **Source:** SRS v1.1. IDs and the text in the Description column are authoritative: do not renumber, reword, or delete them. Priority follows the SRS keyword (`SHALL` = Must, `SHOULD` = Should, `MAY` = May).
 **Sibling files:** [functional](functional-requirements.md) · [non-functional](non-functional-requirements.md) · [interface](interface-requirements.md) · [business rules](business-rules.md) · [database](database-requirements.md) · [security](security-requirements.md)
 
-**Coverage:** SR-01 to SR-16, 16 requirements, no gaps.
+**Coverage:** SR-01 to SR-17, 17 requirements, no gaps. SR-17 was added in SRS v1.2.
 
 Security behaviour is implemented per [ADR-11](../adr/ADR-11-cookie-sessions-rbac.md) (sessions and RBAC), [ADR-10](../adr/ADR-10-deidentification-fail-closed.md) (privacy boundary) and [ADR-13](../adr/ADR-13-docker-compose-single-vm.md) (transport, headers, backups). Each item is checked and signed off in `docs/security-review.md` before release.
 
@@ -26,6 +26,12 @@ Security behaviour is implemented per [ADR-11](../adr/ADR-11-cookie-sessions-rba
 | **SR-14** | Retention and deletion | Case data collected during the evaluation SHALL be deleted or irreversibly anonymized within the retention period after the project ends (TBD-11). | Must | Legal | Evaluation case data is deleted or irreversibly anonymized within the retention period (TBD-11). | BR-08, DR-06 |
 | **SR-15** | Backups and tested restore | The database SHALL be backed up automatically at least once a day during the evaluation period, and the restore procedure SHALL be tested at least once. | Must | Availability | Daily automatic backup during evaluation, and the restore procedure is exercised at least once. | DR-07, NFR-22 |
 | **SR-16** | Dependency vulnerability checks | Third-party dependencies SHALL be checked for known vulnerabilities (e.g., npm audit, pip-audit) before each release. | Must | Supply chain | `pip-audit` and `npm audit` run before each release; high and critical findings are fixed or documented. | NFR-25, ADR-13 |
+
+## Suggested actions (added in SRS v1.2)
+
+| ID | Requirement | Description | Priority | Area | Acceptance criteria | Related |
+|---|---|---|---|---|---|---|
+| **SR-17** | Action text is untrusted output | Suggested action text SHALL be treated as untrusted model output: schema-validated, length-limited, rendered as plain text without markup execution, and never written to application logs. | Must | AI security | A test asserts action text is escaped on render and absent from captured logs. | SR-09, SR-10, FR-74 |
 
 ## Notes
 

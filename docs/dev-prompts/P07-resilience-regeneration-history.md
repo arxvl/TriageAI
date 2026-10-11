@@ -64,6 +64,25 @@ The system recovers cleanly from every failure. Reviewers can correct extracted 
 
 ---
 
+## Subphase 7.2b — Actions follow a changed category (FR-78)
+
+1. When a decision sets a `final_category` different from the recommendation's
+   category, the detail response must:
+   - return the **baseline actions of the new category** (swap immediately);
+   - mark tailored actions `is_outdated = true` rather than deleting them.
+2. W-04 shows outdated tailored rows greyed with the note "Suggested for
+   \<old category\> – review before keeping", plus a "Regenerate suggestions"
+   button for reviewers that enqueues a new `SUGGEST_ACTIONS` job for the new
+   category. Keep the previous suggestion rows; store the new ones as a later
+   set.
+3. Add the failure reason codes `ACTIONS_TIMEOUT`, `ACTIONS_UNAVAILABLE`,
+   `ACTIONS_INVALID_OUTPUT` and `ACTIONS_ALL_REJECTED` to
+   `app/pipeline/messages.py` with plain-language text.
+
+**Tests:** adjusting ORANGE to RED swaps the baseline set and flags tailored
+actions outdated; regeneration stores a new set without destroying the old;
+a failed regeneration leaves the decision and the case status untouched.
+
 ## Subphase 7.3 — Case history search (W-07)
 
 **Tasks**

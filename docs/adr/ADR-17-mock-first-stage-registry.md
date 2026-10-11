@@ -1,6 +1,7 @@
 # ADR-17: Mock-first pipeline stages selected by a registry
 
 - **Status:** Accepted
+- **Date:** 2026-09-27
 - **Requirements:** NFR-09, NFR-13, NFR-23, NFR-25, IR-19
 - **Related:** ADR-05, ADR-06, ADR-07, ADR-09, ADR-10
 

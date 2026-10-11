@@ -117,6 +117,7 @@ Build `pages/Evaluation` to match W-10.
    - AI category, confidence, and whether the safety floor was applied
    - final category, decision type, reason code, and direction
    - the intervals: submission → recommendation and recommendation → decision
+   - suggested-action counts: baseline shown, tailored suggested, tailored rejected, and finalized counts by status (kept, edited, removed, added) — counts only, no action text (SR-17)
    - **No** description text, owner reference, notes, or names. Reviewers appear only as a role.
 2. `GET /exports/audit?from=&to=`: audit rows with user IDs replaced by role and a stable pseudonym (`REVIEWER-1`), and the `before`/`after` columns included.
 3. Every export writes an audit entry `DATA_EXPORTED` (SR-12).

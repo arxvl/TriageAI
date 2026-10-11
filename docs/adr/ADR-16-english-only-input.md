@@ -1,6 +1,7 @@
 # ADR-16: English-only input, with staff translating at intake
 
 - **Status:** Accepted
+- **Date:** 2026-09-28
 - **Requirements:** FR-18, NFR-27, TBD-5
 - **Supersedes:** the earlier best-effort Taglish handling (SRS v1.0, FR-18)
 - **Related:** ADR-07, ADR-10, ADR-15

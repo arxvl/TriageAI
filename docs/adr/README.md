@@ -2,7 +2,7 @@
 
 **Project:** TriageAI: A Transformer-Based NLP System for Canine and Feline
 Symptom Triage and Clinical Decision Support
-**Team A-08:** Letada, Alzaga, Bataller — BSCS-3A, Bicol
+**Team A-08:** Letada, Alzaga, Bataller — BSCS Software Engineering, Bicol
 University College of Science
 
 These records state the architectural decisions behind the system, why they were
@@ -15,8 +15,8 @@ or supersede the ADR.
 - Requirement IDs (FR, NFR, IR, DR, SR, BR) refer to the SRS (PD2).
 - Wireframe IDs (W-01 … W-11) refer to the clickable prototype in
   `docs/prototype/TriageAI_Prototype.html`.
-- ADR-01 to ADR-15 are the records documented in PD7. **ADR-16 and ADR-17 are
-  newer** and must be added to PD7 at its next revision.
+- ADR-01 to ADR-15 are the records documented in PD7. **ADR-16, ADR-17 and
+  ADR-18 are newer** and must be added to PD7 at its next revision.
 - Never edit an accepted ADR to change a decision. Write a new ADR that
   supersedes it, and mark the old one `Superseded by ADR-XX`.
 
@@ -41,6 +41,7 @@ or supersede the ADR.
 | [ADR-15](ADR-15-review-ui-and-vtl-presentation.md) | Three-panel review screen, human-in-the-loop UI | Accepted |
 | [ADR-16](ADR-16-english-only-input.md) | English-only input, staff translate at intake | Accepted |
 | [ADR-17](ADR-17-mock-first-stage-registry.md) | Mock-first pipeline stages via a registry | Accepted |
+| [ADR-18](ADR-18-llm-suggested-actions.md) | Suggested actions per urgency level: baseline plus LLM-tailored | Accepted |
 
 ## System overview
 
@@ -77,12 +78,12 @@ flowchart TB
 | If you are working on… | Read |
 |---|---|
 | A new API endpoint or service | ADR-01, ADR-03, ADR-11, ADR-12 |
-| A screen or component | ADR-02, ADR-15, ADR-16 |
-| The triage pipeline or a stage | ADR-05, ADR-06, ADR-07, ADR-09, ADR-10, ADR-17 |
+| A screen or component | ADR-02, ADR-15, ADR-16, ADR-18 |
+| The triage pipeline or a stage | ADR-05, ADR-06, ADR-07, ADR-09, ADR-10, ADR-17, ADR-18 |
 | Anything touching the database | ADR-04, ADR-12, ADR-14 |
 | Background work or job status | ADR-08 |
 | Knowledge base or prompts | ADR-05, ADR-14, ADR-07 |
-| Evaluation and metrics | ADR-14, ADR-09, ADR-17 |
+| Evaluation and metrics | ADR-14, ADR-09, ADR-17, ADR-18 |
 | Deployment, TLS, backups | ADR-13, ADR-11 |
 
 ## Record format

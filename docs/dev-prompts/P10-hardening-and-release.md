@@ -27,7 +27,7 @@ The prototype is tested end to end, reviewed for security and accessibility, and
    - a global setup that runs `scripts.seed --reset` against a dedicated e2e stack (`docker compose -f docker-compose.yml -f e2e/compose.e2e.yml`)
    - pipeline settings: mocks, unless `E2E_REAL=1`
 3. Write the four demo scenario tests, following the PD8 roadmap demo script:
-   1. `DEMO_1` intake → red-flag banner appears in ≤ 5 s → reviewer sees ORANGE with the safety-floor notice → adjusts to RED with a reason → the audit timeline shows the steps.
+   1. `DEMO_1` intake → red-flag banner appears in ≤ 5 s → reviewer sees ORANGE with the safety-floor notice and baseline actions → adjusts to RED with a reason, confirming the baseline actions swap to RED → finalizes the action list → the audit timeline shows the steps.
    2. `DEMO_2` → RED at the top of the queue.
    3. `DEMO_3` → BLUE → reviewer confirms.
    4. Forced failure phrase → MANUAL → manual triage saved.
@@ -47,7 +47,9 @@ Go through this checklist, fix each gap, and write `docs/security-review.md` wit
 - [ ] Every router has `require_role`, except health and login. Add a test that inspects all routes automatically.
 - [ ] CSRF is enforced on all mutating routes. Cookies are `Secure` in prod, `HttpOnly`, and `SameSite=Lax`.
 - [ ] Idle timeout is 30 min, and lockout is 5 failures for 15 min.
-- [ ] No free text in logs or audit entries. A log-capture test runs the demo flow.
+- [ ] No free text in logs or audit entries, **including suggested action text** (SR-17). A log-capture test runs the demo flow.
+- [ ] Action text is rendered as plain text, not markup, in W-04 (SR-17).
+- [ ] No displayed action contains a drug, dose or diagnosis (NFR-30); the validator tests are green.
 - [ ] `owner_references` is never selected by any pipeline or export query. Grep plus a test.
 - [ ] Security headers in Nginx: HSTS, `X-Content-Type-Options`, `Referrer-Policy`, a basic `Content-Security-Policy` for the SPA, and `X-Frame-Options: DENY`.
 - [ ] Rate-limit `/auth/login` in Nginx: 10 requests per minute per IP.

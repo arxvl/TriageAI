@@ -1,6 +1,7 @@
 # CLAUDE.md — TriageAI
 
 **Project:** TriageAI: A Transformer-Based NLP System for Canine and Feline Symptom Triage and Clinical Decision Support
+**Team:** Letada, Alzaga, Bataller — BSCS Software Engineering, Bicol University College of Science
 **Deliverable in progress:** PD8 (initial MVP prototype), due 2026-10-29
 
 This file is read at the start of every Claude Code session. Follow it in every phase.
@@ -18,8 +19,15 @@ TriageAI helps veterinary clinic staff prioritize incoming dog and cat cases.
 3. A Veterinary Reviewer confirms or adjusts the recommendation
    (Human-in-the-Loop). Every action is audited.
 
-The system gives **decision support only**. It never diagnoses, never
-recommends treatment, and never finalizes a category without a human decision.
+The system gives **decision support only**. It never diagnoses or gives a
+prognosis, never names a medication, dose or treatment protocol, and never
+finalizes a category or an action list without a human decision.
+
+Alongside the category it presents **suggested actions** for that urgency level
+(FR-71..FR-79): triage-level handling only — escalate, prepare, monitor, what to
+ask the owner, transport precautions. "Prepare oxygen and alert the
+veterinarian" is in scope; "give 0.2 mg/kg butorphanol" is not. A Veterinary
+Reviewer finalizes the list.
 
 ## 2. Source documents (in `docs/`)
 
@@ -31,7 +39,7 @@ recommends treatment, and never finalizes a category without a human decision.
   a decision map in `docs/adr/README.md`. **Read the ADRs listed for your area
   before implementing.** ADR-09 (safety validator), ADR-10 (de-identification),
   ADR-12 (append-only audit), ADR-16 (English-only input) and ADR-17 (mock-first
-  stages) constrain code directly.
+  stages) constrain code directly. ADR-18 covers suggested actions.
 - `docs/prototype/TriageAI_Prototype.html` — clickable wireframes W-01..W-11.
   **Match these screens when building UI.**
 - `docs/dev-prompts/` — the phase prompts (Pxx) and manual guides (Mxx).
@@ -123,6 +131,13 @@ VTL categories, in order of urgency, with target waiting times (minutes):
 - **DecisionType:** `CONFIRM`, `ADJUST`, `MANUAL`.
 - **ConfidenceLevel:** `HIGH`, `MEDIUM`, `LOW`.
 - **Species:** `DOG`, `CAT`. Other species are rejected from AI processing.
+- **ActionSource:** `BASELINE` (from the urgency-action KB entry), `AI`
+  (LLM-tailored), `REVIEWER` (added by a reviewer).
+- **ActionStatus:** `SUGGESTED`, `KEPT`, `EDITED`, `REMOVED`, `ADDED`.
+- **KBEntryKind:** `COMPLAINT` (retrievable), `URGENCY_ACTIONS` (one per VTL
+  category; looked up by category, never similarity-searched).
+- **Job types:** `PIPELINE_RUN`, `REGENERATE`, `SUGGEST_ACTIONS`, `EVAL_RUN`,
+  `KB_INDEX`.
 
 **Language scope (FR-18):** all input, UI text, and stored content are in **English**. Clinic staff translate Filipino or Bikol wording reported by owners when entering the case, and may quote uncertain terms in quotation marks. Do not add language detection, translation, or non-English phrase lists, prompts, or fixtures anywhere. Interface strings still live in resource files so a translated UI can be added later (NFR-27).
 
@@ -155,13 +170,14 @@ The team implements all NLP/AI components **manually**, using the guides
 **Claude Code must NOT:**
 
 - call any real LLM API, or write provider-specific LLM code;
-- write prompt templates or tune prompts;
+- write prompt templates or tune prompts (extraction, generation **or suggested
+  actions**);
 - install or load embedding models (`sentence-transformers`, `torch`) or
   write embedding code;
 - write vector-search SQL, create pgvector columns or indexes, or write
   chunking or indexing code;
 - write de-identification patterns or red-flag phrase-matching logic;
-- write real extraction, retrieval, or generation stage logic.
+- write real extraction, retrieval, generation, or action-suggestion stage logic.
 
 **Claude Code MAY and SHOULD:**
 
@@ -171,6 +187,9 @@ The team implements all NLP/AI components **manually**, using the guides
 - wire stage selection through configuration;
 - implement deterministic, non-AI logic:
   - the safety and citation validator (FR-22, FR-23, FR-25);
+  - the **action validator** (FR-74): citation check, word limit, and the
+    drug/dose/diagnosis block list — deterministic, no model call;
+  - baseline action lookup from the `URGENCY_ACTIONS` KB entry (FR-72);
   - the job queue;
   - status transitions;
   - metrics computation from stored results.
@@ -232,6 +251,18 @@ class FinalRecommendation(BaseModel):
     safety_floor_applied: bool
     safety_floor_rule_codes: list[str]
     low_confidence_reasons: list[str]
+
+class SuggestedAction(BaseModel):
+    text: str                  # <= 25 words, imperative, no drug/dose/diagnosis
+    cited_ranks: list[int]     # ranks of Passage objects supporting this action
+    source: ActionSource
+
+class ActionPlan(BaseModel):
+    category: VTLCategory      # the category the actions were generated for
+    baseline: list[str]        # from the URGENCY_ACTIONS KB entry, verbatim
+    tailored: list[SuggestedAction]
+    rejected_count: int        # dropped by the action validator
+    rejection_reasons: list[str]
 ```
 
 ### 8.2 Interfaces (`typing.Protocol`)
@@ -279,6 +310,11 @@ class RecommendationGenerator(Protocol):
 #   prompt_version: str    ("mock-0"; real LLM stages e.g. "extraction/v1.0")
 #   last_latency_ms: int   (set after each call)
 
+class ActionSuggester(Protocol):
+    def suggest(self, extraction: ExtractionOutput, category: VTLCategory,
+                passages: list[Passage], max_items: int) -> list[SuggestedAction]: ...
+        # raises ActionsFailed
+
 class KBIndexer(Protocol):   # used by the KB approval workflow
     def index_entry(self, entry_id: UUID) -> int: ...   # returns chunk count
     def remove_entry(self, entry_id: UUID) -> None: ...
@@ -301,6 +337,7 @@ them lazily, only when selected, so the app starts before they exist.
 | `KB_INDEXER` | `app.pipeline.mocks:MockKBIndexer` | `pgvector` → `app.kb.indexer_pgvector:PgVectorKBIndexer` (M5) |
 | `PIPELINE_RETRIEVER` | `app.pipeline.mocks:MockRetriever` | `pgvector` → `app.pipeline.retrieval_pgvector:PgVectorRetriever` (M6) |
 | `PIPELINE_GENERATOR` | `app.pipeline.mocks:MockRecommendationGenerator` | `llm` → `app.pipeline.generation_llm:LLMRecommendationGenerator` (M6) |
+| `PIPELINE_ACTIONS` | `app.pipeline.mocks:MockActionSuggester` | `llm` → `app.pipeline.actions_llm:LLMActionSuggester` (M6b) |
 
 **Construction convention.** Every stage class, mock or real, provides:
 
@@ -331,10 +368,13 @@ leave the server (IR-20, ADR-10).
 
 - Use fictitious data only: fixtures, seed data, tests, screenshots.
 - Never log owner descriptions, owner references, prompts, or model
-  responses at INFO level or above. Log IDs and timings instead.
+  responses — including suggested action text — at INFO level or above. Log IDs
+  and timings instead.
 - Never commit `.env`, API keys, or model weights. Keep `.env.example` complete.
 - The UI always shows AI output as "AI Recommendation – requires staff
-  confirmation" until a reviewer decides (IR-04).
+  confirmation" until a reviewer decides (IR-04). AI-tailored actions carry
+  "AI-suggested actions – require staff approval" until finalized (FR-75), and
+  are visible to Veterinary Reviewers only (FR-79).
 - VTL colors are always shown with the category name and target time
   (IR-03). Never show color alone.
 
@@ -352,7 +392,6 @@ leave the server (IR-20, ADR-10).
 
 ## 11. Git rules
 
-- The commits will be done manually. Provide the command after each successful implementation of a sub-phase.
 - Work on the branch named in the phase prompt, created from `develop`.
 - Use Conventional Commits with requirement IDs, e.g.
   `feat(cases): validate description length (FR-04)`.

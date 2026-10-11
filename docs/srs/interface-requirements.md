@@ -4,7 +4,7 @@
 **Source:** SRS v1.1. IDs and the text in the Description column are authoritative: do not renumber, reword, or delete them. Priority follows the SRS keyword (`SHALL` = Must, `SHOULD` = Should, `MAY` = May).
 **Sibling files:** [functional](functional-requirements.md) · [non-functional](non-functional-requirements.md) · [interface](interface-requirements.md) · [business rules](business-rules.md) · [database](database-requirements.md) · [security](security-requirements.md)
 
-**Coverage:** IR-01 to IR-22, 22 requirements, no gaps.
+**Coverage:** IR-01 to IR-23, 23 requirements, no gaps. IR-23 was added in SRS v1.2.
 
 The visual reference for all UI requirements is `docs/prototype/TriageAI_Prototype.html`; wireframe IDs (W-01 to W-11) are cited in the Related column.
 
@@ -57,6 +57,12 @@ Transport, secrets and outbound-call behaviour. IR-20 is the privacy boundary de
 | **IR-20** | De-identification before transmission | Before any text is transmitted to an external service, the system SHALL remove owner names, contact numbers, e-mail addresses, and street addresses from the text. | Must | Owner name, contact numbers, e-mail and addresses are removed before any external call; failure stops the call. | FR-07, SR-08, ADR-10 |
 | **IR-21** | No e-mail or SMS in the MVP | The MVP SHALL NOT send e-mail or SMS messages. E-mail notifications (e.g., for password reset) MAY be added in a later release. | Must | No outbound mail or SMS integration exists in the PD8 build. | FR-08, FR-63 |
 | **IR-22** | Queue auto-refresh | The Triage Queue SHOULD refresh automatically, by polling at intervals of no more than 15 seconds or through a WebSocket connection, so that new cases and alerts appear without a manual page reload. | Should | The queue updates within 15 s without a manual reload; polling pauses on a hidden tab. | FR-29, ADR-08 |
+
+## Suggested actions (added in SRS v1.2)
+
+| ID | Requirement | Description | Priority | Acceptance criteria | Related |
+|---|---|---|---|---|---|
+| **IR-23** | Action checklist presentation | The Case Review screen SHALL present suggested actions as a checklist beneath the rationale, each row showing its source (baseline, AI-suggested, or reviewer-added) and its supporting citations where applicable. | Must | W-04 renders the checklist with a source tag per row; AI rows carry the pending label until finalized. | FR-71, FR-75, ADR-18 |
 
 ## Notes
 

@@ -1,6 +1,7 @@
 # ADR-05: Retrieval-augmented generation instead of fine-tuning
 
 - **Status:** Accepted
+- **Date:** 2026-09-16
 - **Requirements:** FR-19 to FR-28, BR-04, BR-06, NFR-17, NFR-18
 - **Related:** ADR-06, ADR-07, ADR-09, ADR-14
 

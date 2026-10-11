@@ -1,6 +1,7 @@
 # ADR-13: Docker Compose on a single VM, Nginx terminating TLS
 
 - **Status:** Accepted
+- **Date:** 2026-09-20
 - **Requirements:** NFR-04, NFR-06, NFR-24, NFR-26, SR-06, SR-11, SR-15, DR-07
 - **Related:** ADR-01, ADR-02, ADR-04, ADR-07
 

@@ -16,7 +16,7 @@ Both plug into the existing pipeline through `.env`. No other code changes are n
 - [ ] P05 merged. The pipeline runs on mocks and `DEMO_1` shows an alert.
 - [ ] P06 merged before Part C step 3. It adds `extraction_results.input_text`, which the database check reads.
 - [ ] You have read CLAUDE.md §8.1–§8.3 (contracts, class names, `from_settings`).
-- [ ] You have a draft red-flag list to send to the veterinary reviewer. The P02 seed placeholders are a starting point.
+- [ ] You have a draft red-flag list with a published source for each rule's minimum category. The P02 seed placeholders are a starting point. **External veterinary sign-off is waived for this project** (professor's decision): each rule must instead cite a published, veterinarian-authored source, and a second team member verifies it.
 
 ---
 
@@ -172,7 +172,7 @@ PALE_OR_BLUE_GUMS:
   phrases: ["pale gums", "white gums", "blue gums", "bluish gums", "gums look pale", "gums look blue"]
 ```
 
-> ⚠️ This list is a **draft**. Send it to the veterinary reviewer with the rules' minimum categories. Record the approval in `knowledge_base/APPROVALS.md`, then approve the rules in W-08 (P08). Descriptions are entered in English (FR-18), so the phrases are English only. Staff translate Filipino or Bikol wording at intake, which means the phrase list must cover the plain English that staff are likely to type, not only clinical terms.
+> ⚠️ This list is a **draft**. Check each rule's minimum category against its cited source, have a second team member verify it, and record both in `knowledge_base/APPROVALS.md` (Source and Verified-by columns). Then approve the rules in W-08 (P08) using the team's `can_approve_kb` account. If a veterinarian does become available, their review supersedes this and is logged as an additional row. Descriptions are entered in English (FR-18), so the phrases are English only. Staff translate Filipino or Bikol wording at intake, which means the phrase list must cover the plain English that staff are likely to type, not only clinical terms.
 
 ### Step B2. Create `backend/app/pipeline/redflags_keywords.py`
 
@@ -297,6 +297,6 @@ Also test that a rule missing from `rules_provider` (unapproved) produces no hit
 ## Done when
 
 - [ ] Both test files pass, and the false-positive review is done.
-- [ ] The vet has approved the rules and phrases; the approval is logged in `APPROVALS.md` and in W-08.
+- [ ] Every rule cites a published source, a second member has verified it, and both are logged in `APPROVALS.md` and approved in W-08.
 - [ ] The end-to-end check passes with the real stages enabled.
 - [ ] Committed on `feat/m1-deidentify-redflags`, with a PR into `develop`.

@@ -174,13 +174,13 @@ cases:
     expected_category: RED
     expected_status: AWAITING_REVIEW
     expected_red_flag_codes:
-      - PALE_OR_BLUE_GUMS
+      - BLUE_GUMS_CYANOSIS
       - NOT_BREATHING
     notes: >-
       The most urgent path: multiple red flags, both RED, so the queue shows
       the case at the top with a target waiting time of 0 minutes.
     mock_red_flags:
-      - rule_code: PALE_OR_BLUE_GUMS
+      - rule_code: BLUE_GUMS_CYANOSIS
         matched_text: His gums look bluish
         min_category: RED
       - rule_code: NOT_BREATHING
