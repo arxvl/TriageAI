@@ -5,6 +5,10 @@ validation envelope with its `field`, the role rules, and — the one that matte
 most — that no owner name or contact number appears anywhere in any response
 (FR-07, DR-04, IR-20).
 
+`GET /cases/{id}` is the P05b slice of the review response: the case header plus
+its suggested actions, including the FR-79 rule that only a Veterinary Reviewer
+receives unfinalized AI-suggested ones. P06 §6.1 extends the same route.
+
 Every pet, owner and description is invented (CLAUDE.md §9).
 """
 
@@ -20,7 +24,10 @@ from app.core.config import MockLLMBehavior
 from app.jobs.queue import JobStage
 from app.jobs.worker import run_pending_jobs_once
 from app.models import (
+    ActionsStatus,
+    Case,
     CaseStatus,
+    DecisionType,
     Job,
     JobStatus,
     JobType,
@@ -30,18 +37,21 @@ from app.models import (
     UserRole,
     VTLCategory,
 )
-from scripts.seed import seed
+from scripts.seed import URGENCY_ACTIONS, seed
 from tests.conftest import (
     csrf_headers,
     make_case,
     make_recommendation,
     make_red_flag_alert,
+    make_staff_decision,
     make_user,
     sign_in,
 )
 
 CASES_URL = "/api/v1/cases"
 PASSWORD = "Sampaguita2026"
+
+SEEDED_BASELINE = {category: list(actions) for category, _, actions in URGENCY_ACTIONS}
 
 DESCRIPTION = (
     "He has been vomiting since last night, about five times, and will not drink "
@@ -392,6 +402,9 @@ def test_reading_the_status_of_a_new_case(intake_client: TestClient) -> None:
         "has_red_flag": False,
         # The job exists and no worker has claimed it yet (IR-22, ADR-08).
         "pipeline_stage": JobStage.QUEUED.value,
+        # No recommendation yet, so there is nothing for the actions job to be
+        # about (FR-77, ADR-18 §3).
+        "actions_status": None,
         "updated_at": response.json()["updated_at"],
     }
 
@@ -505,7 +518,10 @@ def test_a_submitted_case_is_triaged_by_the_worker(
     assert before["status"] == CaseStatus.SUBMITTED.value
     assert before["pipeline_stage"] == JobStage.QUEUED.value
 
-    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+    # Two jobs: the triage run, and the SUGGEST_ACTIONS job it enqueues
+    # (ADR-18 §3). Draining both here, because the status this asserts on is the
+    # one a reviewer sees after everything has settled.
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 2
 
     after = intake_client.get(f"{CASES_URL}/{case_id}/status").json()
     assert after["status"] == CaseStatus.AWAITING_REVIEW.value
@@ -543,3 +559,217 @@ def test_a_failing_pipeline_leaves_the_case_in_manual_triage(
     item = intake_client.get(CASES_URL).json()["items"][0]
     assert item["status"] == CaseStatus.MANUAL_TRIAGE_REQUIRED.value
     assert item["category"] is None
+
+
+# --- GET /cases/{id}: the case and its suggested actions (P05b §5b.3) ----
+
+
+def triaged_case(
+    client: TestClient,
+    session: Session,
+    app_session_factory: sessionmaker,
+    pipeline: Any,
+) -> str:
+    """Submit a case and run it and its actions job to completion."""
+    seed(session)
+    session.flush()
+    case_id = post_case(client).json()["id"]
+    run_pending_jobs_once(app_session_factory, pipeline)
+    return case_id
+
+
+def test_reading_a_triaged_case_returns_its_actions(
+    intake_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """FR-71, FR-72. `VALID_CASE` matches no fixture, so the generic answers apply:
+    a YELLOW category, and the seeded baseline set for YELLOW."""
+    case_id = triaged_case(intake_client, db_session, app_session_factory, pipeline)
+
+    response = intake_client.get(f"{CASES_URL}/{case_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == case_id
+    assert body["status"] == CaseStatus.AWAITING_REVIEW.value
+    assert body["category"] == VTLCategory.YELLOW.value
+    actions = body["actions"]
+    assert actions["status"] == ActionsStatus.READY.value
+    assert actions["generated_for_category"] == VTLCategory.YELLOW.value
+    assert actions["baseline"] == SEEDED_BASELINE[VTLCategory.YELLOW]
+    assert actions["rejected_count"] == 0
+    assert actions["is_outdated"] is False
+
+
+def test_a_reviewer_sees_the_ai_suggested_actions(
+    api_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """FR-75: they are shown, labelled, and still require approval."""
+    signed_in(api_client, db_session, UserRole.VETERINARY_REVIEWER)
+    case_id = triaged_case(api_client, db_session, app_session_factory, pipeline)
+
+    actions = api_client.get(f"{CASES_URL}/{case_id}").json()["actions"]
+
+    assert len(actions["tailored"]) == 2
+    assert all(action["source"] == "AI" for action in actions["tailored"])
+    assert all(action["cited_ranks"] == [1] for action in actions["tailored"])
+    # The baseline rows are not repeated into the tailored list.
+    assert all(action["text"] not in actions["baseline"] for action in actions["tailored"])
+
+
+@pytest.mark.parametrize("role", [UserRole.INTAKE_STAFF, UserRole.ADMINISTRATOR])
+def test_only_a_reviewer_receives_unfinalized_tailored_actions(
+    intake_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+    role: UserRole,
+) -> None:
+    """FR-79. Baseline actions are for everyone; model suggestions are not.
+
+    Nothing has been finalized yet — `final_actions` arrives with the decision in
+    P06 — so a caller who is not a reviewer sees the curated set only.
+
+    The case is entered by intake staff whichever role then reads it: an
+    administrator may not create one at all (BR-02, BR-05), so the second sign-in
+    replaces the session on the same client.
+    """
+    case_id = triaged_case(intake_client, db_session, app_session_factory, pipeline)
+    signed_in(intake_client, db_session, role)
+
+    actions = intake_client.get(f"{CASES_URL}/{case_id}").json()["actions"]
+
+    assert actions["tailored"] == []
+    assert actions["baseline"] == SEEDED_BASELINE[VTLCategory.YELLOW]
+    assert actions["status"] == ActionsStatus.READY.value
+
+
+def test_the_actions_of_a_case_still_being_triaged_are_pending(
+    intake_client: TestClient, db_session: Session
+) -> None:
+    """No recommendation yet, so there is nothing for the actions job to be about."""
+    seed(db_session)
+    db_session.flush()
+    case_id = post_case(intake_client).json()["id"]
+
+    body = intake_client.get(f"{CASES_URL}/{case_id}").json()
+
+    assert body["status"] == CaseStatus.SUBMITTED.value
+    assert body["actions"] == {
+        "status": None,
+        "generated_for_category": None,
+        "baseline": [],
+        "tailored": [],
+        "rejected_count": 0,
+        "is_outdated": False,
+    }
+
+
+def test_the_status_endpoint_reports_the_actions_progress(
+    intake_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """IR-22, ADR-18 §3: the two statuses move independently, so both are polled."""
+    seed(db_session)
+    db_session.flush()
+    case_id = post_case(intake_client).json()["id"]
+
+    # The triage job only: the category is settled, the actions are not.
+    run_pending_jobs_once(app_session_factory, pipeline, max_jobs=1)
+    midway = intake_client.get(f"{CASES_URL}/{case_id}/status").json()
+
+    run_pending_jobs_once(app_session_factory, pipeline)
+    after = intake_client.get(f"{CASES_URL}/{case_id}/status").json()
+
+    assert midway["status"] == CaseStatus.AWAITING_REVIEW.value
+    assert midway["category"] == VTLCategory.YELLOW.value
+    assert midway["actions_status"] == ActionsStatus.PENDING.value
+    assert after["actions_status"] == ActionsStatus.READY.value
+
+
+def test_a_manually_triaged_case_still_gets_baseline_actions(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """FR-71: the category came from a reviewer, and it still has actions.
+
+    There is no recommendation to pin the knowledge-base version, so the lookup
+    falls back to the newest version.
+    """
+    signed_in(api_client, db_session, UserRole.VETERINARY_REVIEWER)
+    seed(db_session)
+    case = make_case(db_session, status=CaseStatus.MANUALLY_TRIAGED)
+    make_staff_decision(db_session, case=case, final_category=VTLCategory.RED)
+    db_session.flush()
+
+    actions = api_client.get(f"{CASES_URL}/{case.id}").json()["actions"]
+
+    assert actions["status"] is None
+    assert actions["baseline"] == SEEDED_BASELINE[VTLCategory.RED]
+    assert actions["tailored"] == []
+
+
+def test_a_decision_on_another_category_marks_the_tailored_list_outdated(
+    api_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """FR-78. The baseline set switches to the new category immediately; the
+    tailored list is flagged rather than silently re-labelled (ADR-18 §6)."""
+    signed_in(api_client, db_session, UserRole.VETERINARY_REVIEWER)
+    case_id = triaged_case(api_client, db_session, app_session_factory, pipeline)
+    case = db_session.get(Case, uuid.UUID(case_id))
+    assert case is not None
+    make_staff_decision(
+        db_session,
+        case=case,
+        final_category=VTLCategory.ORANGE,
+        decision_type=DecisionType.ADJUST,
+    )
+    db_session.flush()
+
+    body = api_client.get(f"{CASES_URL}/{case_id}").json()
+
+    assert body["category"] == VTLCategory.ORANGE.value
+    assert body["actions"]["generated_for_category"] == VTLCategory.YELLOW.value
+    assert body["actions"]["is_outdated"] is True
+    assert body["actions"]["baseline"] == SEEDED_BASELINE[VTLCategory.ORANGE]
+
+
+def test_reading_a_case_that_does_not_exist_is_404(intake_client: TestClient) -> None:
+    response = intake_client.get(f"{CASES_URL}/{uuid.uuid4()}")
+
+    assert response.status_code == 404
+    assert error_of(response)["code"] == "NOT_FOUND"
+
+
+def test_reading_a_case_without_signing_in_is_401(api_client: TestClient) -> None:
+    assert api_client.get(f"{CASES_URL}/{uuid.uuid4()}").status_code == 401
+
+
+def test_no_owner_reference_appears_in_a_case_detail(
+    api_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """FR-07, DR-04, IR-20 — the same guarantee as every other response."""
+    signed_in(api_client, db_session, UserRole.VETERINARY_REVIEWER)
+    seed(db_session)
+    db_session.flush()
+    case_id = post_case(api_client, owner_name=OWNER_NAME, contact_number=CONTACT_NUMBER).json()[
+        "id"
+    ]
+    run_pending_jobs_once(app_session_factory, pipeline)
+
+    body = api_client.get(f"{CASES_URL}/{case_id}").text
+
+    assert OWNER_NAME not in body
+    assert CONTACT_NUMBER not in body

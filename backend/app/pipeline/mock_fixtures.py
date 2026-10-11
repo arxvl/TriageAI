@@ -1,8 +1,8 @@
 """The recorded answers the mock stages replay (P05 §5.2, ADR-17).
 
 `tests/fixtures/demo_cases.yaml` holds four hand-written demo scenarios, each
-with the red-flag hits, extraction, passages and draft a run over it should
-produce. This module loads that file into the pipeline contracts and answers two
+with the red-flag hits, extraction, passages, draft and suggested actions a
+run over it should produce. This module loads that file into the pipeline contracts and answers two
 questions: *which fixture is this description?* and *which fixture produced this
 extraction?*
 
@@ -42,12 +42,13 @@ from typing import Any
 import yaml
 
 from app.core.config import MockLLMBehavior
-from app.models.enums import Species
+from app.models.enums import ActionSource, Species
 from app.pipeline.types import (
     DraftRecommendation,
     ExtractionOutput,
     Passage,
     RedFlagHit,
+    SuggestedAction,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,8 +110,13 @@ def coerce_signalment(signalment: dict | None) -> dict[str, str | None]:
 class MockFixture:
     """One demo scenario's recorded outputs.
 
-    `extraction`, `passages` and `draft` are `None`/empty for a scenario that is
-    meant to fail before it reaches that stage (DEMO_4).
+    `extraction`, `passages`, `draft` and `actions` are `None`/empty for a
+    scenario that is meant to fail before it reaches that stage (DEMO_4).
+
+    `actions` holds what the actions stage replays. It is recorded *unvalidated*,
+    exactly as a model would return it: the deterministic action validator is the
+    only thing that screens it, and a stage must not screen its own output
+    (FR-74, ADR-18 §4).
     """
 
     fixture_id: str
@@ -120,6 +126,7 @@ class MockFixture:
     extraction: ExtractionOutput | None
     passages: list[Passage]
     draft: DraftRecommendation | None
+    actions: list[SuggestedAction]
     failure: MockLLMBehavior | None
 
 
@@ -147,6 +154,24 @@ def _build_passages(case: dict[str, Any]) -> list[Passage]:
     ]
 
 
+def _build_actions(case: dict[str, Any]) -> list[SuggestedAction]:
+    """The recorded tailored actions, with `source` defaulted to AI.
+
+    `source` is written in the file for readability but defaulted here too, so a
+    scenario that omits it still records what it is: a model-produced action.
+    Baseline actions are never recorded in this file — they are read from the
+    `URGENCY_ACTIONS` knowledge-base entry at run time (FR-72).
+    """
+    return [
+        SuggestedAction(
+            text=recorded["text"],
+            cited_ranks=list(recorded.get("cited_ranks") or []),
+            source=ActionSource(recorded.get("source", ActionSource.AI.value)),
+        )
+        for recorded in case.get("mock_actions") or []
+    ]
+
+
 def _build_fixture(case: dict[str, Any]) -> MockFixture:
     failure = case.get("mock_failure")
     draft = case.get("mock_draft")
@@ -158,6 +183,7 @@ def _build_fixture(case: dict[str, Any]) -> MockFixture:
         extraction=_build_extraction(case),
         passages=_build_passages(case),
         draft=None if draft is None else DraftRecommendation(**draft),
+        actions=_build_actions(case),
         failure=None if failure is None else MockLLMBehavior(failure),
     )
 

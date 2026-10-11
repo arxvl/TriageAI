@@ -21,7 +21,7 @@
 #
 # --- The recorded mock outputs (P05 §5.2) --------------------------------
 #
-# `app.pipeline.mock_fixtures` loads the four keys below and the mock stages in
+# `app.pipeline.mock_fixtures` loads the keys below and the mock stages in
 # `app.pipeline.mocks` replay them. A description matches a fixture when the two
 # are equal after whitespace normalisation — exact string matching, never
 # similarity. Nothing here is inferred from the text at run time; these are
@@ -48,6 +48,20 @@
 #                    P08/M5.
 #   mock_draft       what MockRecommendationGenerator returns, before the
 #                    deterministic safety validator runs (ADR-09).
+#   mock_actions     what MockActionSuggester returns for this case, before the
+#                    deterministic action validator runs (FR-74, ADR-18 §4).
+#                    Each entry is {text, cited_ranks, source}; `source` is
+#                    always AI, because BASELINE actions come from the
+#                    URGENCY_ACTIONS knowledge base entry and REVIEWER actions
+#                    are typed by a person (P06). Every `text` is written to
+#                    pass the validator unchanged: at most 25 words, no
+#                    medication name, no dose expression and no asserted
+#                    diagnosis (FR-28, ADR-18 §1). `cited_ranks` are
+#                    mock_passages positions, so an entry here cites a passage
+#                    the retriever really returned.
+#                    The stage is looked up by extraction, like mock_passages
+#                    and mock_draft, so a scenario with no mock_extraction can
+#                    never reach its mock_actions.
 #   mock_failure     optional; a MOCK_LLM_BEHAVIOR value the extraction stage
 #                    applies to this case alone, whatever the global setting is.
 #                    A scenario with a mock_failure records no extraction,
@@ -155,6 +169,20 @@ cases:
         - 1
         - 2
       confidence: HIGH
+    mock_actions:
+      - text: Tell the veterinarian a male cat is straining with no urine passed.
+        cited_ranks:
+          - 1
+        source: AI
+      - text: Recheck breathing effort and abdominal comfort every few minutes while waiting.
+        cited_ranks:
+          - 1
+          - 3
+        source: AI
+      - text: Ask the owner when the cat last passed urine normally.
+        cited_ranks:
+          - 2
+        source: AI
 
   - id: DEMO_2
     species: DOG
@@ -248,6 +276,20 @@ cases:
         - 1
         - 2
       confidence: HIGH
+    mock_actions:
+      - text: Move the dog to the treatment area now and alert the veterinarian.
+        cited_ranks:
+          - 1
+        source: AI
+      - text: Prepare oxygen and monitoring equipment before the patient is examined.
+        cited_ranks:
+          - 1
+        source: AI
+      - text: Keep handling to a minimum and do not restrain the neck.
+        cited_ranks:
+          - 1
+          - 2
+        source: AI
 
   - id: DEMO_3
     species: DOG
@@ -327,6 +369,19 @@ cases:
       cited_ranks:
         - 1
       confidence: MEDIUM
+    mock_actions:
+      - text: Offer the next routine consultation and state the expected waiting time.
+        cited_ranks:
+          - 2
+        source: AI
+      - text: Ask the owner about parasite prevention and other animals at home.
+        cited_ranks:
+          - 1
+        source: AI
+      - text: Explain which changes would mean bringing the dog back sooner.
+        cited_ranks:
+          - 2
+        source: AI
 
   - id: DEMO_4
     species: DOG
@@ -355,3 +410,18 @@ cases:
       manual triage. No category is ever produced. The UI must show the
       fallback, not an empty result.
     mock_red_flags: []
+    # Recorded for completeness and never reached. The actions stage is looked
+    # up by extraction (`find_by_extraction`), and this scenario records no
+    # mock_extraction because it fails before extraction returns — so no
+    # recommendation is stored, no SUGGEST_ACTIONS job is ever enqueued, and
+    # these two entries can never be replayed. They also cite rank 1, which
+    # this scenario has no mock_passages to supply.
+    mock_actions:
+      - text: Ask the owner what changed since the visit to the other household.
+        cited_ranks:
+          - 1
+        source: AI
+      - text: Record the time the dog was last eating and drinking normally.
+        cited_ranks:
+          - 1
+        source: AI

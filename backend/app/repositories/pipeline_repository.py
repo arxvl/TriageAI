@@ -23,6 +23,13 @@ and the passage's text and source are kept on the row instead. That is the same
 copy-on-write the real pipeline does for ADR-14, so nothing changes when M5 and M6
 land.
 
+**The actions job reads its inputs back rather than being handed them.**
+`actions_run_input` reconstructs the stage inputs — the extraction and the
+passages — from the rows the triage run committed, because the actions job is a
+separate job that may run after a restart (ADR-18 §3). Retrieval is never run
+again: the recommendation must keep the passages it was actually made from
+(ADR-14).
+
 **`entities` holds the whole extraction.** `red_flags` and `missing_information`
 also have their own columns, which are the queryable projection the review screen
 and the evaluation harness filter on; `entities` is the verbatim contract object,
@@ -33,10 +40,13 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    ActionSource,
+    ActionsStatus,
+    ActionSuggestion,
     Case,
     CaseStatus,
     ConfidenceLevel,
@@ -61,7 +71,12 @@ from app.models import (
 )
 from app.pipeline.types import OTHER_COMPLAINT, ExtractionOutput, Passage, RedFlagHit
 
-__all__ = ["CaseRunInput", "PipelineRepository"]
+__all__ = [
+    "ActionSuggestionValues",
+    "ActionsRunInput",
+    "CaseRunInput",
+    "PipelineRepository",
+]
 
 # The signalment fields handed to the extraction stage, in the order a clinician
 # would say them. Values are stringified because the extraction contract stores
@@ -95,6 +110,54 @@ class CaseRunInput:
     description: str
 
 
+@dataclass(frozen=True)
+class ActionsRunInput:
+    """Everything the `SUGGEST_ACTIONS` job needs, read back from storage.
+
+    Read rather than recomputed: the actions job runs after its own commit and
+    possibly after a restart, so it reconstructs the stage inputs from the rows
+    the triage run left behind. Retrieval is **not** run again — that would
+    search a knowledge base that may have moved on and produce actions citing
+    passages the recommendation was never made from (ADR-14, ADR-18 §3).
+
+    `extraction_entities` is the raw JSONB. It is validated into an
+    `ExtractionOutput` by the caller, so an unreadable old row becomes a reason
+    code on the actions status rather than an exception out of a repository.
+
+    `chunk_ids_by_rank` carries the *real* `kb_chunks` ids, which are NULL while
+    the stages are mocked (see the module docstring). `passages` is the
+    reconstructed contract object, whose `chunk_id` is a stable placeholder when
+    the stored one is NULL — the two are deliberately separate, so a placeholder
+    can never be written back as a citation.
+    """
+
+    recommendation_id: uuid.UUID
+    case_id: uuid.UUID | None
+    vignette_id: uuid.UUID | None
+    category: VTLCategory
+    kb_version_id: uuid.UUID | None
+    extraction_entities: dict
+    passages: list[Passage]
+    chunk_ids_by_rank: dict[int, uuid.UUID | None]
+
+
+@dataclass(frozen=True)
+class ActionSuggestionValues:
+    """One `action_suggestions` row, as the orchestrator decided it.
+
+    `cited_chunk_ids` is built by `PipelineRepository.cited_chunk_ids`; see that
+    method for why it holds objects rather than bare ids.
+    """
+
+    rank: int
+    text: str
+    source: ActionSource
+    cited_chunk_ids: list[dict]
+    model_id: str
+    prompt_version: str
+    latency_ms: int | None
+
+
 def _as_text(value: object) -> str | None:
     """Stringify a signalment value for the extraction contract."""
     if value is None:
@@ -104,6 +167,18 @@ def _as_text(value: object) -> str | None:
         # the owner said.
         return format(value.normalize(), "f")
     return str(value)
+
+
+def _placeholder_id(recommendation_id: uuid.UUID, kind: str, key: object) -> uuid.UUID:
+    """A stable id for a passage field a mock run did not store.
+
+    uuid5, so the same recommendation rebuilds the same ids on every retry and in
+    every process. Scoped by the recommendation, so two recommendations never
+    collide, and namespaced by `kind`, so a chunk placeholder and an entry
+    placeholder for the same rank differ. These values are handed to the stages
+    and are never written to a row (see `ActionsRunInput`).
+    """
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"{recommendation_id}:{kind}:{key}")
 
 
 class PipelineRepository:
@@ -194,6 +269,63 @@ class PipelineRepository:
                 KBEntry.urgency_category == category,
             )
         ).scalar_one_or_none()
+
+    def actions_run_input(self, recommendation_id: uuid.UUID) -> ActionsRunInput | None:
+        """The stored inputs for one actions run, or None if the row is gone.
+
+        Two queries, not one: the references are a list and joining them onto the
+        recommendation would multiply the extraction JSON by the number of
+        passages for nothing.
+        """
+        row = self._session.execute(
+            select(
+                Recommendation.id,
+                Recommendation.case_id,
+                Recommendation.vignette_id,
+                Recommendation.category,
+                Recommendation.kb_version_id,
+                ExtractionResult.entities,
+            )
+            .join(ExtractionResult, ExtractionResult.id == Recommendation.extraction_id)
+            .where(Recommendation.id == recommendation_id)
+        ).one_or_none()
+        if row is None:
+            return None
+
+        references = list(
+            self._session.scalars(
+                select(RetrievedReference)
+                .where(RetrievedReference.recommendation_id == recommendation_id)
+                .order_by(RetrievedReference.rank)
+            )
+        )
+        return ActionsRunInput(
+            recommendation_id=row.id,
+            case_id=row.case_id,
+            vignette_id=row.vignette_id,
+            category=row.category,
+            kb_version_id=row.kb_version_id,
+            extraction_entities=row.entities,
+            passages=[
+                Passage(
+                    rank=reference.rank,
+                    # A mock run stores no chunk id (see the module docstring), and
+                    # `Passage.chunk_id` is not optional. The placeholder is derived
+                    # from the recommendation and the rank, so it is stable across
+                    # retries and across processes, and it is never written back.
+                    chunk_id=reference.chunk_id
+                    or _placeholder_id(recommendation_id, "chunk", reference.rank),
+                    entry_id=_placeholder_id(recommendation_id, "entry", reference.entry_title),
+                    entry_title=reference.entry_title,
+                    source_title=reference.source_title or "",
+                    source_url=reference.source_url,
+                    text=reference.passage_text,
+                    score=float(reference.score) if reference.score is not None else 0.0,
+                )
+                for reference in references
+            ],
+            chunk_ids_by_rank={reference.rank: reference.chunk_id for reference in references},
+        )
 
     def next_extraction_version(self, case_id: uuid.UUID) -> int:
         return self._next_version(ExtractionResult, case_id)
@@ -367,6 +499,102 @@ class PipelineRepository:
         self._session.add_all(rows)
         self._session.flush()
         return rows
+
+    def set_actions_status(
+        self,
+        recommendation_id: uuid.UUID,
+        status: ActionsStatus,
+        *,
+        error: str | None = None,
+        rejected_count: int | None = None,
+    ) -> None:
+        """Record how the actions job for this recommendation ended (FR-77).
+
+        `error` is a reason code, never a model message — a message could carry
+        action text (SR-17). `rejected_count` is left as it is when None, so the
+        failure path does not erase a count a previous attempt recorded.
+
+        A missing recommendation is ignored rather than raised: the job's own
+        caller has already reported that, and this is bookkeeping.
+        """
+        recommendation = self._session.get(Recommendation, recommendation_id)
+        if recommendation is None:
+            return
+        recommendation.actions_status = status
+        recommendation.actions_error = error
+        if rejected_count is not None:
+            recommendation.actions_rejected_count = rejected_count
+
+    def replace_action_suggestions(
+        self,
+        *,
+        recommendation_id: uuid.UUID,
+        case_id: uuid.UUID | None,
+        vignette_id: uuid.UUID | None,
+        category: VTLCategory,
+        kb_version_id: uuid.UUID | None,
+        rows: list[ActionSuggestionValues],
+    ) -> list[ActionSuggestion]:
+        """Store this recommendation's suggestions, replacing any earlier ones.
+
+        Delete-then-insert, because the actions job can be retried — by the
+        startup sweep after a crash (ADR-08) or by P07 — and a retry must leave
+        one set of rows rather than two overlapping ones. `action_suggestions` is
+        not append-only; `final_actions`, which records what a reviewer decided,
+        is (DR-09, ADR-12).
+
+        `generated_for_category` is written on every row, so a later change of
+        category marks these outdated instead of silently re-labelling them
+        (FR-78).
+        """
+        self._session.execute(
+            delete(ActionSuggestion).where(ActionSuggestion.recommendation_id == recommendation_id)
+        )
+        stored = [
+            ActionSuggestion(
+                case_id=case_id,
+                vignette_id=vignette_id,
+                recommendation_id=recommendation_id,
+                generated_for_category=category,
+                rank=values.rank,
+                text=values.text,
+                source=values.source,
+                cited_chunk_ids=values.cited_chunk_ids,
+                model_id=values.model_id,
+                prompt_version=values.prompt_version,
+                kb_version_id=kb_version_id,
+                latency_ms=values.latency_ms,
+            )
+            for values in rows
+        ]
+        self._session.add_all(stored)
+        self._session.flush()
+        return stored
+
+    @staticmethod
+    def cited_chunk_ids(
+        cited_ranks: list[int], chunk_ids_by_rank: dict[int, uuid.UUID | None]
+    ) -> list[dict]:
+        """The citation record for one action: `{"rank", "chunk_id"}` per rank.
+
+        Objects rather than bare chunk ids, because while the stages are mocked
+        every `retrieved_references.chunk_id` is NULL — a list of ids would be
+        empty on every run and the FR-74 citation link would be unverifiable
+        until M5 and M6 land. The rank always survives, which is also what the
+        review screen needs: it shows a tailored action beside the passage at
+        that rank. The `chunk_id` fills itself in once real chunks exist.
+
+        A rank with no reference row is dropped. The validator has already
+        narrowed the ranks to passages that were retrieved, so this only guards
+        against a reference row that was never stored.
+        """
+        record: list[dict] = []
+        for rank in cited_ranks:
+            if rank not in chunk_ids_by_rank:
+                continue
+            chunk_id = chunk_ids_by_rank[rank]
+            record.append({"rank": rank, "chunk_id": None if chunk_id is None else str(chunk_id)})
+        return record
 
     @staticmethod
     def mapped_complaints(extraction: ExtractionOutput, known: set[str]) -> list[tuple[str, bool]]:

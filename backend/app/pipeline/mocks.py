@@ -18,11 +18,13 @@ validator are built against them:
 the category and FR-23 can be demonstrated on screen. `DEMO_2` replays RED,
 `DEMO_3` BLUE.
 
-**The failure paths.** `MOCK_LLM_BEHAVIOR` turns the two model stages into a
+**The failure paths.** `MOCK_LLM_BEHAVIOR` turns the three model stages into a
 timeout, an unusable answer, a one-off flake or a slow answer, so the retry and
 failure-path logic in P05 §5.4 is exercised with no network call. A fixture may
 also force a failure for one scenario alone — `DEMO_4` does, which is how the
-walkthrough reaches `MANUAL_TRIAGE_REQUIRED` without editing `.env`.
+walkthrough reaches `MANUAL_TRIAGE_REQUIRED` without editing `.env`. The actions
+stage reports the same behaviours as `ActionsFailed`, which is the one failure
+that leaves the case where it is (FR-77, ADR-18 §3).
 
 **Provenance.** A mock reports `model_id="mock"` and `prompt_version="mock-0"`
 rather than omitting them, so the provenance columns are filled the same way on a
@@ -39,9 +41,9 @@ from time import perf_counter, sleep
 from typing import TYPE_CHECKING
 
 from app.core.config import MOCK_SLOW_DELAY_S, MockLLMBehavior, Settings
-from app.models.enums import ConfidenceLevel, Species, VTLCategory
+from app.models.enums import ActionSource, ConfidenceLevel, Species, VTLCategory
 from app.pipeline.config import PipelineConfig
-from app.pipeline.errors import LLMInvalidOutput, LLMTimeout
+from app.pipeline.errors import ActionsFailed, LLMInvalidOutput, LLMTimeout, PipelineError
 from app.pipeline.mock_fixtures import (
     coerce_signalment,
     find_by_extraction,
@@ -57,6 +59,7 @@ from app.pipeline.types import (
     ExtractionOutput,
     Passage,
     RedFlagHit,
+    SuggestedAction,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -68,12 +71,14 @@ __all__ = [
     "MOCK_MODEL_ID",
     "MOCK_PROMPT_VERSION",
     "OTHER_COMPLAINT",
+    "MockActionSuggester",
     "MockDeidentifier",
     "MockEntityExtractor",
     "MockKBIndexer",
     "MockRecommendationGenerator",
     "MockRedFlagScreener",
     "MockRetriever",
+    "generic_actions",
     "generic_draft",
     "generic_extraction",
     "generic_passages",
@@ -277,6 +282,54 @@ class MockRecommendationGenerator(_MockStage):
             return generic_draft()
 
 
+class MockActionSuggester(_MockStage):
+    """Replays a fixture's recorded tailored actions (M6b writes the real one).
+
+    Found by the same reverse lookup as the retriever and the generator: the
+    stage is handed the extraction, the decided category and the passages, never
+    the description — not even the de-identified one (ADR-18 §5).
+
+    The returned actions are **not** screened here. Every one of them goes
+    through `app.pipeline.action_validator.validate` on the way to storage, and
+    that is deliberate: a stage that filtered its own output would make the
+    validator look like it worked when it had nothing to do (FR-74).
+
+    `MOCK_LLM_BEHAVIOR` is honoured and translated: this stage's declared failure
+    is `ActionsFailed`, so `timeout` and `invalid_json` raise it and `flaky`
+    fails the first attempt at each call and succeeds on the retry. The
+    translation happens here rather than in the orchestrator because the real
+    stage will do the same — an `LLMProvider` raises transport errors and the
+    stage turns them into its own (`app.pipeline.errors`).
+    """
+
+    def suggest(
+        self,
+        extraction: ExtractionOutput,
+        category: VTLCategory,
+        passages: list[Passage],
+        max_items: int,
+    ) -> list[SuggestedAction]:
+        with self._measured():
+            fixture = find_by_extraction(extraction)
+            try:
+                self._simulate(
+                    key=fixture.fixture_id
+                    if fixture is not None
+                    else _call_key(extraction.model_dump_json())
+                )
+            except PipelineError as error:
+                # Chained, not swallowed: the orchestrator reads the cause to
+                # tell a timeout from unusable output without parsing a message
+                # (see `_actions_reason`). A real stage wraps its provider's
+                # errors the same way (M6b).
+                raise ActionsFailed(str(error)) from error
+
+            recorded = list(fixture.actions) if fixture is not None else []
+            if not recorded:
+                recorded = generic_actions(category)
+            return recorded[: max(max_items, 0)]
+
+
 class MockKBIndexer(_MockStage):
     """Indexes nothing and reports nothing indexed.
 
@@ -367,3 +420,41 @@ def generic_draft() -> DraftRecommendation:
         cited_ranks=[1],
         confidence=ConfidenceLevel.MEDIUM,
     )
+
+
+def generic_actions(category: VTLCategory) -> list[SuggestedAction]:
+    """Two actions for the given category, when no fixture matches.
+
+    Keyed by category rather than fixed, so all five VTL levels are exercised by
+    a run over a description the fixture file does not hold — which is what the
+    seeded categories without a demo scenario (YELLOW, GREEN) rely on (FR-71).
+
+    Both cite rank 1, which every retriever answer has: `generic_passages`
+    returns two, and a fixture's list is never empty. An action with no valid
+    citation is dropped by the validator, so a generic answer that cited nothing
+    would silently produce an empty tailored list rather than a demonstrable one
+    (FR-74).
+
+    The wording is triage-level handling only and names no medication, dose or
+    diagnosis, so it passes the validator unchanged (FR-28, ADR-18 §1). It also
+    says plainly that no model ran, so a screenshot of a mock run cannot be
+    mistaken for a real result.
+    """
+    return [
+        SuggestedAction(
+            text=(
+                f"Placeholder action for {category.value}: no model was called, so a "
+                "veterinary reviewer must set the actions."
+            ),
+            cited_ranks=[1],
+            source=ActionSource.AI,
+        ),
+        SuggestedAction(
+            text=(
+                "Recheck the patient while it waits and tell the veterinarian this is "
+                f"category {category.value}."
+            ),
+            cited_ranks=[1],
+            source=ActionSource.AI,
+        ),
+    ]

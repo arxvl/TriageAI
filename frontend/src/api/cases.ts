@@ -224,19 +224,39 @@ export async function listCases(filters: CaseQueueFilters = {}): Promise<CaseLis
  * that is taking a long time says which stage it is in.
  */
 export type PipelineStage =
-  "queued" | "deidentify" | "screen" | "extract" | "retrieve" | "generate" | "done" | "failed";
+  | "queued"
+  | "deidentify"
+  | "screen"
+  | "extract"
+  | "retrieve"
+  | "generate"
+  | "done"
+  | "failed";
+
+/**
+ * How far the suggested actions for one case have got (FR-77, ADR-18).
+ *
+ * Separate from the case status, and deliberately so: the category is settled and
+ * the case is already awaiting review while the actions are still `PENDING`. A
+ * `FAILED` value means the baseline actions are shown on their own — nothing
+ * about the case is wrong, so the screen says one quiet line and never an error
+ * dialog.
+ */
+export type ActionsStatus = "PENDING" | "READY" | "FAILED" | "NOT_APPLICABLE";
 
 /**
  * The polling response while a case is being processed (IR-22).
  *
  * `pipeline_stage` is null for a case with no pipeline job — every case recorded
- * before the pipeline existed.
+ * before the pipeline existed. `actions_status` is null until a recommendation
+ * exists, because there is nothing for the actions job to be about before then.
  */
 export interface CaseStatusOut {
   status: CaseStatus;
   category: VTLCategory | null;
   has_red_flag: boolean;
   pipeline_stage: PipelineStage | null;
+  actions_status: ActionsStatus | null;
   /** ISO-8601 UTC. */
   updated_at: string;
 }
@@ -245,3 +265,8 @@ export interface CaseStatusOut {
 // what W-02 refreshes from (IR-22), and the per-case polling this response is for
 // belongs to the Case Review screen in P06. The types above are the contract, kept
 // here with the rest of the endpoint's shapes.
+//
+// `GET /cases/{id}` has no caller either. P05b gives it the case header and the
+// suggested actions; P06 §6.1 extends it into the whole review response and
+// builds the W-04 checklist against it, so its types are declared there rather
+// than half-declared here.

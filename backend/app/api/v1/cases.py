@@ -22,6 +22,7 @@ from app.models import User, UserRole
 from app.schemas.case import (
     CaseCreate,
     CaseCreated,
+    CaseDetail,
     CaseListResponse,
     CaseQueueFilters,
     CaseStatusOut,
@@ -78,5 +79,26 @@ def list_cases(
 
 @router.get("/{case_id}/status")
 def read_case_status(case_id: uuid.UUID, db: DbSession, user: IntakeUser) -> CaseStatusOut:
-    """What a case looks like now, polled while it is being processed (IR-22)."""
+    """What a case looks like now, polled while it is being processed (IR-22).
+
+    Carries `actions_status` as well, because the suggested actions arrive after
+    the category and the screen polls for both (FR-77, ADR-18 §3).
+    """
     return CaseService(db).get_status(case_id)
+
+
+@router.get("/{case_id}")
+def read_case(case_id: uuid.UUID, db: DbSession, user: QueueReader) -> CaseDetail:
+    """One case and its suggested actions (FR-71..FR-79).
+
+    The P05b slice of the review response: P06 §6.1 adds the description, the
+    extraction, the references, the decision and the permissions to this same
+    route.
+
+    All three roles may read a case — a reviewer decides on it, intake staff
+    follow one they entered, an administrator reports on it. What differs is the
+    content: unfinalized AI-suggested actions are returned to Veterinary
+    Reviewers only, and the service enforces that rather than the router
+    (FR-79).
+    """
+    return CaseService(db).get_detail(case_id, user)

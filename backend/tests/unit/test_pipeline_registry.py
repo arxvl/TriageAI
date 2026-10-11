@@ -28,6 +28,7 @@ from app.pipeline.registry import (
     build_pipeline,
 )
 from app.pipeline.stages import (
+    ActionSuggester,
     Deidentifier,
     EntityExtractor,
     KBIndexer,
@@ -46,6 +47,7 @@ MOCK_STAGES: list[tuple[str, type, type]] = [
     ("extractor", mocks.MockEntityExtractor, EntityExtractor),
     ("retriever", mocks.MockRetriever, Retriever),
     ("generator", mocks.MockRecommendationGenerator, RecommendationGenerator),
+    ("action_suggester", mocks.MockActionSuggester, ActionSuggester),
     ("kb_indexer", mocks.MockKBIndexer, KBIndexer),
 ]
 
@@ -65,6 +67,7 @@ NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
     ({"KB_INDEXER": "pgvector"}, "KB_INDEXER=pgvector", "M5"),
     ({"PIPELINE_RETRIEVER": "pgvector"}, "PIPELINE_RETRIEVER=pgvector", "M6"),
     ({"PIPELINE_GENERATOR": "llm"}, "PIPELINE_GENERATOR=llm", "M6"),
+    ({"PIPELINE_ACTIONS": "llm"}, "PIPELINE_ACTIONS=llm", "M6b"),
     (
         {"LLM_PROVIDER": "hosted", "PIPELINE_DEIDENTIFIER": "rules"},
         "LLM_PROVIDER=hosted",

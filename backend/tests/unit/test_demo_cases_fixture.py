@@ -10,6 +10,12 @@ hold: red-flag codes the seeder actually creates, floors no weaker than the
 seeded rule's, evidence spans that really are substrings of the description, and
 citations that point at a passage the same scenario recorded. The loader itself is
 tested in `test_mock_fixtures.py`; here the subject is the file's content.
+
+P05b §5b.3 adds the recorded suggested actions, whose invariant is stricter than
+the others: every one of them has to survive the deterministic action validator
+unchanged. A recorded action that named a drug, a dose or a diagnosis would make
+the demo show a rejection tally instead of a checklist, and would be a fixture
+that contradicts FR-28.
 """
 
 from pathlib import Path
@@ -28,6 +34,9 @@ from app.models import (
     Species,
     VTLCategory,
 )
+from app.models.enums import ActionSource
+from app.pipeline.action_validator import MAX_WORDS, validate
+from app.pipeline.mock_fixtures import load_fixtures
 from scripts.seed import COMPLAINTS, OTHER_COMPLAINT, RED_FLAG_RULES
 
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "demo_cases.yaml"
@@ -292,6 +301,72 @@ def test_demo_4_records_a_forced_failure_and_nothing_after_it(
     assert "mock_extraction" not in case
     assert "mock_passages" not in case
     assert "mock_draft" not in case
+
+
+# --- The recorded suggested actions (P05b §5b.3, FR-74, ADR-18) ----------
+
+
+def test_every_scenario_records_suggested_actions(demo_cases: list[dict[str, Any]]) -> None:
+    """All four, as P05b §5b.3 asks — see the next test about DEMO_4's."""
+    for case in demo_cases:
+        assert case.get("mock_actions"), case["id"]
+
+
+def test_demo_4_records_actions_it_can_never_reach(demo_cases: list[dict[str, Any]]) -> None:
+    """Stated so the dead data in the file is deliberate rather than an oversight.
+
+    The actions stage is found by extraction (`find_by_extraction`), and this
+    scenario records none because it fails before extraction returns. No
+    recommendation is stored either, so no `SUGGEST_ACTIONS` job is ever
+    enqueued for it.
+    """
+    case = next(c for c in demo_cases if c["id"] == "DEMO_4")
+
+    assert case["mock_actions"]
+    assert "mock_extraction" not in case
+    assert load_fixtures()["DEMO_4"].extraction is None
+
+
+def test_recorded_actions_are_all_model_produced(demo_cases: list[dict[str, Any]]) -> None:
+    """Baseline actions live in the knowledge base, not here (FR-72, ADR-18 §2)."""
+    sources = {action.get("source") for case in demo_cases for action in case["mock_actions"]}
+
+    assert sources == {ActionSource.AI.value}
+
+
+def test_recorded_actions_stay_within_the_word_limit(demo_cases: list[dict[str, Any]]) -> None:
+    for case in demo_cases:
+        for action in case["mock_actions"]:
+            assert len(action["text"].split()) <= MAX_WORDS, (case["id"], action["text"])
+
+
+def test_recorded_actions_cite_a_passage_the_same_scenario_recorded(
+    demo_cases: list[dict[str, Any]],
+) -> None:
+    """As with the drafts: a citation the retriever never returned is dropped."""
+    for case in working_cases(demo_cases):
+        ranks = set(range(1, len(case["mock_passages"]) + 1))
+        for action in case["mock_actions"]:
+            assert action["cited_ranks"], (case["id"], action["text"])
+            assert set(action["cited_ranks"]) <= ranks, (case["id"], action["text"])
+
+
+def test_every_recorded_action_survives_the_validator(
+    demo_cases: list[dict[str, Any]],
+) -> None:
+    """The one invariant that makes the demo show a checklist (FR-74, ADR-18 §4).
+
+    Run through the real validator rather than re-checked by hand, so a block
+    list that grows in M6b immediately tells the team which fixture line to
+    reword.
+    """
+    for case in working_cases(demo_cases):
+        scenario = load_fixtures()[case["id"]]
+
+        kept, reasons = validate(list(scenario.actions), scenario.passages, max_items=5)
+
+        assert reasons == [], case["id"]
+        assert len(kept) == len(scenario.actions), case["id"]
 
 
 def test_only_the_failure_scenario_forces_a_failure(demo_cases: list[dict[str, Any]]) -> None:

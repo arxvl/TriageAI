@@ -17,25 +17,56 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.jobs.worker import UNEXPECTED_ERROR, UNSUPPORTED_JOB_TYPE, run_pending_jobs_once
-from app.models import CaseStatus, JobStatus, JobType
-from app.pipeline.orchestrator import FailureReason, PipelineRunResult
+from app.jobs.worker import (
+    MISSING_RECOMMENDATION_ID,
+    UNEXPECTED_ERROR,
+    UNSUPPORTED_JOB_TYPE,
+    run_pending_jobs_once,
+)
+from app.models import ActionsStatus, CaseStatus, JobStatus, JobType
+from app.pipeline.orchestrator import (
+    ACTIONS_JOB_RECOMMENDATION_KEY,
+    ActionsFailureReason,
+    ActionsRunResult,
+    FailureReason,
+    PipelineRunResult,
+)
 from tests.conftest import make_case, make_job
 
 
 class _StubPipeline:
-    """Answers `run` from a script, and records what it was asked to do."""
+    """Answers `run` and `run_actions` from a script, recording both.
 
-    def __init__(self, result: object = None, raises: Exception | None = None) -> None:
+    One stub for both entry points, because the worker's contract is the same
+    for either: the job ends in a state that agrees with whatever the run
+    reported.
+    """
+
+    def __init__(
+        self,
+        result: object = None,
+        raises: Exception | None = None,
+        actions_result: object = None,
+    ) -> None:
         self._result = result
         self._raises = raises
+        self._actions_result = actions_result
         self.calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+        self.actions_calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
 
     def run(self, case_id: uuid.UUID, *, job_id: uuid.UUID | None = None) -> object:
         self.calls.append((case_id, job_id))
         if self._raises is not None:
             raise self._raises
         return self._result or PipelineRunResult(case_id, CaseStatus.AWAITING_REVIEW)
+
+    def run_actions(
+        self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
+    ) -> object:
+        self.actions_calls.append((recommendation_id, job_id))
+        if self._raises is not None:
+            raise self._raises
+        return self._actions_result or ActionsRunResult(recommendation_id, ActionsStatus.READY)
 
 
 def test_a_successful_run_completes_the_job(
@@ -143,3 +174,95 @@ def test_a_pipeline_run_job_with_no_case_fails(
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
     assert job.last_error.startswith("MISSING_CASE_ID")
+
+
+# --- SUGGEST_ACTIONS (P05b §5b.3, ADR-18 §3) -----------------------------
+
+
+def actions_job(db_session: Session, recommendation_id: object) -> object:
+    """A `SUGGEST_ACTIONS` job carrying `recommendation_id` in its payload."""
+    return make_job(
+        db_session,
+        case=make_case(db_session),
+        job_type=JobType.SUGGEST_ACTIONS,
+        payload=None
+        if recommendation_id is None
+        else {ACTIONS_JOB_RECOMMENDATION_KEY: str(recommendation_id)},
+    )
+
+
+def test_an_actions_job_is_dispatched_with_its_recommendation(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    recommendation_id = uuid.uuid4()
+    job = actions_job(db_session, recommendation_id)
+    pipeline = _StubPipeline()
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    assert pipeline.actions_calls == [(recommendation_id, job.id)]
+    # The triage entry point is not touched: this job must not re-run a case.
+    assert pipeline.calls == []
+    db_session.refresh(job)
+    assert job.status is JobStatus.DONE
+    assert job.last_error is None
+
+
+def test_a_failed_actions_run_fails_the_job_with_the_reason_code(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    """The run has already recorded it on the recommendation, never on the case
+    (FR-77)."""
+    recommendation_id = uuid.uuid4()
+    job = actions_job(db_session, recommendation_id)
+    pipeline = _StubPipeline(
+        actions_result=ActionsRunResult(
+            recommendation_id,
+            ActionsStatus.FAILED,
+            ActionsFailureReason.ACTIONS_TIMEOUT,
+        )
+    )
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(ActionsFailureReason.ACTIONS_TIMEOUT.value)
+
+
+@pytest.mark.parametrize("payload", [None, {"recommendation_id": "not-a-uuid"}, {}])
+def test_an_actions_job_without_a_usable_recommendation_fails(
+    db_session: Session, app_session_factory: sessionmaker, payload: dict | None
+) -> None:
+    """The only writer is the orchestrator, so anything else is hand-built."""
+    job = make_job(
+        db_session,
+        case=make_case(db_session),
+        job_type=JobType.SUGGEST_ACTIONS,
+        payload=payload,
+    )
+    pipeline = _StubPipeline()
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    assert pipeline.actions_calls == []
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(MISSING_RECOMMENDATION_ID)
+
+
+def test_an_actions_run_that_raises_is_contained(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    """One bad actions job must not take the worker down either."""
+    job = actions_job(db_session, uuid.uuid4())
+    pipeline = _StubPipeline(raises=RuntimeError("stub blew up"))
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(UNEXPECTED_ERROR)

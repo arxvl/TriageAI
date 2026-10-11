@@ -25,6 +25,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.jobs.queue import JobStage
 from app.models.enums import (
+    ActionSource,
+    ActionsStatus,
     AgeUnit,
     CaseStatus,
     DecisionType,
@@ -251,10 +253,94 @@ class CaseStatusOut(BaseModel):
     say which step is running instead of only "processing". It is `None` for a
     case with no job — every case created before P05, and any case whose job row
     has been pruned.
+
+    `actions_status` is polled separately from the case status, because the two
+    move independently: the category is settled and the case is already in
+    `AWAITING_REVIEW` while the suggested actions are still `PENDING`
+    (FR-77, NFR-29, ADR-18 §3). It is `None` until a recommendation exists —
+    there is nothing for the actions job to be about before then.
     """
 
     status: CaseStatus
     category: VTLCategory | None
     has_red_flag: bool
     pipeline_stage: JobStage | None
+    actions_status: ActionsStatus | None
     updated_at: datetime
+
+
+class SuggestedActionOut(BaseModel):
+    """One row of the W-04 action checklist (FR-73, IR-23).
+
+    `source` is always shown as a tag, so a reviewer can tell curated content
+    from model output without reading the text (IR-23). `cited_ranks` are
+    `retrieved_references.rank` values, which is how the screen puts an action
+    beside the passage that supports it.
+
+    Only actions that passed the deterministic validator ever reach this model
+    (FR-74).
+    """
+
+    text: str
+    cited_ranks: list[int]
+    source: ActionSource
+
+
+class CaseActionsOut(BaseModel):
+    """The suggested actions for one case (FR-71..FR-79, ADR-18).
+
+    Two layers, and the difference matters to every field here.
+
+    `baseline` is read from the ACTIVE `URGENCY_ACTIONS` knowledge-base entry for
+    the case's **current** category every time this is built, not from the stored
+    rows. So it is present whether the actions job succeeded, failed, or has not
+    run yet, and it follows a reviewer who changes the category (FR-71, FR-72,
+    ADR-18 §6).
+
+    `tailored` is best effort and comes from the stored rows. It is empty for a
+    caller who is not a Veterinary Reviewer, because unfinalized model-suggested
+    actions are visible to reviewers only (FR-79).
+
+    `status` describes the tailored list alone. `PENDING` means the job is still
+    running and the UI shows a loading row; `FAILED` means one quiet line and
+    never an error dialog, because nothing about the case is wrong (FR-77).
+
+    `is_outdated` is true when a reviewer has settled on a category other than
+    the one these actions were generated for (FR-78; the UI for it is P07).
+
+    `rejected_count` is how many tailored actions the validator dropped. Surfaced
+    so a high rejection rate reads as a prompt problem to fix in M6b, never as a
+    reason to loosen a rule (ADR-18 §4).
+    """
+
+    status: ActionsStatus | None
+    generated_for_category: VTLCategory | None
+    baseline: list[str]
+    tailored: list[SuggestedActionOut]
+    rejected_count: int
+    is_outdated: bool
+
+
+class CaseDetail(BaseModel):
+    """One case, as much of it as P05b needs (FR-71..FR-79).
+
+    Deliberately small. P06 §6.1 is what builds the review screen's response —
+    the verbatim description, the extraction with its evidence spans, the
+    references, the configuration, the alerts, the decision and the permissions.
+    This is the slice the suggested actions need, added here so they can be read
+    and role-filtered as soon as the pipeline produces them.
+
+    No owner name and no contact number, as in every other response (FR-07,
+    DR-04).
+    """
+
+    id: uuid.UUID
+    case_no: str
+    status: CaseStatus
+    species: Species
+    category: VTLCategory | None
+    recommended_category: VTLCategory | None
+    confirmed_category: VTLCategory | None
+    has_red_flag: bool
+    created_at: datetime
+    actions: CaseActionsOut

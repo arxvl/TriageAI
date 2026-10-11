@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.vtl import QUEUE_RANK, UNRANKED, URGENCY_ORDER
 from app.models import (
+    ActionSuggestion,
     AgeUnit,
     Case,
     CaseStatus,
@@ -36,6 +37,7 @@ from app.models import (
     IntakeChannel,
     Job,
     JobType,
+    KBVersion,
     OwnerDescription,
     OwnerReference,
     PresentingComplaint,
@@ -291,6 +293,87 @@ class CaseRepository:
         statement = parts.join_onto(statement, with_complaint=False)
         statement = statement.where(Case.id == case_id)
         return self._session.execute(statement).one_or_none()
+
+    def detail_row(self, case_id: uuid.UUID) -> Row | None:
+        """The case header one review screen needs, or None if there is no case.
+
+        The P05b slice of `GET /cases/{id}`: enough to identify the case plus the
+        two categories the suggested actions are read against — the effective one
+        (FR-29) and the latest decision's, which is what marks a tailored list
+        outdated (FR-78). P06 §6.1 extends this read with the extraction, the
+        references and the permissions.
+        """
+        parts = _QueueParts()
+        statement = select(
+            Case.id,
+            Case.case_no,
+            Case.status,
+            Case.species,
+            Case.created_at,
+            parts.effective_category.label("category"),
+            parts.recommendation.c.category.label("recommended_category"),
+            parts.decision.c.final_category.label("confirmed_category"),
+            parts.has_red_flag.label("has_red_flag"),
+        ).select_from(Case)
+        statement = parts.join_onto(statement, with_complaint=False)
+        return self._session.execute(statement.where(Case.id == case_id)).one_or_none()
+
+    def latest_recommendation_actions(self, case_id: uuid.UUID) -> Row | None:
+        """The newest recommendation's category and actions progress (FR-77).
+
+        The newest version wins, as everywhere else: a re-run after recovery or a
+        P07 regeneration adds a version rather than updating one (ADR-14), and the
+        actions a reviewer sees belong to the recommendation they are looking at.
+        """
+        statement = (
+            select(
+                Recommendation.id,
+                Recommendation.category,
+                Recommendation.kb_version_id,
+                Recommendation.actions_status,
+                Recommendation.actions_error,
+                Recommendation.actions_rejected_count,
+            )
+            .where(Recommendation.case_id == case_id)
+            .order_by(Recommendation.version.desc(), Recommendation.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).one_or_none()
+
+    def action_suggestions(self, recommendation_id: uuid.UUID) -> list[Row]:
+        """One recommendation's stored suggestions, in display order (IR-23).
+
+        Ordered by rank, which the orchestrator writes as one sequence over both
+        layers with the baseline set first — so `order by rank` is the order W-04
+        shows them in.
+        """
+        statement = (
+            select(
+                ActionSuggestion.id,
+                ActionSuggestion.rank,
+                ActionSuggestion.text,
+                ActionSuggestion.source,
+                ActionSuggestion.cited_chunk_ids,
+                ActionSuggestion.generated_for_category,
+            )
+            .where(ActionSuggestion.recommendation_id == recommendation_id)
+            .order_by(ActionSuggestion.rank)
+        )
+        return list(self._session.execute(statement).all())
+
+    def latest_kb_version_id(self) -> uuid.UUID | None:
+        """The newest knowledge-base version (FR-54).
+
+        Needed here for the baseline action lookup on a case that has no
+        recommendation to pin it — a case a reviewer triaged by hand still has a
+        category and so still has baseline actions (FR-71).
+        `PipelineRepository.latest_kb_version_id` is the same read for the run
+        path; a run pins the version it used onto the recommendation, so the two
+        callers are asking different questions about the same table.
+        """
+        return self._session.scalars(
+            select(KBVersion.id).order_by(KBVersion.version_no.desc()).limit(1)
+        ).first()
 
     def latest_pipeline_job(self, case_id: uuid.UUID) -> Row | None:
         """The newest `PIPELINE_RUN` job for a case: its status and its payload.

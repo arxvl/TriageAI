@@ -37,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import (
+    ActionsOption,
     DeidentifierOption,
     EmbeddingProviderOption,
     ExtractorOption,
@@ -85,6 +86,7 @@ _GUIDE_FILES = {
     "M4": "docs/dev-prompts/M4-pgvector-embeddings.md",
     "M5": "docs/dev-prompts/M5-kb-chunking-indexing.md",
     "M6": "docs/dev-prompts/M6-retrieval-generation.md",
+    "M6b": "docs/dev-prompts/M6b-action-suggestion.md",
 }
 
 # The CLAUDE.md §8.3 / ADR-17 table, as data. The module paths and class names of
@@ -135,6 +137,11 @@ RETRIEVER_SPECS: dict[RetrieverOption, _StageSpec] = {
 GENERATOR_SPECS: dict[GeneratorOption, _StageSpec] = {
     GeneratorOption.MOCK: _StageSpec("app.pipeline.mocks:MockRecommendationGenerator"),
     GeneratorOption.LLM: _StageSpec("app.pipeline.generation_llm:LLMRecommendationGenerator", "M6"),
+}
+
+ACTIONS_SPECS: dict[ActionsOption, _StageSpec] = {
+    ActionsOption.MOCK: _StageSpec("app.pipeline.mocks:MockActionSuggester"),
+    ActionsOption.LLM: _StageSpec("app.pipeline.actions_llm:LLMActionSuggester", "M6b"),
 }
 
 
@@ -243,6 +250,7 @@ def _requires_provider(settings: Settings) -> bool:
         or settings.kb_indexer != KBIndexerOption.MOCK
         or settings.pipeline_retriever != RetrieverOption.MOCK
         or settings.pipeline_generator != GeneratorOption.MOCK
+        or settings.pipeline_actions != ActionsOption.MOCK
     )
 
 
@@ -332,6 +340,9 @@ def build_pipeline(
         ),
         generator=_build_stage(
             GENERATOR_SPECS, settings.pipeline_generator, "PIPELINE_GENERATOR", settings, deps
+        ),
+        action_suggester=_build_stage(
+            ACTIONS_SPECS, settings.pipeline_actions, "PIPELINE_ACTIONS", settings, deps
         ),
         kb_indexer=_build_stage(
             KB_INDEXER_SPECS, settings.kb_indexer, "KB_INDEXER", settings, deps

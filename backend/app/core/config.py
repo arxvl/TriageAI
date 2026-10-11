@@ -51,6 +51,11 @@ class GeneratorOption(StrEnum):
     LLM = "llm"
 
 
+class ActionsOption(StrEnum):
+    MOCK = "mock"
+    LLM = "llm"
+
+
 class MockLLMBehavior(StrEnum):
     """Which failure the mock stages simulate (P05 §5.2, ADR-17).
 
@@ -100,6 +105,7 @@ class Settings(BaseSettings):
     kb_indexer: KBIndexerOption = KBIndexerOption.MOCK
     pipeline_retriever: RetrieverOption = RetrieverOption.MOCK
     pipeline_generator: GeneratorOption = GeneratorOption.MOCK
+    pipeline_actions: ActionsOption = ActionsOption.MOCK
 
     mock_llm_behavior: MockLLMBehavior = MockLLMBehavior.OK
 
@@ -122,6 +128,14 @@ class Settings(BaseSettings):
     pipeline_timeout_s: float = 30.0
     pipeline_max_retries: int = 1
     retrieval_min_score: float = 0.30
+
+    # Suggested actions (P05b §5b.3, ADR-18). `actions_prompt_version` is the
+    # real stage's prompt version (M6b); a mock reports its own `mock-0`, as
+    # every other mock stage does. `actions_max_items` caps the tailored list
+    # the validator keeps — the baseline set is never capped, because it is
+    # curated content for one category (FR-71, FR-72).
+    actions_prompt_version: str = "v1.0"
+    actions_max_items: int = 5
 
     @field_validator("embedding_provider", mode="before")
     @classmethod

@@ -14,6 +14,12 @@ Submitting a case **enqueues** the triage pipeline in the same transaction as th
 case itself, and the case stays in `SUBMITTED` until a worker claims it (FR-06,
 ADR-08). One transaction, not two: a commit between the case and its job would
 leave a window in which a crash produces a case no worker will ever pick up.
+
+Reading a case also assembles its **suggested actions** (FR-71..FR-79, ADR-18).
+Two rules there are the service's and must not be reachable around: the baseline
+set is read from the knowledge base for the case's current category rather than
+from the stored rows, so it is always present; and unfinalized AI-suggested
+actions are returned to Veterinary Reviewers only (FR-79).
 """
 
 import uuid
@@ -29,6 +35,8 @@ from app.core.errors import CaseNotFound, SpeciesOutOfScope
 from app.core.vtl import is_overdue, target_minutes
 from app.jobs.queue import STAGE_KEY, JobQueue, JobStage
 from app.models import (
+    ActionSource,
+    ActionsStatus,
     CaseStatus,
     IntakeChannel,
     JobStatus,
@@ -36,16 +44,20 @@ from app.models import (
     Sex,
     Species,
     User,
+    UserRole,
     VTLCategory,
 )
+from app.pipeline.action_validator import baseline_actions
 from app.repositories.case_repository import (
     CaseRepository,
     OwnerReferenceValues,
     SignalmentValues,
 )
 from app.schemas.case import (
+    CaseActionsOut,
     CaseCreate,
     CaseCreated,
+    CaseDetail,
     CaseListResponse,
     CaseQueueCounts,
     CaseQueueFilters,
@@ -54,6 +66,7 @@ from app.schemas.case import (
     QueueCategoryFilter,
     QueueRedFlagAlert,
     SpeciesInput,
+    SuggestedActionOut,
 )
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
 
@@ -219,13 +232,120 @@ class CaseService:
         row = self._cases.status_row(case_id)
         if row is None:
             raise CaseNotFound()
+        recommendation = self._cases.latest_recommendation_actions(case_id)
         return CaseStatusOut(
             status=CaseStatus(row.status),
             category=_as_category(row.category),
             has_red_flag=row.has_red_flag,
             pipeline_stage=self._pipeline_stage(case_id),
+            # Polled alongside the case status, not derived from it: the category
+            # is final while the actions are still being suggested (ADR-18 §3).
+            actions_status=(
+                None if recommendation is None else ActionsStatus(recommendation.actions_status)
+            ),
             updated_at=row.updated_at,
         )
+
+    # --- Suggested actions (FR-71..FR-79, ADR-18) --------------------------
+
+    def get_detail(self, case_id: uuid.UUID, user: User) -> CaseDetail:
+        """One case with its suggested actions, role-filtered (FR-79).
+
+        The P05b slice of the review response; P06 §6.1 extends it. `user` is
+        taken rather than read from a request because the filtering is a business
+        rule, not a presentation detail: a caller who is not a Veterinary
+        Reviewer must not receive unfinalized model-suggested actions, and that
+        has to hold however this is called (SR-05, FR-79).
+        """
+        row = self._cases.detail_row(case_id)
+        if row is None:
+            raise CaseNotFound()
+
+        return CaseDetail(
+            id=row.id,
+            case_no=row.case_no,
+            status=CaseStatus(row.status),
+            species=Species(row.species),
+            category=_as_category(row.category),
+            recommended_category=_as_category(row.recommended_category),
+            confirmed_category=_as_category(row.confirmed_category),
+            has_red_flag=row.has_red_flag,
+            created_at=row.created_at,
+            actions=self._actions(case_id, row, user),
+        )
+
+    def _actions(self, case_id: uuid.UUID, row: Row, user: User) -> CaseActionsOut:
+        """Assemble the two action layers for one case.
+
+        The baseline set is looked up live, for the case's *current* category,
+        and never read from the stored rows — see `CaseActionsOut`. That is what
+        makes it survive a failed actions job (FR-77) and follow a reviewer who
+        changes the category (ADR-18 §6). The stored `BASELINE` rows remain the
+        record of what was first suggested, which is what P06 finalizes against.
+        """
+        recommendation = self._cases.latest_recommendation_actions(case_id)
+        category = _as_category(row.category)
+        suggestions = (
+            [] if recommendation is None else self._cases.action_suggestions(recommendation.id)
+        )
+
+        # What the tailored actions were generated for: the stored value when
+        # there are rows, otherwise the category of the recommendation they will
+        # be generated for.
+        generated_for = next(
+            (_as_category(suggestion.generated_for_category) for suggestion in suggestions),
+            None if recommendation is None else _as_category(recommendation.category),
+        )
+        confirmed = _as_category(row.confirmed_category)
+
+        return CaseActionsOut(
+            status=(
+                None if recommendation is None else ActionsStatus(recommendation.actions_status)
+            ),
+            generated_for_category=generated_for,
+            baseline=self._baseline(category, recommendation),
+            # FR-79. No `final_actions` row exists before P06, so every stored
+            # suggestion is unfinalized and a non-reviewer sees none of them.
+            tailored=(
+                [
+                    SuggestedActionOut(
+                        text=suggestion.text,
+                        cited_ranks=_cited_ranks(suggestion.cited_chunk_ids),
+                        source=ActionSource(suggestion.source),
+                    )
+                    for suggestion in suggestions
+                    if ActionSource(suggestion.source) is not ActionSource.BASELINE
+                ]
+                if user.role is UserRole.VETERINARY_REVIEWER
+                else []
+            ),
+            rejected_count=(0 if recommendation is None else recommendation.actions_rejected_count),
+            # FR-78: a decision on another category leaves the tailored list
+            # describing an urgency the case no longer has.
+            is_outdated=(
+                confirmed is not None
+                and generated_for is not None
+                and confirmed is not generated_for
+            ),
+        )
+
+    def _baseline(self, category: VTLCategory | None, recommendation: Row | None) -> list[str]:
+        """The baseline actions for one category (FR-71, FR-72).
+
+        Pinned to the knowledge-base version the recommendation used, so
+        reopening an old case shows the set as it was then (FR-54, ADR-14). A
+        case with no recommendation — one a reviewer triaged by hand — is read
+        against the newest version instead, because it still has a category and
+        so still has baseline actions.
+        """
+        if category is None:
+            return []
+        kb_version_id = None if recommendation is None else recommendation.kb_version_id
+        if kb_version_id is None:
+            kb_version_id = self._cases.latest_kb_version_id()
+        if kb_version_id is None:
+            return []
+        return baseline_actions(self._session, category, kb_version_id)
 
     def _pipeline_stage(self, case_id: uuid.UUID) -> JobStage | None:
         """How far the case's newest pipeline run has got (IR-22, P05 §5.4).
@@ -348,6 +468,24 @@ def _as_category(value: object) -> VTLCategory | None:
     if value is None:
         return None
     return VTLCategory(value)
+
+
+def _cited_ranks(cited_chunk_ids: object) -> list[int]:
+    """The passage ranks one stored suggestion cites.
+
+    `action_suggestions.cited_chunk_ids` holds `{"rank", "chunk_id"}` objects —
+    see `PipelineRepository.cited_chunk_ids` for why — and the review screen
+    needs the rank, which is what identifies the reference row it displays. A
+    row written with anything else is read as citing nothing rather than
+    raising: a malformed citation must not make a case unreadable.
+    """
+    if not isinstance(cited_chunk_ids, list):
+        return []
+    return [
+        item["rank"]
+        for item in cited_chunk_ids
+        if isinstance(item, dict) and isinstance(item.get("rank"), int)
+    ]
 
 
 def _minutes_between(started_at: datetime, now: datetime) -> int:

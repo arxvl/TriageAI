@@ -41,6 +41,11 @@ class AuditAction(StrEnum):
     RED_FLAG_ALERT = "RED_FLAG_ALERT"
     RECOMMENDATION_CREATED = "RECOMMENDATION_CREATED"
     PIPELINE_FAILED = "PIPELINE_FAILED"
+    # The suggested-actions job (P05b §5b.3, ADR-18 §3). Counts and reason codes
+    # only: action text is untrusted model output and the log cannot be
+    # corrected (SR-17, FR-43).
+    ACTIONS_SUGGESTED = "ACTIONS_SUGGESTED"
+    ACTIONS_FAILED = "ACTIONS_FAILED"
 
 
 class AuditService:

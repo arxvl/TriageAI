@@ -19,20 +19,25 @@ with `UNEXPECTED_ERROR` and the loop continues. The alternative — a thread tha
 dies on the first unhandled exception — would leave every later case stuck in
 `SUBMITTED` with nothing in the log to say why.
 
-Job types other than `PIPELINE_RUN` are refused rather than ignored, so a job
-enqueued by a later phase against a worker that predates it fails loudly instead
-of sitting `QUEUED` forever: `REGENERATE` arrives in P07, `KB_INDEX` in P08 and
-`EVAL_RUN` with the evaluation harness (M7).
+Two job types are dispatched. `PIPELINE_RUN` triages a case; `SUGGEST_ACTIONS`
+suggests actions for one stored recommendation, and its failure is recorded on
+that recommendation and never on the case (FR-77, ADR-18 §3). Anything else is
+refused rather than ignored, so a job enqueued by a later phase against a worker
+that predates it fails loudly instead of sitting `QUEUED` forever: `REGENERATE`
+arrives in P07, `KB_INDEX` in P08 and `EVAL_RUN` with the evaluation harness
+(M7).
 """
 
 import logging
 import threading
+import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.jobs.queue import JobQueue
 from app.models import Job, JobType
+from app.pipeline.orchestrator import ACTIONS_JOB_RECOMMENDATION_KEY
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.pipeline.orchestrator import TriagePipeline
@@ -41,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_POLL_INTERVAL_S",
+    "MISSING_CASE_ID",
+    "MISSING_RECOMMENDATION_ID",
     "UNEXPECTED_ERROR",
     "UNSUPPORTED_JOB_TYPE",
     "JobWorker",
@@ -53,30 +60,57 @@ DEFAULT_POLL_INTERVAL_S = 0.5
 
 UNSUPPORTED_JOB_TYPE = "UNSUPPORTED_JOB_TYPE"
 UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+MISSING_CASE_ID = "MISSING_CASE_ID"
+MISSING_RECOMMENDATION_ID = "MISSING_RECOMMENDATION_ID"
+
+
+def _recommendation_id(job: Job) -> uuid.UUID | None:
+    """The recommendation a `SUGGEST_ACTIONS` job is about, or None.
+
+    Read out of the payload rather than a column; see
+    `ACTIONS_JOB_RECOMMENDATION_KEY`. A value that is not a uuid is treated as
+    missing: the only writer is the orchestrator, so anything else is a job
+    somebody built by hand.
+    """
+    raw = (job.payload or {}).get(ACTIONS_JOB_RECOMMENDATION_KEY)
+    try:
+        return uuid.UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 def run_job(session: Session, pipeline: "TriagePipeline", job: Job) -> None:
     """Dispatch one claimed job and set its final state.
 
-    The pipeline's own failure path has already put the *case* where it belongs
-    (NFR-09); this records the same outcome on the job, so `last_error` and the
-    case status can never disagree.
+    The run's own failure path has already put the *case* where it belongs
+    (NFR-09) — or, for `SUGGEST_ACTIONS`, has recorded the failure on the
+    recommendation and left the case alone (FR-77). This records the same
+    outcome on the job, so `last_error` and what the reviewer sees can never
+    disagree.
     """
     queue = JobQueue(session)
     context = {"job_id": str(job.id), "job_type": str(job.type), "attempts": job.attempts}
 
     try:
-        if job.type is not JobType.PIPELINE_RUN:
+        if job.type is JobType.PIPELINE_RUN:
+            if job.case_id is None:
+                logger.error("PIPELINE_RUN job without a case", extra=context)
+                queue.fail(job, MISSING_CASE_ID)
+                return
+            result = pipeline.run(job.case_id, job_id=job.id)
+
+        elif job.type is JobType.SUGGEST_ACTIONS:
+            recommendation_id = _recommendation_id(job)
+            if recommendation_id is None:
+                logger.error("SUGGEST_ACTIONS job without a recommendation", extra=context)
+                queue.fail(job, MISSING_RECOMMENDATION_ID)
+                return
+            result = pipeline.run_actions(recommendation_id, job_id=job.id)
+
+        else:
             logger.error("job type not supported by this worker", extra=context)
             queue.fail(job, UNSUPPORTED_JOB_TYPE)
             return
-
-        if job.case_id is None:
-            logger.error("PIPELINE_RUN job without a case", extra=context)
-            queue.fail(job, "MISSING_CASE_ID")
-            return
-
-        result = pipeline.run(job.case_id, job_id=job.id)
     except Exception:
         # Never let one job take the worker down with it.
         logger.exception("job raised", extra=context)

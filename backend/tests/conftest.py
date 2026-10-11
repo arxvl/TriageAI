@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.api.cookies import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME
 from app.api.deps import ROLE_GUARD_ATTR
 from app.core.config import (
+    ActionsOption,
     AppEnv,
     DeidentifierOption,
     ExtractorOption,
@@ -700,6 +701,7 @@ MOCK_PIPELINE: dict[str, object] = {
     "kb_indexer": KBIndexerOption.MOCK,
     "pipeline_retriever": RetrieverOption.MOCK,
     "pipeline_generator": GeneratorOption.MOCK,
+    "pipeline_actions": ActionsOption.MOCK,
     "mock_llm_behavior": MockLLMBehavior.OK,
 }
 

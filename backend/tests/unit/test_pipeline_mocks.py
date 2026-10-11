@@ -26,9 +26,15 @@ import uuid
 import pytest
 
 from app.core.config import MOCK_SLOW_DELAY_S, MockLLMBehavior, Settings
-from app.models.enums import ConfidenceLevel, Species, VTLCategory
+from app.models.enums import ActionSource, ConfidenceLevel, Species, VTLCategory
+from app.pipeline.action_validator import validate
 from app.pipeline.config import PipelineConfig
-from app.pipeline.errors import LLMInvalidOutput, LLMTimeout, PipelineError
+from app.pipeline.errors import (
+    ActionsFailed,
+    LLMInvalidOutput,
+    LLMTimeout,
+    PipelineError,
+)
 from app.pipeline.mock_fixtures import MockFixture, load_fixtures
 from app.pipeline.mocks import (
     GENERIC_MISSING_INFORMATION,
@@ -36,12 +42,14 @@ from app.pipeline.mocks import (
     MOCK_MODEL_ID,
     MOCK_PROMPT_VERSION,
     OTHER_COMPLAINT,
+    MockActionSuggester,
     MockDeidentifier,
     MockEntityExtractor,
     MockKBIndexer,
     MockRecommendationGenerator,
     MockRedFlagScreener,
     MockRetriever,
+    generic_actions,
     generic_draft,
     generic_extraction,
     generic_passages,
@@ -56,6 +64,7 @@ ALL_MOCKS = [
     MockEntityExtractor,
     MockRetriever,
     MockRecommendationGenerator,
+    MockActionSuggester,
     MockKBIndexer,
 ]
 
@@ -63,8 +72,11 @@ DESCRIPTION = (
     "She has been sneezing since yesterday and her left eye is watery. She still eats normally."
 )
 
-# The two stages that stand in for a model call, and so the two that simulate a
-# model failure. The screener and the retriever deliberately do not (P05 §5.2).
+# The two stages that stand in for a model call *inside a triage run*, and so
+# the two that simulate a model failure by raising a provider error. The screener
+# and the retriever deliberately do not (P05 §5.2). `MockActionSuggester` is a
+# model stage too, but it runs in its own job and raises its own `ActionsFailed`,
+# so it has its own section below (FR-77, ADR-18 §3).
 MODEL_STAGES = [MockEntityExtractor, MockRecommendationGenerator]
 
 WORKING_SCENARIOS = ["DEMO_1", "DEMO_2", "DEMO_3"]
@@ -533,3 +545,152 @@ def test_demo_4_failing_does_not_affect_the_other_scenarios(
     for fixture_id in WORKING_SCENARIOS:
         scenario = fixture(fixture_id)
         assert stage.extract(scenario.description, scenario.species) == scenario.extraction
+
+
+# --- MockActionSuggester (P05b §5b.3, ADR-18) ----------------------------
+
+
+@pytest.mark.parametrize("fixture_id", WORKING_SCENARIOS)
+def test_the_suggester_replays_the_recorded_actions(
+    fixture_id: str, settings: Settings, deps: PipelineDeps
+) -> None:
+    """Found by the extraction alone — this stage never sees the text (ADR-18 §5)."""
+    scenario = fixture(fixture_id)
+    stage = MockActionSuggester.from_settings(settings, deps)
+
+    actions = stage.suggest(
+        scenario.extraction, scenario.draft.category, scenario.passages, max_items=5
+    )
+
+    assert actions == scenario.actions
+    assert actions != []
+
+
+def test_the_suggester_never_returns_more_than_max_items(
+    settings: Settings, deps: PipelineDeps
+) -> None:
+    scenario = fixture("DEMO_1")
+    stage = MockActionSuggester.from_settings(settings, deps)
+
+    assert len(scenario.actions) == 3
+    actions = stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=2)
+
+    assert actions == scenario.actions[:2]
+
+
+@pytest.mark.parametrize("category", list(VTLCategory), ids=lambda c: c.value)
+def test_no_fixture_match_answers_for_the_given_category(
+    category: VTLCategory, settings: Settings, deps: PipelineDeps
+) -> None:
+    """FR-71: all five categories are exercised, not only the three with a demo."""
+    stage = MockActionSuggester.from_settings(settings, deps)
+
+    actions = stage.suggest(
+        generic_extraction(Species.DOG), category, generic_passages(2), max_items=5
+    )
+
+    assert len(actions) == 2
+    assert all(category.value in action.text for action in actions)
+    assert all(action.source is ActionSource.AI for action in actions)
+
+
+def test_the_generic_actions_say_no_model_ran() -> None:
+    """A screenshot of a mock run must not read as real advice (ADR-17)."""
+    texts = [action.text.lower() for action in generic_actions(VTLCategory.RED)]
+
+    assert any("no model was called" in text for text in texts)
+    assert any("placeholder" in text for text in texts)
+
+
+@pytest.mark.parametrize("category", list(VTLCategory), ids=lambda c: c.value)
+def test_the_generic_actions_survive_the_validator(category: VTLCategory) -> None:
+    """Otherwise the generic path would always produce an empty tailored list.
+
+    The validator drops an action with no valid citation and one that names a
+    drug, a dose or a diagnosis (FR-74). A placeholder that tripped any of those
+    would make the mock pipeline look like a validator failure.
+    """
+    kept, reasons = validate(generic_actions(category), generic_passages(2), max_items=5)
+
+    assert reasons == []
+    assert len(kept) == 2
+
+
+@pytest.mark.parametrize("fixture_id", WORKING_SCENARIOS)
+def test_the_recorded_actions_survive_the_validator(fixture_id: str) -> None:
+    """The demo scenarios have to show tailored actions, not a rejection tally."""
+    scenario = fixture(fixture_id)
+
+    kept, reasons = validate(list(scenario.actions), scenario.passages, max_items=5)
+
+    assert reasons == []
+    assert len(kept) == len(scenario.actions)
+
+
+@pytest.mark.parametrize(
+    "behavior",
+    [MockLLMBehavior.TIMEOUT, MockLLMBehavior.INVALID_JSON],
+    ids=lambda b: b.value,
+)
+def test_the_suggester_reports_failures_as_actions_failed(
+    deps: PipelineDeps, behavior: MockLLMBehavior
+) -> None:
+    """Its declared failure, so the case is never sent to manual triage (FR-77)."""
+    scenario = fixture("DEMO_1")
+    stage = MockActionSuggester(config=deps.config, behavior=behavior)
+
+    with pytest.raises(ActionsFailed):
+        stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=5)
+
+    assert stage.last_latency_ms >= 0
+
+
+@pytest.mark.parametrize(
+    ("behavior", "cause"),
+    [
+        (MockLLMBehavior.TIMEOUT, LLMTimeout),
+        (MockLLMBehavior.INVALID_JSON, LLMInvalidOutput),
+    ],
+    ids=lambda value: getattr(value, "value", getattr(value, "__name__", "")),
+)
+def test_the_suggester_chains_the_cause_of_its_failure(
+    deps: PipelineDeps, behavior: MockLLMBehavior, cause: type[Exception]
+) -> None:
+    """The orchestrator reads the chain to pick a reason code, never the message.
+
+    A message may quote model output, so it must never be parsed into behaviour
+    (SR-17). `_actions_reason` relies on this chaining, and a real stage wraps
+    its provider's errors the same way (M6b).
+    """
+    scenario = fixture("DEMO_1")
+    stage = MockActionSuggester(config=deps.config, behavior=behavior)
+
+    with pytest.raises(ActionsFailed) as raised:
+        stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=5)
+
+    assert isinstance(raised.value.__cause__, cause)
+
+
+def test_the_suggester_flakes_once_then_succeeds(deps: PipelineDeps) -> None:
+    """There is no retry inside the actions job; the second chance is a job retry."""
+    scenario = fixture("DEMO_1")
+    stage = MockActionSuggester(config=deps.config, behavior=MockLLMBehavior.FLAKY)
+
+    with pytest.raises(ActionsFailed):
+        stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=5)
+
+    assert (
+        stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=5)
+        == scenario.actions
+    )
+
+
+def test_the_suggester_answers_late_under_slow(deps: PipelineDeps) -> None:
+    scenario = fixture("DEMO_1")
+    stage = MockActionSuggester(config=deps.config, behavior=MockLLMBehavior.SLOW)
+
+    assert (
+        stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=5)
+        == scenario.actions
+    )
+    assert stage.last_latency_ms >= int(MOCK_SLOW_DELAY_S * 1000)

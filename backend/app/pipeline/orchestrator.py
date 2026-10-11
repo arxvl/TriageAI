@@ -27,8 +27,18 @@ steps, and the reason each boundary is where it is:
 8. **Provenance** — each stage's `model_id`, `prompt_version` and
    `last_latency_ms` onto the row it produced, and every stage's latency into
    `params.stage_ms` (FR-26, NFR-23, ADR-14).
-9. **`AWAITING_REVIEW`, audit `RECOMMENDATION_CREATED`** — category and
-   confidence only, never the text (CLAUDE.md §9).
+9. **`AWAITING_REVIEW`, audit `RECOMMENDATION_CREATED`, enqueue
+   `SUGGEST_ACTIONS`** — category and confidence only, never the text
+   (CLAUDE.md §9).
+
+`run_actions(recommendation_id)` is the second entry point, called by the worker
+for that enqueued job. It reads the stored recommendation, extraction and
+passages back, asks the `ActionSuggester` for tailored actions, screens them with
+the deterministic action validator and stores what survives beside the baseline
+set. **It never reads or writes the case status.** A reviewer can already see the
+category by the time it runs, so its failure is recorded on
+`recommendations.actions_status` and nothing else moves (FR-77, NFR-29,
+ADR-18 §3).
 
 Any failure takes the failure path: `MANUAL_TRIAGE_REQUIRED`, a reason code the
 worker writes into the job's `last_error`, audit `PIPELINE_FAILED`. A case is
@@ -48,12 +58,16 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, TypeVar
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import JobQueue, JobStage
-from app.models import CaseStatus
+from app.models import ActionSource, ActionsStatus, CaseStatus, JobType
+from app.pipeline.action_validator import baseline_actions
+from app.pipeline.action_validator import validate as validate_actions
 from app.pipeline.config import PipelineConfig
 from app.pipeline.errors import (
+    ActionsFailed,
     ExtractionFailed,
     GenerationFailed,
     LLMInvalidOutput,
@@ -63,6 +77,7 @@ from app.pipeline.errors import (
 )
 from app.pipeline.safety import SafetyValidator, citation_flags
 from app.pipeline.stages import (
+    ActionSuggester,
     Deidentifier,
     EntityExtractor,
     KBIndexer,
@@ -71,13 +86,20 @@ from app.pipeline.stages import (
     Retriever,
 )
 from app.pipeline.types import (
+    ActionPlan,
     DraftRecommendation,
     ExtractionOutput,
     FinalRecommendation,
     Passage,
     RedFlagHit,
+    SuggestedAction,
 )
-from app.repositories.pipeline_repository import CaseRunInput, PipelineRepository
+from app.repositories.pipeline_repository import (
+    ActionsRunInput,
+    ActionSuggestionValues,
+    CaseRunInput,
+    PipelineRepository,
+)
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -85,7 +107,30 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["FailureReason", "PipelineRunResult", "TriagePipeline"]
+__all__ = [
+    "ACTIONS_JOB_RECOMMENDATION_KEY",
+    "BASELINE_MODEL_ID",
+    "BASELINE_PROMPT_VERSION",
+    "ActionsFailureReason",
+    "ActionsRunResult",
+    "FailureReason",
+    "PipelineRunResult",
+    "TriagePipeline",
+]
+
+# What `action_suggestions` records as the provenance of a baseline row. These
+# rows are curated knowledge-base content, not model output: their real
+# provenance is `kb_version_id` and the `URGENCY_ACTIONS` entry it pins
+# (FR-72, ADR-18 §2). Labelling them "mock" would make a *real* run's baseline
+# rows look mocked, and labelling them with the actions stage's model id would
+# claim a model wrote them.
+BASELINE_MODEL_ID = "baseline"
+BASELINE_PROMPT_VERSION = "kb"
+
+# Where a `SUGGEST_ACTIONS` job carries the recommendation it is about. In the
+# payload rather than a column: `jobs` points at a case or a vignette, and this
+# job is about one *version* of that case's recommendation (ADR-14).
+ACTIONS_JOB_RECOMMENDATION_KEY = "recommendation_id"
 
 _T = TypeVar("_T")
 
@@ -112,6 +157,34 @@ class FailureReason(StrEnum):
     GENERATION_UNAVAILABLE = "GENERATION_UNAVAILABLE"
     GENERATION_FAILED = "GENERATION_FAILED"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+
+
+class ActionsFailureReason(StrEnum):
+    """Why a `SUGGEST_ACTIONS` job did not produce tailored actions (FR-77).
+
+    Separate from `FailureReason` because the consequence is different in kind:
+    none of these touches the case. The case keeps the category it already has,
+    stays in `AWAITING_REVIEW` and shows its baseline actions on their own
+    (ADR-18 §3). The code lands in `recommendations.actions_error` and in the
+    job's `last_error`, and it is what the W-04 panel turns into one quiet line
+    rather than an error dialog (P06).
+
+    Codes, never a model message — a message could carry action text (SR-17).
+    """
+
+    RECOMMENDATION_NOT_FOUND = "RECOMMENDATION_NOT_FOUND"
+    # The stored extraction could not be read back into the contract. A row
+    # written by an older version of the contract, not a model failure.
+    ACTIONS_INPUT_UNUSABLE = "ACTIONS_INPUT_UNUSABLE"
+    ACTIONS_TIMEOUT = "ACTIONS_TIMEOUT"
+    ACTIONS_UNAVAILABLE = "ACTIONS_UNAVAILABLE"
+    ACTIONS_INVALID_OUTPUT = "ACTIONS_INVALID_OUTPUT"
+    # The stage proposed actions and the validator kept none of them. Not an
+    # exception: the job did its work and the answer was unusable, which is a
+    # prompt problem to fix in M6b rather than a reason to loosen a rule
+    # (ADR-18 §4).
+    ACTIONS_ALL_REJECTED = "ACTIONS_ALL_REJECTED"
+    ACTIONS_UNEXPECTED_ERROR = "ACTIONS_UNEXPECTED_ERROR"
 
 
 # Which reason code each stage reports for each failure. Both model stages are
@@ -153,6 +226,52 @@ class PipelineRunResult:
         return self.failure_reason is None
 
 
+@dataclass(frozen=True)
+class ActionsRunResult:
+    """What one actions run did, for the worker that called it.
+
+    Carries no case status, deliberately: this job does not read or write one
+    (FR-77). `actions_status` is what was recorded on the recommendation, and the
+    worker turns `failure_reason` into the job's `last_error` exactly as it does
+    for a triage run.
+    """
+
+    recommendation_id: uuid.UUID
+    actions_status: ActionsStatus | None
+    failure_reason: ActionsFailureReason | None = None
+    baseline_count: int = 0
+    tailored_count: int = 0
+    rejected_count: int = 0
+
+    @property
+    def succeeded(self) -> bool:
+        return self.failure_reason is None
+
+
+def _actions_reason(error: Exception) -> ActionsFailureReason | None:
+    """The reason code for a failure of the actions stage.
+
+    The stage's declared failure is `ActionsFailed`, and a stage that wrapped a
+    provider error chains it — `raise ActionsFailed(...) from error` — so the
+    cause is read to tell a timeout from unusable output. The chain is inspected
+    rather than the message, because a message may quote model output and must
+    never be parsed into behaviour (SR-17).
+
+    A bare `ActionsFailed` with nothing chained means the stage could not answer
+    and did not say why, which is `ACTIONS_UNAVAILABLE`.
+    """
+    for candidate in (error, error.__cause__):
+        if isinstance(candidate, LLMTimeout):
+            return ActionsFailureReason.ACTIONS_TIMEOUT
+        if isinstance(candidate, LLMInvalidOutput):
+            return ActionsFailureReason.ACTIONS_INVALID_OUTPUT
+        if isinstance(candidate, LLMUnavailable):
+            return ActionsFailureReason.ACTIONS_UNAVAILABLE
+    if isinstance(error, ActionsFailed):
+        return ActionsFailureReason.ACTIONS_UNAVAILABLE
+    return None
+
+
 def _reason_for(
     error: Exception, reasons: tuple[tuple[type[Exception], FailureReason], ...]
 ) -> FailureReason | None:
@@ -178,6 +297,18 @@ class _StageFailure(Exception):
         self.reason = reason
 
 
+class _ActionsFailure(Exception):
+    """Internal: the actions run must take its failure path.
+
+    The counterpart of `_StageFailure`, kept separate so neither path can be
+    mistaken for the other: this one never touches the case.
+    """
+
+    def __init__(self, reason: ActionsFailureReason) -> None:
+        super().__init__(str(reason))
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class TriagePipeline:
     config: PipelineConfig
@@ -187,6 +318,9 @@ class TriagePipeline:
     extractor: EntityExtractor
     retriever: Retriever
     generator: RecommendationGenerator
+    # Not called by a triage run either. It runs in the `SUGGEST_ACTIONS` job
+    # that `run` enqueues, through `run_actions` below (ADR-18 §3).
+    action_suggester: ActionSuggester
     # Not used by a triage run; selected by the same registry and handed to the
     # knowledge-base approval workflow (P08).
     kb_indexer: KBIndexer
@@ -206,6 +340,7 @@ class TriagePipeline:
                 self.extractor,
                 self.retriever,
                 self.generator,
+                self.action_suggester,
             )
         )
 
@@ -222,6 +357,23 @@ class TriagePipeline:
         """
         with self.deps.session_factory() as session:
             return _TriageRun(self, session, case_id, job_id).execute()
+
+    def run_actions(
+        self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
+    ) -> ActionsRunResult:
+        """Suggest actions for one stored recommendation. Never raises.
+
+        Called by the job worker for the `SUGGEST_ACTIONS` job that `run`
+        enqueued, never inside a request and never inside the triage run itself
+        (ADR-08, ADR-18 §3). By the time this executes the reviewer can already
+        see the category: that is the whole point of the split, and it is why
+        nothing here may touch the case (FR-77, NFR-29).
+
+        `job_id` is optional for the same reason as in `run` — the evaluation
+        harness drives the pipeline without the queue (M7).
+        """
+        with self.deps.session_factory() as session:
+            return _ActionsRun(self, session, recommendation_id, job_id).execute()
 
 
 class _TriageRun:
@@ -292,14 +444,14 @@ class _TriageRun:
         draft = self._generate(extraction, passages)
 
         final = SafetyValidator.finalize(draft, passages, red_flag_hits, extraction, self._config)
-        self._store_recommendation(
+        recommendation_id = self._store_recommendation(
             case=case,
             extraction_id=extraction_row_id,
             kb_version_id=kb_version_id,
             passages=passages,
             final=final,
         )
-        return self._finish(final)
+        return self._finish(final, recommendation_id)
 
     # --- Steps -------------------------------------------------------------
 
@@ -487,7 +639,7 @@ class _TriageRun:
         kb_version_id: uuid.UUID,
         passages: list[Passage],
         final: FinalRecommendation,
-    ) -> None:
+    ) -> uuid.UUID:
         """Steps 7 and 8: the recommendation, its references and its provenance."""
         stage = self._pipeline.generator
         recommendation = self._repo.insert_recommendation(
@@ -516,14 +668,25 @@ class _TriageRun:
                 [passage.chunk_id for passage in passages]
             ),
         )
+        return recommendation.id
 
-    def _finish(self, final: FinalRecommendation) -> PipelineRunResult:
-        """Step 9: `AWAITING_REVIEW`, audit `RECOMMENDATION_CREATED`, commit.
+    def _finish(
+        self, final: FinalRecommendation, recommendation_id: uuid.UUID
+    ) -> PipelineRunResult:
+        """Step 9: `AWAITING_REVIEW`, audit, enqueue the actions job, commit.
 
         The audit entry carries the decision and nothing a reviewer typed or a
         model wrote: no rationale, no description, no passage text (CLAUDE.md §9).
+
+        The `SUGGEST_ACTIONS` job is enqueued in *this* transaction, so a
+        recommendation that is visible to a reviewer always has an actions job
+        behind it and a rolled-back run leaves neither (ADR-08). The stage is
+        never called here: a third model call inside this job would spend the
+        recommendation's latency budget on something a reviewer does not have to
+        wait for (NFR-29, ADR-18 §3).
         """
         self._repo.set_status(self._case_id, CaseStatus.AWAITING_REVIEW)
+        self._repo.set_actions_status(recommendation_id, ActionsStatus.PENDING)
         self._record(
             AuditAction.RECOMMENDATION_CREATED,
             {
@@ -535,6 +698,15 @@ class _TriageRun:
                 "low_confidence_reasons": list(final.low_confidence_reasons),
                 "cited_rank_count": len(final.cited_ranks),
             },
+        )
+        # TODO(manual:M7): the evaluation harness runs a vignette rather than a
+        # case; when that run path exists it enqueues this job the same way, with
+        # `vignette_id` instead of `case_id`. The storage and the run itself
+        # already accept either (see `ActionsRunInput`).
+        self._jobs.enqueue(
+            JobType.SUGGEST_ACTIONS,
+            case_id=self._case_id,
+            payload={ACTIONS_JOB_RECOMMENDATION_KEY: str(recommendation_id)},
         )
         self._session.commit()
         self._stage(JobStage.DONE)
@@ -639,5 +811,337 @@ class _TriageRun:
         """Identifiers and nothing else (CLAUDE.md §9)."""
         return {
             "case_id": str(self._case_id),
+            "job_id": str(self._job_id) if self._job_id else None,
+        }
+
+
+class _ActionsRun:
+    """One `SUGGEST_ACTIONS` job's state (P05b §5b.3, ADR-18 §3).
+
+    The actions counterpart of `_TriageRun`, and separate from it for one
+    reason: **this run must not be able to touch the case.** It holds no
+    `case_id` to set a status on and never calls `set_status`, so FR-77 is a
+    property of the code rather than a rule someone has to remember.
+
+    The order of the steps, and why:
+
+    1. **Read the inputs back** from the rows the triage run committed —
+       extraction and passages, never a fresh retrieval (ADR-14).
+    2. **Baseline actions first**, from the `URGENCY_ACTIONS` entry for the
+       category. Curated content, so it is read before anything that can fail
+       and it is what the reviewer sees when everything after this does fail
+       (FR-71, FR-72).
+    3. **`suggest`**, once. No retry: a tailored action is best effort by
+       design, and spending the job on a second attempt would delay nothing a
+       reviewer is waiting for. `MOCK_LLM_BEHAVIOR=flaky` therefore fails this
+       job and succeeds when the job itself is retried.
+    4. **`validate`**, which is the only thing that screens the text (FR-74).
+    5. **Store** baseline and kept rows together, then record the status.
+
+    Nothing in this module is AI. The stage is called through the Protocol in
+    `app.pipeline.stages` and the screening is deterministic (CLAUDE.md §8).
+    """
+
+    def __init__(
+        self,
+        pipeline: TriagePipeline,
+        session: Session,
+        recommendation_id: uuid.UUID,
+        job_id: uuid.UUID | None,
+    ) -> None:
+        self._pipeline = pipeline
+        self._config = pipeline.config
+        self._session = session
+        self._repo = PipelineRepository(session)
+        self._audit = AuditService(session)
+        self._recommendation_id = recommendation_id
+        self._job_id = job_id
+        self._latency_ms: int | None = None
+
+    # --- Entry point -------------------------------------------------------
+
+    def execute(self) -> ActionsRunResult:
+        try:
+            return self._run()
+        except _ActionsFailure as failure:
+            return self._fail(failure.reason)
+        except Exception:
+            # Same guarantee as a triage run: a bug here must not leave a
+            # recommendation stuck on `PENDING` forever, with the review screen
+            # showing a loading row that never resolves (FR-77).
+            logger.exception("actions run raised", extra=self._log_context())
+            return self._fail(ActionsFailureReason.ACTIONS_UNEXPECTED_ERROR)
+
+    def _run(self) -> ActionsRunResult:
+        stored = self._repo.actions_run_input(self._recommendation_id)
+        if stored is None:
+            # The recommendation was removed between the enqueue and now, which
+            # the single-transaction enqueue in `_TriageRun._finish` should make
+            # impossible. Nothing to record it on, so it is only reported.
+            logger.error("actions run: recommendation not found", extra=self._log_context())
+            return ActionsRunResult(
+                self._recommendation_id,
+                None,
+                ActionsFailureReason.RECOMMENDATION_NOT_FOUND,
+            )
+
+        extraction = self._extraction(stored)
+        baseline = self._baseline(stored)
+        proposed = self._suggest(extraction, stored)
+        kept, rejection_reasons = validate_actions(
+            proposed, stored.passages, self._config.actions_max_items
+        )
+        plan = ActionPlan(
+            category=stored.category,
+            baseline=baseline,
+            tailored=kept,
+            rejected_count=len(rejection_reasons),
+            rejection_reasons=rejection_reasons,
+        )
+        self._store(stored, plan)
+        return self._finish(stored, plan, proposed_count=len(proposed))
+
+    # --- Steps -------------------------------------------------------------
+
+    def _extraction(self, stored: ActionsRunInput) -> ExtractionOutput:
+        """Rebuild the extraction contract from the stored JSON.
+
+        A row that cannot be read back is a reason code, not a crash: the
+        contract may have moved on since an old case was triaged, and the
+        baseline actions for that case are still worth having.
+        """
+        try:
+            return ExtractionOutput.model_validate(stored.extraction_entities)
+        except ValidationError:
+            logger.warning(
+                "actions run: stored extraction does not match the contract",
+                extra=self._log_context(),
+            )
+            raise _ActionsFailure(ActionsFailureReason.ACTIONS_INPUT_UNUSABLE) from None
+
+    def _baseline(self, stored: ActionsRunInput) -> list[str]:
+        """The baseline set for this category, or `[]` with a warning (FR-72).
+
+        A recommendation with no knowledge-base version cannot have one — the
+        lookup is pinned to a version (FR-54) — and that is not a failure of this
+        job either.
+        """
+        if stored.kb_version_id is None:
+            logger.warning(
+                "actions run: recommendation has no knowledge base version",
+                extra=self._log_context(),
+            )
+            return []
+        return baseline_actions(self._session, stored.category, stored.kb_version_id)
+
+    def _suggest(
+        self, extraction: ExtractionOutput, stored: ActionsRunInput
+    ) -> list[SuggestedAction]:
+        """Ask the stage for tailored actions, once.
+
+        The stage is given the extraction, the decided category and the stored
+        passages — never the description, not even the de-identified one
+        (ADR-18 §5). The latency is recorded even when the call fails, as
+        everywhere else in this module.
+        """
+        stage = self._pipeline.action_suggester
+        try:
+            actions = stage.suggest(
+                extraction,
+                stored.category,
+                stored.passages,
+                self._config.actions_max_items,
+            )
+        except Exception as error:
+            self._measured(stage)
+            reason = _actions_reason(error)
+            if reason is None:
+                # The stage raised something it does not declare, which is a bug
+                # in the stage. Let the outer handler log the traceback.
+                raise
+            logger.warning(
+                "actions stage failed",
+                extra={**self._log_context(), "reason": str(reason)},
+            )
+            raise _ActionsFailure(reason) from None
+        self._measured(stage)
+        return actions
+
+    def _store(self, stored: ActionsRunInput, plan: ActionPlan) -> None:
+        """Write the baseline and the kept tailored rows, replacing any earlier
+        set.
+
+        One rank sequence over both layers, baseline first: that is the order
+        W-04 shows them in, and it makes `order by rank` the display order
+        (IR-23).
+        """
+        stage = self._pipeline.action_suggester
+        rows = [
+            ActionSuggestionValues(
+                rank=rank,
+                text=text,
+                source=ActionSource.BASELINE,
+                # A baseline action's citation is its knowledge-base entry, which
+                # is pinned by `kb_version_id` on the row itself. It cites no
+                # retrieved passage, because it was not retrieved (FR-72).
+                cited_chunk_ids=[],
+                model_id=BASELINE_MODEL_ID,
+                prompt_version=BASELINE_PROMPT_VERSION,
+                latency_ms=None,
+            )
+            for rank, text in enumerate(plan.baseline, start=1)
+        ]
+        rows += [
+            ActionSuggestionValues(
+                rank=rank,
+                text=action.text,
+                source=action.source,
+                cited_chunk_ids=PipelineRepository.cited_chunk_ids(
+                    action.cited_ranks, stored.chunk_ids_by_rank
+                ),
+                model_id=stage.model_id,
+                prompt_version=stage.prompt_version,
+                latency_ms=self._latency_ms,
+            )
+            for rank, action in enumerate(plan.tailored, start=len(plan.baseline) + 1)
+        ]
+        self._repo.replace_action_suggestions(
+            recommendation_id=self._recommendation_id,
+            case_id=stored.case_id,
+            vignette_id=stored.vignette_id,
+            category=plan.category,
+            kb_version_id=stored.kb_version_id,
+            rows=rows,
+        )
+
+    def _finish(
+        self, stored: ActionsRunInput, plan: ActionPlan, *, proposed_count: int
+    ) -> ActionsRunResult:
+        """Record the outcome and commit. The case is not touched (FR-77).
+
+        A stage that proposed actions and had all of them rejected is reported as
+        `ACTIONS_ALL_REJECTED`: the rows are still stored — the baseline set is
+        valid — but the status says the tailored list is empty for a reason, so a
+        high rejection rate is visible as the prompt problem it is (ADR-18 §4).
+        A stage that proposed nothing at all failed nothing; the tailored list is
+        simply empty.
+        """
+        all_rejected = proposed_count > 0 and not plan.tailored
+        status = ActionsStatus.FAILED if all_rejected else ActionsStatus.READY
+        reason = ActionsFailureReason.ACTIONS_ALL_REJECTED if all_rejected else None
+
+        self._repo.set_actions_status(
+            self._recommendation_id,
+            status,
+            error=None if reason is None else str(reason),
+            rejected_count=plan.rejected_count,
+        )
+        self._record(
+            AuditAction.ACTIONS_FAILED if all_rejected else AuditAction.ACTIONS_SUGGESTED,
+            stored,
+            {
+                "actions_status": status.value,
+                "reason": None if reason is None else str(reason),
+                "generated_for_category": plan.category.value,
+                "baseline_count": len(plan.baseline),
+                "tailored_count": len(plan.tailored),
+                "rejected_count": plan.rejected_count,
+                "rejection_reasons": list(plan.rejection_reasons),
+            },
+        )
+        self._session.commit()
+        logger.info(
+            "actions run finished",
+            extra={
+                **self._log_context(),
+                "actions_status": status.value,
+                "baseline_count": len(plan.baseline),
+                "tailored_count": len(plan.tailored),
+                "rejected_count": plan.rejected_count,
+                "latency_ms": self._latency_ms,
+            },
+        )
+        return ActionsRunResult(
+            recommendation_id=self._recommendation_id,
+            actions_status=status,
+            failure_reason=reason,
+            baseline_count=len(plan.baseline),
+            tailored_count=len(plan.tailored),
+            rejected_count=plan.rejected_count,
+        )
+
+    # --- The failure path (FR-77) -----------------------------------------
+
+    def _fail(self, reason: ActionsFailureReason) -> ActionsRunResult:
+        """`actions_status = FAILED` with a reason code, and nothing else.
+
+        The case keeps its status and its category. The baseline actions are not
+        stored by this path — the API reads them from the knowledge base for the
+        case's current category, so they are shown whether this job ever ran or
+        not (FR-71, FR-72).
+
+        Written defensively, like the triage failure path: if even the status
+        cannot be recorded the recommendation would sit on `PENDING` forever, so
+        the second failure is logged and the reason is still returned.
+        """
+        self._session.rollback()
+        stored = self._repo.actions_run_input(self._recommendation_id)
+        try:
+            self._repo.set_actions_status(
+                self._recommendation_id, ActionsStatus.FAILED, error=str(reason)
+            )
+            if stored is not None:
+                self._record(
+                    AuditAction.ACTIONS_FAILED,
+                    stored,
+                    {
+                        "actions_status": ActionsStatus.FAILED.value,
+                        "reason": str(reason),
+                        "generated_for_category": stored.category.value,
+                        "failed_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            logger.exception(
+                "actions run could not record the failure path",
+                extra={**self._log_context(), "reason": str(reason)},
+            )
+        else:
+            logger.warning(
+                "actions run failed; baseline actions only",
+                extra={**self._log_context(), "reason": str(reason)},
+            )
+        return ActionsRunResult(self._recommendation_id, ActionsStatus.FAILED, reason)
+
+    # --- Internals --------------------------------------------------------
+
+    def _measured(self, stage: object) -> None:
+        """Copy the stage's `last_latency_ms` onto the rows it produced."""
+        self._latency_ms = int(getattr(stage, "last_latency_ms", 0) or 0)
+
+    def _record(self, action: AuditAction, stored: ActionsRunInput, after: dict) -> None:
+        """Append one audit entry, against the case this recommendation is for.
+
+        Counts and codes only — never an action's text, which is untrusted model
+        output and would be permanent here (SR-17, FR-43, ADR-12).
+
+        A vignette run writes no audit entry: an evaluation run is not a clinical
+        event and has no case to record it against. It is logged instead (M7).
+        """
+        if stored.case_id is None:
+            return
+        self._audit.record(
+            action=action,
+            entity_type=CASE_ENTITY,
+            entity_id=str(stored.case_id),
+            after={**after, "recommendation_id": str(self._recommendation_id)},
+        )
+
+    def _log_context(self) -> dict:
+        """Identifiers and nothing else (CLAUDE.md §9)."""
+        return {
+            "recommendation_id": str(self._recommendation_id),
             "job_id": str(self._job_id) if self._job_id else None,
         }

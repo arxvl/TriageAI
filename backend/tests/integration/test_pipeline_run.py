@@ -472,7 +472,9 @@ def test_the_worker_runs_a_queued_job_and_completes_it(
     job = JobQueue(db_session).enqueue(JobType.PIPELINE_RUN, case_id=case.id)
     db_session.flush()
 
-    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+    # `max_jobs=1` so this stays a test of the triage job alone: a successful run
+    # enqueues a `SUGGEST_ACTIONS` job, which `test_actions_job.py` covers.
+    assert run_pending_jobs_once(app_session_factory, pipeline, max_jobs=1) == 1
 
     db_session.refresh(job)
     assert job.status is JobStatus.DONE
@@ -514,7 +516,7 @@ def test_recovery_requeues_a_stale_job_and_the_worker_then_runs_it(
     )
 
     assert JobQueue(db_session).recover_stale(older_than_minutes=2) == 1
-    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+    assert run_pending_jobs_once(app_session_factory, pipeline, max_jobs=1) == 1
 
     db_session.refresh(job)
     assert job.status is JobStatus.DONE

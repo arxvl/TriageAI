@@ -5,7 +5,7 @@ prioritize incoming dog and cat cases. Intake staff enter the owner's free-text
 description of a pet's symptoms; an AI pipeline extracts clinical details and
 recommends one of five Veterinary Triage List (VTL) urgency categories with a
 rationale and cited knowledge-base passages; a veterinary reviewer confirms or
-adjusts the recommendation before it is finalized. 
+adjusts the recommendation before it is finalized.
 
 ## Quick start
 
@@ -195,6 +195,7 @@ tests with no API key, no model download and no network.
 | `KB_INDEXER` | `mock` | `pgvector` | M5 |
 | `PIPELINE_RETRIEVER` | `mock` | `pgvector` | M6 |
 | `PIPELINE_GENERATOR` | `mock` | `llm` | M6 |
+| `PIPELINE_ACTIONS` | `mock` | `llm` | M6b |
 
 `backend/app/pipeline/registry.py` imports a real stage's module **only if it is
 selected**. Selecting one before its guide has been followed is a startup error
@@ -219,8 +220,19 @@ both `Settings` and the registry.
 `invalid_json`, `timeout`, `flaky` or `slow` — so the retry and manual-triage
 paths can be demonstrated without a network call. The remaining pipeline
 parameters (`PIPELINE_TOP_K`, `PIPELINE_TIMEOUT_S`, `PIPELINE_MAX_RETRIES`,
-`RETRIEVAL_MIN_SCORE`, …) are documented in `.env.example`; keep
-`PIPELINE_TEMPERATURE=0`, or a run stops being reproducible (ADR-14).
+`RETRIEVAL_MIN_SCORE`, `ACTIONS_MAX_ITEMS`, …) are documented in `.env.example`;
+keep `PIPELINE_TEMPERATURE=0`, or a run stops being reproducible (ADR-14).
+
+**Suggested actions run in a second job.** When a run stores its recommendation
+and moves the case to `AWAITING_REVIEW`, it enqueues a `SUGGEST_ACTIONS` job in
+the same transaction (ADR-18 §3). That job reads the stored extraction and
+passages back, asks `PIPELINE_ACTIONS` for tailored actions, screens them with
+the deterministic action validator and stores what survives beside the baseline
+set from the `URGENCY_ACTIONS` knowledge-base entry. It never touches the case:
+if it fails, `recommendations.actions_status` says so, the case stays in
+`AWAITING_REVIEW` and the baseline actions are shown on their own (FR-77).
+Unfinalized AI-suggested actions are returned to Veterinary Reviewers only
+(FR-79).
 
 A mock run is not a result. Every mock reports `model_id=mock` and
 `prompt_version=mock-0`, which is how a stored output can always be told apart

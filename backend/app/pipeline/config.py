@@ -35,6 +35,12 @@ class PipelineConfig:
     # support a confident recommendation; the safety validator caps confidence
     # at MEDIUM rather than discarding them (P05 §5.3 rule 3).
     retrieval_min_score: float = 0.30
+    # The actions stage's configured prompt version and the cap on how many
+    # tailored actions survive the validator (P05b §5b.3, ADR-18 §2). Part of a
+    # run's parameters like the rest: changing the cap changes what a reviewer
+    # was shown, so it belongs in the stored provenance.
+    actions_prompt_version: str = "v1.0"
+    actions_max_items: int = 5
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "PipelineConfig":
@@ -46,4 +52,6 @@ class PipelineConfig:
             timeout_s=settings.pipeline_timeout_s,
             max_retries=settings.pipeline_max_retries,
             retrieval_min_score=settings.retrieval_min_score,
+            actions_prompt_version=settings.actions_prompt_version,
+            actions_max_items=settings.actions_max_items,
         )
