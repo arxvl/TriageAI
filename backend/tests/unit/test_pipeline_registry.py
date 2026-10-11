@@ -34,7 +34,7 @@ from app.pipeline.stages import (
     RedFlagScreener,
     Retriever,
 )
-from tests.test_config import BASE_ENV
+from tests.test_config import settings_from_base_env
 
 # The stage attribute on TriagePipeline, its expected mock class, and the
 # Protocol it must satisfy.
@@ -96,9 +96,13 @@ def session_factory() -> FakeSessionFactory:
 
 
 def settings_with(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    for key, value in {**BASE_ENV, **overrides}.items():
-        monkeypatch.setenv(key, value)
-    return Settings()
+    """Settings with `overrides` applied and every other field on its default.
+
+    Hermetic by way of `settings_from_base_env`: the dev `.env` reaches this
+    container as environment variables, and these tests assert on what the
+    *defaults* select (CLAUDE.md §10).
+    """
+    return settings_from_base_env(monkeypatch, **overrides)
 
 
 @pytest.fixture
@@ -281,11 +285,8 @@ def test_settings_reject_a_real_llm_with_the_mock_deidentifier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The first of two gates: configuration cannot even be loaded."""
-    for key, value in {**BASE_ENV, "LLM_PROVIDER": "hosted"}.items():
-        monkeypatch.setenv(key, value)
-
     with pytest.raises(Exception, match="PIPELINE_DEIDENTIFIER"):
-        Settings()
+        settings_with(monkeypatch, LLM_PROVIDER="hosted")
 
 
 @pytest.mark.parametrize("provider", [LLMProviderOption.HOSTED, LLMProviderOption.OLLAMA])

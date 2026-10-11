@@ -18,7 +18,7 @@ from app.core.config import MOCK_SLOW_DELAY_S, MockLLMBehavior, Settings
 from app.pipeline.config import PipelineConfig
 from app.pipeline.errors import LLMInvalidOutput, LLMTimeout
 from app.pipeline.registry import PipelineDeps
-from tests.test_config import BASE_ENV
+from tests.test_config import settings_from_base_env
 
 SCHEMA = {"type": "object", "properties": {"category": {"type": "string"}}}
 
@@ -35,9 +35,8 @@ def call(provider: MockLLMProvider) -> dict:
 
 @pytest.fixture
 def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
-    for key, value in BASE_ENV.items():
-        monkeypatch.setenv(key, value)
-    return Settings()
+    """Settings on their declared defaults, not whatever `.env` selects."""
+    return settings_from_base_env(monkeypatch)
 
 
 @pytest.fixture

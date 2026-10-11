@@ -11,13 +11,12 @@ import pytest
 
 from app.core.config import Settings
 from app.pipeline.config import PipelineConfig
-from tests.test_config import BASE_ENV
+from tests.test_config import settings_from_base_env
 
 
 def settings_with(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> Settings:
-    for key, value in {**BASE_ENV, **overrides}.items():
-        monkeypatch.setenv(key, value)
-    return Settings()
+    """As in the registry tests: `overrides` only, everything else on default."""
+    return settings_from_base_env(monkeypatch, **overrides)
 
 
 def test_defaults_match_the_phase_prompt() -> None:

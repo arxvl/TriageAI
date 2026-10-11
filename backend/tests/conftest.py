@@ -31,7 +31,19 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.cookies import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, SESSION_COOKIE_NAME
 from app.api.deps import ROLE_GUARD_ATTR
-from app.core.config import AppEnv, Settings, get_settings
+from app.core.config import (
+    AppEnv,
+    DeidentifierOption,
+    ExtractorOption,
+    GeneratorOption,
+    KBIndexerOption,
+    LLMProviderOption,
+    MockLLMBehavior,
+    RedFlagsOption,
+    RetrieverOption,
+    Settings,
+    get_settings,
+)
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.main import create_app
@@ -613,14 +625,35 @@ def insert_audit_entry(session: Session, *, action: str = "CASE_CREATED") -> int
 # --- The pipeline, on the test transaction (P05) ---------------------------
 
 
+# Every stage on its mock, and the mock stages behaving (CLAUDE.md §10). Pinned
+# rather than inherited: docker-compose passes the development `.env` to the
+# backend through `env_file`, so once the team runs a real stage —
+# `PIPELINE_DEIDENTIFIER=rules` after M1 — or leaves `MOCK_LLM_BEHAVIOR` on a
+# failure value after a demo, an inherited setting would silently change what the
+# tests exercise. A test that wants a failure path still names it.
+MOCK_PIPELINE: dict[str, object] = {
+    "pipeline_deidentifier": DeidentifierOption.MOCK,
+    "pipeline_redflags": RedFlagsOption.MOCK,
+    "llm_provider": LLMProviderOption.MOCK,
+    "pipeline_extractor": ExtractorOption.MOCK,
+    "embedding_provider": None,
+    "kb_indexer": KBIndexerOption.MOCK,
+    "pipeline_retriever": RetrieverOption.MOCK,
+    "pipeline_generator": GeneratorOption.MOCK,
+    "mock_llm_behavior": MockLLMBehavior.OK,
+}
+
+
 def test_settings(**overrides: object) -> Settings:
-    """The application settings with fields replaced, for one test.
+    """The application settings, pinned to the mock pipeline, with `overrides`.
 
     `model_copy` rather than `Settings(...)`: the cached settings already carry the
     passwords and URLs from `.env`, and a test that wants a different
-    `MOCK_LLM_BEHAVIOR` should not have to restate them.
+    `MOCK_LLM_BEHAVIOR` should not have to restate them. The stage selection and
+    the mock behaviour are replaced on the way through, so only the connection
+    details are inherited.
     """
-    return get_settings().model_copy(update=overrides)
+    return get_settings().model_copy(update={**MOCK_PIPELINE, **overrides})
 
 
 @pytest.fixture

@@ -48,7 +48,7 @@ from app.pipeline.mocks import (
     mock_chunk_id,
 )
 from app.pipeline.registry import PipelineDeps
-from tests.test_config import BASE_ENV
+from tests.test_config import settings_from_base_env
 
 ALL_MOCKS = [
     MockDeidentifier,
@@ -88,9 +88,8 @@ def call_model_stage(stage: object, fixture_id: str = "DEMO_1") -> object:
 
 @pytest.fixture
 def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
-    for key, value in BASE_ENV.items():
-        monkeypatch.setenv(key, value)
-    return Settings()
+    """Settings on their declared defaults, not whatever `.env` selects."""
+    return settings_from_base_env(monkeypatch)
 
 
 @pytest.fixture
@@ -134,10 +133,9 @@ def test_the_behavior_switch_is_read_from_settings(
     monkeypatch: pytest.MonkeyPatch, deps: PipelineDeps, behavior: MockLLMBehavior
 ) -> None:
     """The switch comes from settings, not from a constructor default."""
-    for key, value in {**BASE_ENV, "MOCK_LLM_BEHAVIOR": behavior.value}.items():
-        monkeypatch.setenv(key, value)
+    settings = settings_from_base_env(monkeypatch, MOCK_LLM_BEHAVIOR=behavior.value)
 
-    stage = MockEntityExtractor.from_settings(Settings(), deps)
+    stage = MockEntityExtractor.from_settings(settings, deps)
 
     assert stage.behavior == behavior
 
