@@ -27,9 +27,9 @@ the schema itself.
 
 ## Prerequisites
 
-- [ ] M2 done: `llm_ping` and `llm_schema_check` pass, and ADR-06 names the chosen model.
-- [ ] P02 seed ran: the `presenting_complaints` table holds 21 codes.
-- [ ] 10 spike descriptions exist in `evaluation/spike/descriptions.yaml`.
+- [x] M2 done: `llm_ping` and `llm_schema_check` pass, and ADR-06 names the chosen model.
+- [x] P02 seed ran: the `presenting_complaints` table holds 21 codes.
+- [x] 10 spike descriptions exist in `evaluation/spike/descriptions.yaml`.
 
 ---
 
