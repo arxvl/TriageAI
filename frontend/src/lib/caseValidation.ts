@@ -36,7 +36,11 @@ export const WEIGHT_MAX = 120;
  * fields `sex` and `neutered`. `toCaseCreateRequest` splits it.
  */
 export type SexNeuterChoice =
-  "UNKNOWN" | "MALE_INTACT" | "MALE_NEUTERED" | "FEMALE_INTACT" | "FEMALE_SPAYED";
+  | "UNKNOWN"
+  | "MALE_INTACT"
+  | "MALE_NEUTERED"
+  | "FEMALE_INTACT"
+  | "FEMALE_SPAYED";
 
 const SEX_NEUTER: Record<SexNeuterChoice, { sex: Sex; neutered?: boolean }> = {
   // No `neutered` at all: nobody said, and guessing `false` would be a claim.

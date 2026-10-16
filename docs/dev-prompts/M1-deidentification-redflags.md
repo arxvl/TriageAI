@@ -13,10 +13,10 @@ Both plug into the existing pipeline through `.env`. No other code changes are n
 
 ## Prerequisites
 
-- [ ] P05 merged. The pipeline runs on mocks and `DEMO_1` shows an alert.
-- [ ] P06 merged before Part C step 3. It adds `extraction_results.input_text`, which the database check reads.
-- [ ] You have read CLAUDE.md §8.1–§8.3 (contracts, class names, `from_settings`).
-- [ ] You have a draft red-flag list with a published source for each rule's minimum category. The P02 seed placeholders are a starting point. **External veterinary sign-off is waived for this project** (professor's decision): each rule must instead cite a published, veterinarian-authored source, and a second team member verifies it.
+- [x] P05 merged. The pipeline runs on mocks and `DEMO_1` shows an alert.
+- [x] P06 merged before Part C step 3. It adds `extraction_results.input_text`, which the database check reads.
+- [x] You have read CLAUDE.md §8.1–§8.3 (contracts, class names, `from_settings`).
+- [x] You have a draft red-flag list with a published source for each rule's minimum category. The P02 seed placeholders are a starting point. **External veterinary sign-off is waived for this project** (professor's decision): each rule must instead cite a published, veterinarian-authored source, and a second team member verifies it.
 
 ---
 
@@ -296,7 +296,7 @@ Also test that a rule missing from `rules_provider` (unapproved) produces no hit
 
 ## Done when
 
-- [ ] Both test files pass, and the false-positive review is done.
-- [ ] Every rule cites a published source, a second member has verified it, and both are logged in `APPROVALS.md` and approved in W-08.
-- [ ] The end-to-end check passes with the real stages enabled.
-- [ ] Committed on `feat/m1-deidentify-redflags`, with a PR into `develop`.
+- [x] Both test files pass, and the false-positive review is done.
+- [x] Every rule cites a published source, a second member has verified it, and both are logged in `APPROVALS.md` and approved in W-08.
+- [x] The end-to-end check passes with the real stages enabled.
+- [x] Committed on `feat/m1-deidentify-redflags`, with a PR into `develop`.

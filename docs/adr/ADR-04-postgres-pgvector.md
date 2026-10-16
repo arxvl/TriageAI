@@ -1,7 +1,5 @@
 # ADR-04: One PostgreSQL 16 database with pgvector
 
-- **Status:** Accepted
-- **Date:** 2026-09-16
 - **Requirements:** DR-01 to DR-08, FR-19, NFR-02, SR-15
 - **Related:** ADR-01, ADR-07, ADR-12, ADR-14
 

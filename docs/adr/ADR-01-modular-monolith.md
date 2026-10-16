@@ -1,24 +1,17 @@
 # ADR-01: Modular monolith for the backend
 
-- **Status:** Accepted
-- **Date:** 2026-09-15 (revised 2026-09-28)
-- **Deciders:** Letada, Alzaga, Bataller
 - **Requirements:** NFR-24, NFR-26, NFR-06
-- **Supersedes / superseded by:** —
 
 ## Context
 
-TriageAI is a one-semester academic project built by three students who are also
-writing the SRS, design and evaluation documents. The prototype must be
-installable by the professors with one command, and it must be maintainable by
+TriageAI is a software engineering project.
+
+The prototype must be installable with one command,
+and it must be maintainable by
 people who are learning the stack.
 
 The backend has clearly separable concerns: request handling, case workflow, the
-AI triage pipeline, the knowledge base, auditing and evaluation. A microservice
-per concern would express that separation in deployment, but it would multiply
-the operational work: service discovery, inter-service authentication, several
-images, distributed tracing and cross-service transactions for something that
-handles a few cases per minute in one clinic.
+AI triage pipeline, LLM provider adapter, the knowledge base, auditing and evaluation.
 
 ## Decision
 

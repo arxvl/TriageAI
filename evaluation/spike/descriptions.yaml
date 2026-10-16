@@ -1,0 +1,86 @@
+# 10 FICTITIOUS English descriptions (FR-18).
+
+# expected_primary: one code from the presenting_complaints table
+# expected_red_flag: true if the text reports a life-threatening sign, else false
+
+# Aim for: the 4 demo cases + 1 negation + 1 vague + 1 trauma + 1 heat + 1 toxin.
+
+- id: S01
+  species: CAT
+  text: >-
+    Male cat, 3 years. Since this morning he keeps going to the litter box and cries,
+    but nothing comes out. He vomited twice.
+  expected_primary: URINARY_OBSTRUCTION
+  expected_red_flag: true
+
+- id: S02
+  species: DOG
+  text: >-
+    Dog, 4 years. He has been scratching and licking his paws for two weeks.
+    He is eating and playing normally.
+  expected_primary: SKIN_ITCH
+  expected_red_flag: false
+
+- id: S03
+  species: DOG
+  text: >-
+    Dog is breathing very fast with his mouth open, and his gums look bluish.
+  expected_primary: RESPIRATORY_DISTRESS
+  expected_red_flag: true
+
+- id: S04
+  species: DOG
+  text: >-
+    Dog has vomited three times today. There is no blood in the vomit,
+    and he is still drinking water.
+  expected_primary: VOMITING
+  expected_red_flag: false
+
+- id: S05
+  species: CAT
+  text: >-
+    Cat seems off and unusually quiet since yesterday. The owner cannot
+    describe any other specific symptoms.
+  expected_primary: OTHER
+  expected_red_flag: false
+
+- id: S06
+  species: DOG
+  text: >-
+    Dog was hit by a motorbike earlier today. He is limping and has a
+    bleeding wound on one of his legs.
+  expected_primary: TRAUMA
+  expected_red_flag: true
+
+- id: S07
+  species: DOG
+  text: >-
+    Dog was left inside a parked vehicle during hot weather. He is now
+    panting heavily, drooling, and having difficulty standing.
+  expected_primary: HEAT_STRESS
+  expected_red_flag: true
+
+- id: S08
+  species: DOG
+  text: >-
+    Dog may have eaten rat poison pellets this morning. The owner found
+    the opened packet near the dog but is unsure how much was eaten.
+  expected_primary: TOXIN_INGESTION
+  expected_red_flag: true
+
+- id: S09
+  species: CAT
+  text: >-
+    Cat has been hiding and refusing food since yesterday. The owner said,
+    "Ayaw kumain at nagtatago lang siya mula kahapon," which was translated
+    as "The cat refuses to eat and has been hiding since yesterday."
+  expected_primary: APPETITE_LOSS
+  expected_red_flag: false
+
+- id: S10
+  species: DOG
+  text: >-
+    Dog has been sneezing mildly for three days. There is no difficulty
+    breathing or nasal bleeding, and he is eating and playing normally.
+  expected_primary: SNEEZING
+  expected_red_flag: false

@@ -6,6 +6,16 @@
 
 This file is read at the start of every Claude Code session. Follow it in every phase.
 
+## 0. Build progress — do not redo completed work
+
+| Done                                                                                                                                                                                                            | In progress / next                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| P01 scaffold · P02 database · P03 auth and RBAC · P04 intake and queue · P05 pipeline framework (mocks) · P05b suggested actions framework · M1 de-identification and red-flag screening · **M2 LLM provider adapter and model selection** | M3 extraction → P06 review → M4 → P08 → M5 → P07 → M6 → M6b → P09 → M7 → P10 |
+
+Treat every file under `backend/app/adapters/llm/`, `backend/scripts/llm_*.py`,
+`app/pipeline/deidentify_rules.py` and `app/pipeline/redflags_keywords.py` as
+**existing, working code**. Extend it; do not recreate it.
+
 ---
 
 ## 1. What the system does
@@ -58,6 +68,7 @@ Do not invent requirements.
 | ORM / migrations | SQLAlchemy 2.0 (sync sessions, `psycopg` v3 driver), Alembic |
 | Auth | argon2-cffi (Argon2id), PyJWT (signed session token in an HttpOnly cookie) |
 | HTTP client | httpx |
+| LLM access | `LLMProvider` port with a hosted (OpenAI-compatible) adapter, a local Ollama subclass, and a mock; client-side rate limiting; see ADR-06 |
 | Backend tests | pytest, pytest-cov |
 | Lint/format | Ruff (lint + format) for Python; ESLint + Prettier for TypeScript; pre-commit |
 | Runtime | Docker Compose (dev: `docker-compose.yml`; prod: `deploy/docker-compose.prod.yml`), Nginx in prod |
@@ -366,7 +377,14 @@ leave the server (IR-20, ADR-10).
 
 ## 9. Safety and privacy rules
 
-- Use fictitious data only: fixtures, seed data, tests, screenshots.
+- Use fictitious data only: fixtures, seed data, tests, screenshots. The project
+  runs on a **free LLM tier**, whose terms may permit the provider to use submitted
+  text to improve its products, so only de-identified or invented text is ever sent.
+- **Temperature is not hard-coded to 0.** `LLM_TEMPERATURE` is blank by default,
+  meaning "send no temperature", because the Gemini 3 family recommends its own
+  default and may ignore the parameter. Set it to `0` only for providers that honour
+  it (Groq, local Ollama). Reproducibility (NFR-23) is therefore *measured*, not
+  assumed (see M2 Step 9).
 - Never log owner descriptions, owner references, prompts, or model
   responses — including suggested action text — at INFO level or above. Log IDs
   and timings instead.
@@ -392,9 +410,8 @@ leave the server (IR-20, ADR-10).
 
 ## 11. Git rules
 
+- I will commit and push manually, you will just give me the git command.
 - Work on the branch named in the phase prompt, created from `develop`.
-- Do not add Co-Authored-By trailers or "Generated with Claude Code" lines to commit messages or PR descriptions.
-- I will commit this myself (just give me the commands)
 - Use Conventional Commits with requirement IDs, e.g.
   `feat(cases): validate description length (FR-04)`.
 - Keep commits small. Never commit to `main` or `develop` directly.

@@ -59,7 +59,7 @@ export function Login() {
       const requested = (location.state as { from?: string } | null)?.from;
       const destination = signedIn.must_change_password
         ? "/change-password"
-        : (requested ?? homePathFor(signedIn));
+        : requested ?? homePathFor(signedIn);
       await navigate(destination, { replace: true });
     } catch (caught) {
       setError(messageFor(caught));

@@ -8,6 +8,13 @@ call that proposes up to five case-specific triage actions, grounded in the
 retrieved passages. The deterministic validator from P05b already stands behind
 it, so your job here is the prompt and the adapter — not the safety rules.
 
+**Temperature and settings, as in M3 and M6:** the adapter owns `LLM_TEMPERATURE`.
+Add only `ACTIONS_PROMPT_VERSION` and `ACTIONS_MAX_ITEMS` (both from P05b); every other
+`LLM_*` setting already exists from M2.
+
+**Quota:** this stage adds a third call per case. Re-check your daily allowance before
+the golden runs in Step 4 (5 categories × 3 runs = 15 full pipelines ≈ 45 calls).
+
 ## Prerequisites
 
 - [ ] M6 done: retrieval and generation are real, and the demo cases pass.

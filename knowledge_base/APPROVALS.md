@@ -1,14 +1,13 @@
 # Clinical Content Approval Log
 
 **Scope note.** For this academic project, external veterinary sign-off has been
-waived by the course professor. The `can_approve_kb` approval workflow remains a
+waived. The `can_approve_kb` approval workflow remains a
 system feature (BR-04, FR-52), and the team holds the approving account. Content
 is accepted on the basis of **source traceability**: every entry, rule and
 phrase must come from a published, veterinarian-authored source, and a second
 team member must verify that the content matches that source.
 
-**This system has not been clinically validated.** State this in the README, in
-W-00 of the prototype, and in the limitations section of PD8.
+**This system has not been clinically validated.**
 
 If a licensed veterinarian does review any item later, add a new row with
 Decision = `Veterinarian approved` and their name and licence number. That row

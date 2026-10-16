@@ -41,7 +41,14 @@ The registry must load the non-mock modules lazily. The modules `app.pipeline.de
    - Follow the table and the `from_settings(settings, deps)` construction convention in CLAUDE.md §8.3 exactly, including the `PipelineDeps` dataclass and the `EMBEDDING_PROVIDER` setting (default empty).
    - Build the `LLMProvider` and `EmbeddingProvider` once. They go into `deps` only when a real stage needs them.
    - Enforce the safety guard: a non-mock `LLM_PROVIDER` together with the mock de-identifier is a startup error.
-5. `app/pipeline/config.py`: a `PipelineConfig` with `model_id`, `prompt_version`, `temperature=0`, `top_k=5`, `timeout_s=30`, `max_retries=1`, and `retrieval_min_score=0.30`. Add these to settings and `.env.example`.
+5. `app/pipeline/config.py`: a `PipelineConfig` with `model_id`, `prompt_version`, `top_k=5`, `timeout_s=30`, `max_retries=1`, and `retrieval_min_score=0.30`. Add these to settings and `.env.example`.
+
+   > **Reconciliation note (P05 is already built).** An earlier version of this line
+   > also listed `temperature=0` on `PipelineConfig`. M2 moved temperature to the
+   > provider adapter as `LLM_TEMPERATURE` (blank = send nothing), because the
+   > Gemini 3 family recommends its own default. If your `PipelineConfig` still has a
+   > `temperature` field, leave it unused and do not pass it to the adapter —
+   > `LLM_TEMPERATURE` is the single source of truth. Do not re-run this subphase.
 
 **Tests:** the registry returns mocks by default; a non-mock value produces the "not implemented yet" error; the safety guard blocks the forbidden combination.
 

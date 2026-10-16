@@ -13,7 +13,9 @@ from typing import Any
 
 import pytest
 
+from app.adapters.llm.hosted import HostedLLMProvider
 from app.adapters.llm.mock import MockLLMProvider
+from app.adapters.llm.ollama import OllamaLLMProvider
 from app.core.config import DeidentifierOption, LLMProviderOption, Settings
 from app.pipeline import mocks
 from app.pipeline.config import PipelineConfig
@@ -57,27 +59,27 @@ IMPLEMENTED_CASES: list[tuple[dict[str, str], str, type]] = [
     ({"PIPELINE_REDFLAGS": "keywords"}, "red_flag_screener", KeywordRedFlagScreener),
 ]
 
+# The LLM providers M2 has written. A provider is shared by every stage, so the
+# registry puts it on `deps.llm` rather than on a stage attribute, which is why
+# these cannot join IMPLEMENTED_CASES above. Each row selects a real
+# de-identifier too, because a real provider with the mock one is refused
+# outright (IR-20, ADR-10).
+IMPLEMENTED_LLM_PROVIDER_CASES: list[tuple[dict[str, str], type]] = [
+    ({"LLM_PROVIDER": "hosted", "PIPELINE_DEIDENTIFIER": "rules"}, HostedLLMProvider),
+    ({"LLM_PROVIDER": "ollama", "PIPELINE_DEIDENTIFIER": "rules"}, OllamaLLMProvider),
+]
+
 # Every non-mock option whose module is still to be written, with the M-guide its
-# error message must name. M1 is merged, so `rules` and `keywords` are in
-# IMPLEMENTED_CASES above instead. The LLM_PROVIDER and EMBEDDING_PROVIDER rows
-# also set a real de-identifier, so it is the missing module that trips and not
-# the safety guard.
+# error message must name. M1 and M2 are merged, so `rules`, `keywords`, `hosted`
+# and `ollama` are in the IMPLEMENTED tables above instead. The EMBEDDING_PROVIDER
+# row also sets a real de-identifier, so it is the missing module that trips and
+# not the safety guard.
 NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
     ({"PIPELINE_EXTRACTOR": "llm"}, "PIPELINE_EXTRACTOR=llm", "M3"),
     ({"KB_INDEXER": "pgvector"}, "KB_INDEXER=pgvector", "M5"),
     ({"PIPELINE_RETRIEVER": "pgvector"}, "PIPELINE_RETRIEVER=pgvector", "M6"),
     ({"PIPELINE_GENERATOR": "llm"}, "PIPELINE_GENERATOR=llm", "M6"),
     ({"PIPELINE_ACTIONS": "llm"}, "PIPELINE_ACTIONS=llm", "M6b"),
-    (
-        {"LLM_PROVIDER": "hosted", "PIPELINE_DEIDENTIFIER": "rules"},
-        "LLM_PROVIDER=hosted",
-        "M2",
-    ),
-    (
-        {"LLM_PROVIDER": "ollama", "PIPELINE_DEIDENTIFIER": "rules"},
-        "LLM_PROVIDER=ollama",
-        "M2",
-    ),
     (
         {"EMBEDDING_PROVIDER": "sentence_transformer", "PIPELINE_DEIDENTIFIER": "rules"},
         "EMBEDDING_PROVIDER=sentence_transformer",
@@ -245,6 +247,34 @@ def test_an_implemented_stage_is_built_instead_of_its_mock(
     pipeline = build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
 
     assert type(getattr(pipeline, attribute)) is expected
+    assert pipeline.is_fully_mocked is False
+    assert session_factory.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    IMPLEMENTED_LLM_PROVIDER_CASES,
+    ids=["LLM_PROVIDER=hosted", "LLM_PROVIDER=ollama"],
+)
+def test_an_implemented_llm_provider_is_built_instead_of_its_mock(
+    monkeypatch: pytest.MonkeyPatch,
+    session_factory: FakeSessionFactory,
+    overrides: dict[str, str],
+    expected: type,
+) -> None:
+    """Selecting a provider M2 has written builds that class onto `deps.llm`.
+
+    The same half of the lazy import as the stage case above, one level down:
+    the provider module exists, so it is imported and constructed and the
+    setting is the only thing that had to change (ADR-06, ADR-17). Neither
+    adapter opens a session or a connection in `from_settings` — the httpx
+    client is built, not used — so this still needs no engine and no network.
+    """
+    settings = settings_with(monkeypatch, **overrides)
+
+    pipeline = build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+
+    assert type(pipeline.deps.llm) is expected
     assert pipeline.is_fully_mocked is False
     assert session_factory.calls == 0
 

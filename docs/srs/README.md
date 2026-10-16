@@ -27,7 +27,8 @@
 
 - `docs/adr/` — architecture decision records ADR-01 to ADR-17, with an index and a decision map.
 - `docs/prototype/TriageAI_Prototype.html` — the clickable wireframes W-01 to W-11 referenced throughout.
-- `docs/dev-prompts/` — phase prompts for Claude Code (P01–P10) and manual AI guides (M1–M7).
+- `docs/dev-prompts/` — phase prompts for Claude Code (P01–P10, P05b) and manual AI guides (M1–M7, M6b).
+- `docs/deliverables/` — the course deliverable document (`SE_Project_Deliverables`), which restates the project concept, scope and organization in the course template.
 - `CLAUDE.md` — project context read at the start of every Claude Code session.
 
 ## Where each category bites hardest

@@ -1,9 +1,6 @@
 # ADR-03: Python 3.11 and FastAPI for the backend
 
-- **Status:** Accepted
-- **Date:** 2026-09-15
 - **Requirements:** IR-09 to IR-16, NFR-01, NFR-24
-- **Related:** ADR-01, ADR-05, ADR-07
 
 ## Context
 

@@ -1,5 +1,6 @@
 from enum import StrEnum
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -96,6 +97,32 @@ class Settings(BaseSettings):
 
     app_env: AppEnv = AppEnv.DEV
     tz_display: str = "Asia/Manila"
+
+    # ---- LLM provider (M2) ----
+    LLM_PROVIDER: Literal["mock", "hosted", "ollama"] = "mock"
+    LLM_BASE_URL: str = ""
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = ""
+    LLM_TEMPERATURE: str = ""
+    LLM_SEED: str = ""
+    LLM_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
+    LLM_SCHEMA_IN_PROMPT: bool = True
+    LLM_SCHEMA_SIMPLIFY: bool = True
+    LLM_REASONING_EFFORT: str = ""
+    LLM_MAX_RPM: int = 0
+    LLM_HTTP_RETRIES: int = 2
+    LLM_RATE_LIMIT_WAIT_S: float = 20.0
+    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434/v1"
+    OLLAMA_MODEL: str = ""
+    OLLAMA_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = ""
+    GEMINI_RPM: int = 0
+    GEMINI_REASONING_EFFORT: str = ""
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = ""
+    GROQ_RPM: int = 0
+    GROQ_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_object"
 
     pipeline_deidentifier: DeidentifierOption = DeidentifierOption.MOCK
     pipeline_redflags: RedFlagsOption = RedFlagsOption.MOCK

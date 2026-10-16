@@ -10,6 +10,10 @@ You will implement:
 
 Then you switch **every** stage to real and verify the four demo scenarios. The deterministic `SafetyValidator` from P05 already runs after the generator, so you do not re-implement it.
 
+**Temperature, as in M3:** the adapter decides it from `LLM_TEMPERATURE` (blank = send
+nothing). The generator passes no temperature. Add only `GENERATION_PROMPT_VERSION`
+to the settings; every other `LLM_*` setting already exists from M2.
+
 ## Prerequisites
 
 - [ ] M3 done: the real extractor works.
@@ -311,6 +315,7 @@ For each demo case, run the full real pipeline 3 times, through the orchestrator
 | Wrong species passages | The species filter is not applied | Check the `KBEntry.species` type and the `.any()` usage |
 | JSON invalid often | The provider ignores the JSON mode | Switch `LLM_JSON_MODE`; shorten the prompt; lower `max_tokens` if set |
 | Slow first request | The embedder loads lazily | Warm up in the lifespan (M4 Step 5) |
+| `kind: rate_limited` partway through a demo run | Free-tier requests-per-minute or per-day limit | Set `LLM_MAX_RPM` honestly (M2 Step 3); for a daily limit, switch to `mock` and resume after the reset |
 
 ## Done when
 
