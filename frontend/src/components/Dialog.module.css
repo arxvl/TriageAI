@@ -1,0 +1,40 @@
+/* The prototype's `.overlay` / `.modal` (docs/prototype/TriageAI_Prototype.html #w05). */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  background: rgb(40 40 40 / 55%);
+}
+
+.panel {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 2 * var(--space-3));
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: var(--border-width-strong) solid var(--color-ink);
+  border-radius: var(--radius-md);
+}
+
+/* The panel takes focus when it holds no control of its own; it is not an
+   interactive element, so it does not advertise a focus ring of its own. */
+.panel:focus {
+  outline: none;
+}
+
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}

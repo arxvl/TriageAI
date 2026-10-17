@@ -28,6 +28,16 @@ export const ApiErrorCode = {
   validationError: "VALIDATION_ERROR",
   /** Dog and cat only; anything else is triaged by hand (FR-02, BR-06). */
   speciesOutOfScope: "SPECIES_OUT_OF_SCOPE",
+  notFound: "NOT_FOUND",
+  /**
+   * 409: the case has moved on since the screen read it (FR-32, FR-34, FR-38).
+   *
+   * Not a field to fix. Someone else decided first, or the case has been closed,
+   * so the answer is to re-read the case rather than to re-send the request.
+   */
+  invalidTransition: "INVALID_TRANSITION",
+  /** 409: already decided, so a change has to carry `amends_id` (FR-48). */
+  amendmentRequired: "AMENDMENT_REQUIRED",
   internalError: "INTERNAL_ERROR",
   /** Set by the client itself when the request never reached the API. */
   networkError: "NETWORK_ERROR",

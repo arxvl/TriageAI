@@ -101,6 +101,24 @@ export type QueueCategoryFilter = VTLCategory | "MANUAL";
 export const QUEUE_POLL_INTERVAL_MS = 15_000;
 
 /**
+ * How often the Case Review screen re-reads one case (P06 §6.2).
+ *
+ * Thirty seconds is what W-04's live "waiting X min of Y min" asks for. The
+ * waiting time is re-read rather than counted locally, for the reason the queue
+ * gives: one clock measures every case (FR-30).
+ */
+export const CASE_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * The faster interval while something on the case is still running.
+ *
+ * A case in `SUBMITTED`/`PROCESSING`, or one whose suggested actions are still
+ * `PENDING`, is expected to change within seconds, and the screen shows a
+ * loading row until it does (FR-77, IR-22).
+ */
+export const CASE_PENDING_POLL_INTERVAL_MS = 5_000;
+
+/**
  * One row of the Triage Queue (W-02), mirroring the API's `CaseQueueItem`.
  *
  * `category` is the one the row displays: the confirmed category if a reviewer

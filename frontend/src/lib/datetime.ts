@@ -54,6 +54,28 @@ export function formatArrivalTime(iso: string): string | null {
   }).format(instant);
 }
 
+/**
+ * "09:36:14" in the clinic's timezone, or null if the input is not a valid instant.
+ *
+ * Seconds matter in exactly two places, and both are provenance rather than
+ * clinical: W-04's configuration footnote, which records when a recommendation
+ * was generated (FR-26), and the audit timeline (FR-45).
+ */
+export function formatPreciseTime(iso: string): string | null {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: DISPLAY_TIME_ZONE,
+  }).format(instant);
+}
+
 /** Today's date in the clinic's timezone as `YYYY-MM-DD`, for a date filter. */
 export function clinicToday(now: Date = new Date()): string {
   // "en-CA" is the short way to an ISO calendar date in a given timezone.

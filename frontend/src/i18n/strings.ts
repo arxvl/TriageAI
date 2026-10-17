@@ -218,6 +218,16 @@ export const strings = {
       GREEN: "Green",
       BLUE: "Blue",
     },
+    // The category's own name, for a heading that states the urgency in words
+    // next to the badge: "ORANGE · Very urgent" (IR-03, W-04). RED's name and
+    // its target wording coincide, which is why both exist as separate keys.
+    labels: {
+      RED: "Immediate",
+      ORANGE: "Very urgent",
+      YELLOW: "Urgent",
+      GREEN: "Standard",
+      BLUE: "Non-urgent",
+    },
     manualCaption: "Needs manual triage",
     // A case still in the pipeline has no category and no target yet. Read out
     // in place of the em dash the column shows (NFR-21).
@@ -324,6 +334,221 @@ export const strings = {
     clearFilters: "Clear filters",
     errors: {
       unexpected: "The queue could not be loaded right now. It will retry automatically.",
+    },
+  },
+
+  // W-04 Case Review (FR-13, FR-31, FR-32, FR-36, FR-71..FR-79, IR-03, IR-04,
+  // IR-06, IR-08, IR-23, BR-10 · UC-05).
+  caseReview: {
+    backToQueue: "← Back to queue",
+
+    // IR-04, the sentence that must stay on screen until a reviewer decides.
+    aiPendingChip: "AI Recommendation – requires staff confirmation",
+
+    // {time} is the arrival time in the clinic's timezone, {channel} the intake
+    // channel and {name} whoever recorded the case.
+    arrivedBy: "Arrived {time} by {channel} · recorded by {name}",
+    arrivedByUnknown: "Arrived {time} by {channel}",
+    // {waiting} and {target} are whole minutes.
+    waiting: "waiting {waiting} min of {target} min",
+    waitingNoTarget: "waiting {waiting} min",
+    overdueSuffix: "overdue",
+    // {time} is the closing time.
+    closedAt: "Closed {time}",
+
+    // The W-04 banner. The rule's label only — never the words it matched
+    // (DR-04). {rule} is the clinic's wording for the rule.
+    redFlagDetected: "Red flag detected by the pre-screen: {rule}",
+    redFlagDetectedUnlabelled: "Red flag detected by the pre-screen.",
+
+    // Panel 1 (FR-13).
+    descriptionTitle: "Owner’s description (verbatim)",
+    highlightNote: "Highlights show the evidence used for each extracted value.",
+    // Shown when the pipeline read a different string from the one on screen
+    // (ADR-10): the offsets index into the de-identified text, so a highlight
+    // drawn against the original would mark the wrong words.
+    deidentifiedNote: "Highlights refer to the de-identified text, shown here.",
+    // Spans the extraction claimed that no longer match the stored text.
+    unmatchedEvidenceTitle: "Evidence no longer found in the text",
+    // {field} is the extraction field, {text} the quoted evidence.
+    unmatchedEvidence: "{field}: “{text}”",
+
+    // Panel 2 (FR-09, FR-31). Read-only until P07.
+    extractionTitle: "Extracted information",
+    extractionUnavailable: "Extracted information: not available for this case.",
+    fields: {
+      species: "Species",
+      presenting_complaints: "Presenting complaints",
+      onset_duration: "Onset / duration",
+      frequency_severity: "Frequency / severity",
+      associated_signs: "Associated signs",
+      negated_findings: "Negated findings",
+      exposure_history: "Exposure history",
+      relevant_history: "Relevant history",
+      red_flags: "Red flags",
+      missing_information: "Ask the owner",
+    },
+    primaryMarker: "(primary)",
+    emptyValue: "None stated",
+    saveAndRegenerate: "Save and regenerate",
+    // The phase prompt's own wording for a control whose backend is P07.
+    availableInP07: "Available in P07",
+    // The four decision-bar controls wired in the next subphase.
+    availableNextStep: "Available in the next step",
+
+    // Panel 3 (FR-20..FR-26).
+    recommendationTitle: "Recommended urgency",
+    recommendationUnavailable:
+      "No AI recommendation for this case. It must be triaged manually using the VTL.",
+    // {label} is the category name, {target} its target waiting time.
+    categoryHeading: "{label} · see within {target}",
+    // FR-23. {rules} is one or more rule labels, joined with "and".
+    safetyFloorNotice: "Safety floor applied: the red flag {rules} requires at least {category}.",
+    safetyFloorNoticeUnlabelled:
+      "Safety floor applied: a red-flag rule requires at least {category}.",
+    rationaleLabel: "Rationale.",
+    confidenceLabel: "Confidence:",
+    confidence: {
+      HIGH: "High",
+      MEDIUM: "Medium",
+      LOW: "Low",
+    },
+    // FR-24. The codes are `backend/app/pipeline/safety.py`; the screen never
+    // shows a code (IR-05).
+    lowConfidenceReasons: {
+      NO_VALID_CITATION:
+        "No knowledge-base passage supports the recommendation, so it rests on the " +
+        "model’s reading alone.",
+      LOW_RETRIEVAL_SCORE:
+        "The knowledge-base passages found were only loosely related to this case.",
+      UNSUPPORTED_COMPLAINT_MANUAL_TRIAGE_RECOMMENDED:
+        "The presenting complaint is outside the supported list. Triage this case by hand.",
+    },
+    lowConfidenceFallback: "The system flagged this recommendation as less reliable than usual.",
+
+    referencesTitle: "References",
+    referencesEmpty: "No knowledge-base passages were retrieved for this case.",
+    citedMarker: "cited",
+    citedTitle: "Quoted in the rationale",
+    openSource: "Open source ↗",
+    showMore: "Show more",
+    showLess: "Show less",
+
+    // FR-26, NFR-23. {model}, {prompt}, {kb}, {time} and {latency}.
+    configurationFootnote: "Model: {model} · Prompt {prompt} · KB version {kb} · generated {time}",
+    configurationLatency: " in {latency} s",
+    configurationKbUnknown: "—",
+
+    // The suggested-actions checklist (FR-71..FR-79, IR-23, ADR-18).
+    actions: {
+      title: "Suggested actions",
+      // {category} is the category the actions are for.
+      intro:
+        "For {category}. Tick what applies, edit or remove any row, then finalise with your decision.",
+      introReadOnly: "For {category}.",
+      // FR-75, the label that stays until a reviewer finalizes the list.
+      aiHeading: "AI-suggested actions – require staff approval",
+      sources: {
+        BASELINE: "Baseline",
+        AI: "AI",
+        REVIEWER: "Added by reviewer",
+      },
+      sourceTitles: {
+        BASELINE: "From the knowledge base for this urgency category",
+        AI: "Written by the model for this case, pending staff approval",
+        REVIEWER: "Added by a reviewer",
+      },
+      pending: "Preparing case-specific suggestions…",
+      // FR-77. One quiet line, never an error dialog: nothing about the case is
+      // wrong, and the baseline actions are the ones that matter.
+      failed: "Case-specific suggestions unavailable – baseline actions shown",
+      // {count} is how many the deterministic validator dropped (FR-74).
+      rejectedOne: "1 suggestion was withheld by the safety check.",
+      rejectedMany: "{count} suggestions were withheld by the safety check.",
+      // {ranks} is a list like "[1], [2]".
+      citationLabel: "Supported by {ranks}",
+      keepLabel: "Keep this action",
+      edit: "Edit",
+      editLabel: "Edit this action",
+      editSave: "Save",
+      editCancel: "Cancel",
+      remove: "Remove",
+      removeLabel: "Remove this action",
+      restore: "Restore",
+      restoreLabel: "Restore this action",
+      addLabel: "Add an action",
+      addPlaceholder: "Add an action for this case…",
+      add: "+ Add action",
+      // FR-73: a triage-level instruction, not a treatment (BR-09).
+      addHelper:
+        "Triage handling only: what to prepare, watch, or ask the owner. " +
+        "Never a medication, dose, or treatment.",
+      empty: "No suggested actions for this category.",
+    },
+
+    // The fixed decision bar (FR-32, FR-34, FR-37, IR-06, BR-10).
+    decisionBar: {
+      // {category} is the recommended category's name.
+      confirm: "Confirm {category}",
+      adjust: "Adjust category…",
+      manual: "Mark for manual triage",
+      addNote: "Add note",
+      viewAudit: "View audit",
+      // IR-06, BR-10. On screen whenever a decision can be made.
+      disclaimer:
+        "Decision support only – this is not a diagnosis. The final urgency category " +
+        "and actions are decided by veterinary staff.",
+      // Shown in place of the buttons for a user without `can_decide` (BR-01).
+      readOnly:
+        "This case is read-only for your role. Only a Veterinary Reviewer can confirm, " +
+        "adjust, or manually triage a case.",
+      // A case that has already been decided. {decision} is the sentence below.
+      decided: "Decision recorded.",
+      // {category} is the final category, {name} the reviewer, {time} the time.
+      decidedBy: "{category} · {name} · {time}",
+      decidedByUnknown: "{category} · {time}",
+    },
+
+    // The confirmation dialog (IR-08).
+    confirmDialog: {
+      // {category} is the category being confirmed.
+      title: "Confirm {category}?",
+      body:
+        "This records {category} as the final urgency category for this case, " +
+        "together with the action list shown.",
+      // {count} is the number of actions being finalized.
+      actionsSummaryOne: "1 action will be recorded.",
+      actionsSummaryMany: "{count} actions will be recorded.",
+      actionsSummaryNone: "No actions will be recorded.",
+      permanentNotice:
+        "Your name, the time, and this decision are recorded in the audit trail " +
+        "and cannot be edited later.",
+      submit: "Confirm decision",
+      submitting: "Saving…",
+      cancel: "Cancel",
+    },
+
+    // {caseNo} and {category}; shown on the queue after the decision is saved.
+    confirmedToast: "Case {caseNo} confirmed as {category}",
+
+    notes: {
+      title: "Notes",
+      // {name} and {time} head each note.
+      byline: "{name} · {time}",
+      bylineUnknown: "{time}",
+    },
+
+    loading: "Loading the case…",
+    errors: {
+      notFound: "That case could not be found. It may have been removed.",
+      forbidden: "You do not have access to this case.",
+      unexpected: "The case could not be loaded right now. Please try again.",
+      // A 409 on the decision: the screen is out of date, so the answer is to
+      // re-read the case rather than to re-send (FR-32, FR-48).
+      conflict:
+        "This case has already been decided by someone else. The screen has been " +
+        "refreshed with the current decision.",
+      decisionFailed: "The decision could not be saved right now. Please try again.",
     },
   },
 

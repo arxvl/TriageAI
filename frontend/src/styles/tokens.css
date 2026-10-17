@@ -57,6 +57,21 @@
   --color-danger-bg: light-dark(#fff7f6, #2a1a1a);
   --color-focus: light-dark(#1565c0, #7dd3fc);
 
+  /* The prototype's `.banner.warn` (#w04 safety floor, #w06 AI unavailable). A
+     caution, not a failure: the case is fine and the notice is information the
+     reviewer is entitled to, so it is amber rather than red. `--color-warning`
+     is the border and the icon fill, `--color-warning-ink` the text on that
+     fill. */
+  --color-warning: light-dark(#8a6d00, #d9a600);
+  --color-warning-bg: light-dark(#fff8d6, #2a2411);
+  --color-warning-ink: light-dark(#ffffff, #16171d);
+
+  /* The evidence highlight behind `<mark>` (the prototype's `--hi`, FR-13). The
+     underline is what carries it when the fill is too faint to see, so a
+     highlight is never colour alone (NFR-21). */
+  --color-highlight: light-dark(#fff3b0, #4a3f12);
+  --color-highlight-line: light-dark(#c9a800, #d9a600);
+
   /* Borders. The prototype draws structural lines at 1.5px and emphasis at
      2px; keeping them as tokens stops the two drifting apart per screen. */
   --border-width: 1.5px;

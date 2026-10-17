@@ -8,8 +8,7 @@ import { RedFlagBanner, type QueueRedFlagAlert } from "./RedFlagBanner";
 /** Fictitious, as every fixture in this project is (CLAUDE.md §9). */
 const alert: QueueRedFlagAlert = {
   caseId: "00000000-0000-4000-8000-000000000042",
-  caseNo: "C-0142",
-  summary: "male cat producing no urine",
+  message: "Red-flag alert – C-0142: Cat · Mingming – male cat producing no urine",
 };
 
 function renderBanner(alerts: readonly QueueRedFlagAlert[]) {
@@ -31,8 +30,7 @@ describe("RedFlagBanner", () => {
   it("announces an alert and links to its case", () => {
     renderBanner([alert]);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("C-0142");
-    expect(screen.getByRole("alert")).toHaveTextContent(alert.summary);
+    expect(screen.getByRole("alert")).toHaveTextContent(alert.message);
     expect(screen.getByRole("link", { name: strings.queue.redFlagOpenCase })).toHaveAttribute(
       "href",
       `/cases/${alert.caseId}`,
@@ -40,8 +38,19 @@ describe("RedFlagBanner", () => {
   });
 
   it("lists every alert", () => {
-    renderBanner([alert, { ...alert, caseId: "other-id", caseNo: "C-0143" }]);
+    renderBanner([alert, { ...alert, caseId: "other-id" }]);
 
     expect(screen.getAllByRole("link", { name: strings.queue.redFlagOpenCase })).toHaveLength(2);
+  });
+
+  // W-04 shows the banner for the case the reviewer already has open, where a
+  // link back to that same case would lead nowhere (P06 §6.2).
+  it("omits the link for an alert with no case id", () => {
+    renderBanner([
+      { message: "Red flag detected by the pre-screen: male cat producing no urine." },
+    ]);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("male cat producing no urine");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

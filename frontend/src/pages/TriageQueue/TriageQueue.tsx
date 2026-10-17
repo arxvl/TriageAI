@@ -174,10 +174,11 @@ export function TriageQueue() {
  * One API alert as the banner's own shape.
  *
  * The sentence is built here rather than in `RedFlagBanner`, which takes a
- * finished `summary`: the component is about announcing something urgently and
- * accessibly, and the wording of what is announced is a queue concern. The pet's
- * name is included when there is one and left out when there is not, so the
- * sentence never reads "Cat  – …".
+ * finished `message`: the component is about announcing something urgently and
+ * accessibly, and the wording of what is announced is a queue concern — the
+ * queue's version names the case, because a reviewer reading it is not on that
+ * case yet. The pet's name is included when there is one and left out when there
+ * is not, so the sentence never reads "Cat  – …".
  *
  * `case_id` is the key and the link target, so two alerts on one case would
  * collide. That cannot happen yet — one rule fires once per case — and when it
@@ -188,10 +189,13 @@ function toBannerAlert(alert: QueueRedFlagAlert): BannerAlert {
     .filter((part) => part !== null && part !== "")
     .join(" · ");
 
+  const summary = copy.redFlagSummary
+    .replace("{patient}", patient)
+    .replace("{rule}", alert.rule_label);
+
   return {
     caseId: alert.case_id,
-    caseNo: alert.case_no,
-    summary: copy.redFlagSummary.replace("{patient}", patient).replace("{rule}", alert.rule_label),
+    message: copy.redFlagAlert.replace("{caseNo}", alert.case_no).replace("{summary}", summary),
   };
 }
 

@@ -25,6 +25,7 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import { ToastProvider } from "./components/ToastProvider";
 import { strings } from "./i18n/strings";
 import { CaseIntake } from "./pages/CaseIntake/CaseIntake";
+import { CaseReview } from "./pages/CaseReview/CaseReview";
 import { ChangePassword } from "./pages/ChangePassword/ChangePassword";
 import { Login } from "./pages/Login/Login";
 import { NotFound } from "./pages/NotFound/NotFound";
@@ -65,11 +66,10 @@ function App() {
                         />
                       </Route>
 
-                      {/* Administrators may read a case but never decide one (BR-02). */}
-                      <Route
-                        path="/cases/:caseId"
-                        element={<Placeholder title={strings.nav.caseDetail} />}
-                      />
+                      {/* Administrators may read a case but never decide one (BR-02).
+                      The screen hides the decision controls from them; the server
+                      is what refuses the request (SR-05). */}
+                      <Route path="/cases/:caseId" element={<CaseReview />} />
 
                       {/* A reviewer needs the separate KB approval permission (BR-04);
                       an administrator drafts entries without it (FR-52). */}
