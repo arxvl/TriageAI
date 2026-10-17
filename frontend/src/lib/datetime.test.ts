@@ -5,7 +5,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { clinicDaysAgo, clinicToday, formatArrivalTime, formatDisplayTime } from "./datetime";
+import {
+  clinicDaysAgo,
+  clinicToday,
+  formatArrivalTime,
+  formatDisplayDate,
+  formatDisplayTime,
+  formatElapsed,
+} from "./datetime";
 
 describe("formatArrivalTime", () => {
   it("shows a UTC instant in the clinic's timezone", () => {
@@ -52,5 +59,47 @@ describe("clinicDaysAgo", () => {
 describe("formatDisplayTime", () => {
   it("still reads as a 12-hour clock, as the login screen shows it", () => {
     expect(formatDisplayTime("2026-10-01T01:42:00Z")).toMatch(/9:42\s?AM/);
+  });
+});
+
+// The two FR-46 intervals on the audit timeline (W-07).
+describe("formatElapsed", () => {
+  it("shows seconds alone below a minute, as W-07's first figure does", () => {
+    expect(formatElapsed(10)).toBe("10 s");
+    expect(formatElapsed(0)).toBe("0 s");
+    expect(formatElapsed(59)).toBe("59 s");
+  });
+
+  it("shows minutes and seconds, as W-07's second figure does", () => {
+    expect(formatElapsed(508)).toBe("8 min 28 s");
+    expect(formatElapsed(60)).toBe("1 min 0 s");
+  });
+
+  it("drops the seconds past an hour, where they no longer inform", () => {
+    expect(formatElapsed(3720)).toBe("1 h 2 min");
+    expect(formatElapsed(3600)).toBe("1 h 0 min");
+  });
+
+  // The API sends both intervals as floats.
+  it("rounds a fractional second rather than printing it", () => {
+    expect(formatElapsed(9.62)).toBe("10 s");
+    expect(formatElapsed(507.5)).toBe("8 min 28 s");
+  });
+
+  it("never reads as a negative or non-finite duration", () => {
+    expect(formatElapsed(-3)).toBe("0 s");
+    expect(formatElapsed(Number.NaN)).toBe("");
+  });
+});
+
+// The audit timeline's day headings (W-07).
+describe("formatDisplayDate", () => {
+  it("names the clinic's day, not UTC's", () => {
+    // 23:30 UTC is already the next morning in Manila.
+    expect(formatDisplayDate("2026-10-16T23:30:00Z")).toBe("17 Oct 2026");
+  });
+
+  it("is null for a value that is not an instant", () => {
+    expect(formatDisplayDate("not a date")).toBeNull();
   });
 });

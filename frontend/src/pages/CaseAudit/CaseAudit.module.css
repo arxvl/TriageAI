@@ -1,0 +1,31 @@
+/* The per-case audit route (docs/prototype/TriageAI_Prototype.html #w07).
+   The panel's own rules live with the component; this is only the page around
+   it, and it keeps W-04's shell so the two screens read as one pair. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 640px;
+}
+
+.back {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.notice {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border: var(--border-width) solid var(--color-danger);
+  border-radius: var(--radius-md);
+}

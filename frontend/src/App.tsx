@@ -24,6 +24,7 @@ import { RoleHomeRedirect } from "./components/RoleHomeRedirect";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ToastProvider } from "./components/ToastProvider";
 import { strings } from "./i18n/strings";
+import { CaseAudit } from "./pages/CaseAudit/CaseAudit";
 import { CaseIntake } from "./pages/CaseIntake/CaseIntake";
 import { CaseReview } from "./pages/CaseReview/CaseReview";
 import { ChangePassword } from "./pages/ChangePassword/ChangePassword";
@@ -70,6 +71,11 @@ function App() {
                       The screen hides the decision controls from them; the server
                       is what refuses the request (SR-05). */}
                       <Route path="/cases/:caseId" element={<CaseReview />} />
+
+                      {/* The audit trail is readable by every role, as the
+                      endpoint's own guard is: an administrator cannot decide a
+                      case (BR-02) but can always read what was decided (FR-45). */}
+                      <Route path="/cases/:caseId/audit" element={<CaseAudit />} />
 
                       {/* A reviewer needs the separate KB approval permission (BR-04);
                       an administrator drafts entries without it (FR-52). */}

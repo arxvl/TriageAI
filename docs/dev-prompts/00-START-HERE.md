@@ -50,7 +50,7 @@ The table lists every step in order and maps it to your PD8 roadmap. "CC" means 
 | ✅ 6 | M1 De-identification and red-flag screening   | You      | P05                     | 2             |
 | ✅ 7 | M2 LLM provider setup and selection           | You      | P05                     | 1 (spike)     |
 | ✅8  | M3 Clinical entity extraction                 | You      | M1, M2                  | 2             |
-| 9   | P06 Case Review and HITL decisions            | CC       | P05 (parallel to M1–M3) | 3             |
+| ✅9  | P06 Case Review and HITL decisions            | CC       | P05 (parallel to M1–M3) | 3             |
 | 10  | M4 pgvector and embedding model               | You      | P02                     | 2             |
 | 11  | P08 Knowledge base management                 | CC       | P06                     | 2–3           |
 | 12  | M5 KB authoring, chunking, and indexing       | You      | M4, P08                 | 2             |

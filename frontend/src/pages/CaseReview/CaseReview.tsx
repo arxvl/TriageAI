@@ -28,10 +28,6 @@
  * owner's description beside it. Manual mode is on when the pipeline gave up
  * (`MANUAL_TRIAGE_REQUIRED`) or when a reviewer asks for it — FR-34 and ADR-15 §4
  * both require the second, and the banner says which of the two it is.
- *
- * Remaining for §6.4: "View audit" and the W-07 timeline. The button is on the
- * bar, disabled, so the bar's layout and tab order do not change under the user
- * when it arrives.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -765,6 +761,10 @@ function DecisionBar({
             {bar.addNote}
           </button>
         )}
+        {/* Read-only is about deciding, not about reading the record: every role
+            may open the trail, and an Intake Staff member who entered the case
+            has as much reason to as anyone (FR-45). */}
+        <ViewAuditLink caseId={detail.id} />
         <p className={styles.disclaimer}>{bar.disclaimer}</p>
       </div>
     );
@@ -828,13 +828,24 @@ function DecisionBar({
         </button>
       )}
 
-      {/* §6.4 builds the timeline and its route. */}
-      <button type="button" className={styles.button} disabled title={copy.availableNextStep}>
-        {bar.viewAudit}
-      </button>
+      <ViewAuditLink caseId={detail.id} />
 
       <p className={styles.disclaimer}>{bar.disclaimer}</p>
     </div>
+  );
+}
+
+/**
+ * W-07's timeline, on its own route.
+ *
+ * A link and not a button: the record is a place, and a reviewer who wants it
+ * beside the case should be able to open it in a second tab.
+ */
+function ViewAuditLink({ caseId }: { caseId: string }) {
+  return (
+    <Link className={`${styles.button} ${styles.buttonLink}`} to={`/cases/${caseId}/audit`}>
+      {copy.decisionBar.viewAudit}
+    </Link>
   );
 }
 

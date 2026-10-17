@@ -665,7 +665,7 @@ describe("CaseReview suggested actions", () => {
 });
 
 describe("CaseReview decision bar", () => {
-  it("offers every decision control, with only View audit left for the next step", async () => {
+  it("offers every decision control, and the audit timeline beside them", async () => {
     renderCase(makeCaseDetail());
 
     expect(await screen.findByRole("button", { name: "Confirm Orange" })).toBeEnabled();
@@ -677,10 +677,11 @@ describe("CaseReview decision bar", () => {
       expect(screen.getByRole("button", { name: label })).toBeEnabled();
     }
 
-    // §6.4 builds the timeline this opens.
-    const audit = screen.getByRole("button", { name: copy.decisionBar.viewAudit });
-    expect(audit).toBeDisabled();
-    expect(audit).toHaveAttribute("title", copy.availableNextStep);
+    // W-07, on its own route (§6.4).
+    expect(screen.getByRole("link", { name: copy.decisionBar.viewAudit })).toHaveAttribute(
+      "href",
+      `/cases/${CASE_ID}/audit`,
+    );
   });
 
   // FR-38: closing is offered only once a decision exists, which is what
@@ -711,6 +712,11 @@ describe("CaseReview decision bar", () => {
     expect(screen.queryByRole("button", { name: copy.decisionBar.adjust })).not.toBeInTheDocument();
     // The disclaimer stays: the category on screen is still not a diagnosis.
     expect(screen.getByText(copy.decisionBar.disclaimer)).toBeInTheDocument();
+    // FR-45: read-only is about deciding, not about reading the record.
+    expect(screen.getByRole("link", { name: copy.decisionBar.viewAudit })).toHaveAttribute(
+      "href",
+      `/cases/${CASE_ID}/audit`,
+    );
   });
 
   it("shows the decision already recorded instead of offering Confirm again", async () => {

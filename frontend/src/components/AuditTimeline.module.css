@@ -1,0 +1,127 @@
+/* The prototype's `.tl` / `.ev` rules, in the W-07 panel
+   (docs/prototype/TriageAI_Prototype.html #w07). */
+
+.panel {
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+/* --- the two FR-46 intervals -------------------------------------------- */
+
+.intervals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+
+.interval {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  font-size: var(--font-size-sm);
+}
+
+.intervalLabel {
+  color: var(--color-text-muted);
+}
+
+.intervalLabel::after {
+  content: ":";
+}
+
+.intervalValue {
+  margin: 0;
+  font-weight: bold;
+}
+
+/* --- the entries -------------------------------------------------------- */
+
+.timeline {
+  margin: 0;
+  padding: 0 0 0 18px;
+  margin-left: var(--space-2);
+  list-style: none;
+  border-left: var(--border-width-strong) solid var(--color-line-strong);
+}
+
+.event {
+  position: relative;
+  margin-bottom: 14px;
+  font-size: var(--font-size-sm);
+}
+
+.event:last-child {
+  margin-bottom: 0;
+}
+
+/* The dot on the rail. Decoration only: the entry says everything it says in
+   text, so it is not in the accessibility tree. */
+.event::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: -25px;
+  width: 10px;
+  height: 10px;
+  background: var(--color-bg);
+  border: var(--border-width-strong) solid var(--color-line-strong);
+  border-radius: 50%;
+}
+
+/* The day a run of entries falls on, named only when it changes. A separator
+   rather than an entry, so it carries no dot on the rail. */
+.dayItem {
+  margin-bottom: var(--space-2);
+}
+
+.dayItem:first-child {
+  margin-top: 0;
+}
+
+.day {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.headline {
+  margin: 0;
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+}
+
+.detail {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.actor {
+  color: var(--color-text);
+}
+
+/* --- the caption -------------------------------------------------------- */
+
+.caption {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.empty {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

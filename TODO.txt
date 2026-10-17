@@ -1,1 +1,1 @@
-P06 - case review and decision
+M4: pgvector embeddings

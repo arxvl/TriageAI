@@ -393,8 +393,6 @@ export const strings = {
     saveAndRegenerate: "Save and regenerate",
     // The phase prompt's own wording for a control whose backend is P07.
     availableInP07: "Available in P07",
-    // The four decision-bar controls wired in the next subphase.
-    availableNextStep: "Available in the next step",
 
     // Panel 3 (FR-20..FR-26).
     recommendationTitle: "Recommended urgency",
@@ -686,6 +684,43 @@ export const strings = {
       closeConflict:
         "This case has already been closed. The screen has been refreshed with " +
         "the current state.",
+    },
+  },
+
+  // W-07's right panel: the audit timeline for one case (FR-42, FR-43, FR-45,
+  // FR-46, ADR-12 · UC-10).
+  caseAudit: {
+    backToCase: "← Back to case",
+    // {caseNo} is the case number, as W-07 writes it: "Audit timeline – C-0137".
+    title: "Audit timeline – {caseNo}",
+    // Shown while the case number is still being read, or if that read failed.
+    titleFallback: "Audit timeline",
+
+    // The two FR-46 intervals, in W-07's own wording.
+    submissionToRecommendation: "Submission → recommendation",
+    recommendationToDecision: "Recommendation → decision",
+    // An interval the case has not reached yet. Shown rather than hidden, so a
+    // missing figure reads as "not yet" and not as "zero".
+    intervalNotAvailable: "—",
+    intervalsLabel: "Timing for this case",
+
+    eventsLabel: "Audit entries",
+    // {name} is the actor's full name, {role} their role from `strings.roles`.
+    actor: "{name} ({role})",
+    // An entry the pipeline wrote: there is no person to name (ADR-12).
+    actorSystem: "System",
+
+    // FR-43 and ADR-12, word for word from W-07.
+    appendOnly: "Entries are append-only and cannot be edited or deleted.",
+
+    loading: "Loading the audit timeline…",
+    // A case always has at least a "case created" entry, so this is a guard
+    // rather than an expected state.
+    empty: "No audit entries for this case.",
+    errors: {
+      notFound: "That case could not be found. It may have been removed.",
+      forbidden: "You do not have access to this case.",
+      unexpected: "The audit timeline could not be loaded right now. Please try again.",
     },
   },
 
