@@ -365,6 +365,31 @@ class ReviewRepository:
         )
         return list(self._session.execute(statement).all())
 
+    def latest_audit_entry(self, case_id: uuid.UUID, action: str) -> Row | None:
+        """The newest audit entry of one kind about this case, or None.
+
+        `action` is passed in as a plain string rather than read from
+        `AuditAction`: that enum belongs to `AuditService`, and a repository that
+        imported a service would invert the layering (CLAUDE.md §7). The column
+        is `String(100)`, so the value the service hands over is the value stored.
+
+        Ordered by `(ts, id)` descending, for the same reason `audit_entries`
+        orders ascending by both: two entries written in one transaction share a
+        timestamp, and the monotonic id is what breaks the tie. Uses the same
+        `ix_audit_log_entity_type_entity_id_ts` index.
+        """
+        statement = (
+            select(AuditEntry.ts, AuditEntry.after)
+            .where(
+                AuditEntry.entity_type == "case",
+                AuditEntry.entity_id == str(case_id),
+                AuditEntry.action == action,
+            )
+            .order_by(AuditEntry.ts.desc(), AuditEntry.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).first()
+
     def extraction_marks(self, case_id: uuid.UUID) -> list[Row]:
         """Every extraction version for a case, oldest first.
 

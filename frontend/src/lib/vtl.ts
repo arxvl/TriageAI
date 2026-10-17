@@ -68,3 +68,20 @@ export function waitProgressPercent(waitingMinutes: number, targetMinutes: numbe
   }
   return Math.min(100, Math.max(0, Math.round((waitingMinutes / targetMinutes) * 100)));
 }
+
+/**
+ * Which way a reviewer moved the category, for the W-05 summary (FR-33, BR-03).
+ *
+ * The mirror of `direction()` in `backend/app/services/case_transitions.py`, and
+ * computed from `URGENCY_ORDER` rather than from any colour or index written out
+ * by hand. The server stores its own answer with the decision; this one only
+ * labels the dialog before the request is sent, so the two can be compared if
+ * they ever disagree.
+ */
+export function directionOf(from: VTLCategory, to: VTLCategory): "UP" | "DOWN" | "SAME" {
+  if (from === to) {
+    return "SAME";
+  }
+  // Lower index is more urgent, so moving to a lower index is an up-triage.
+  return URGENCY_ORDER.indexOf(to) < URGENCY_ORDER.indexOf(from) ? "UP" : "DOWN";
+}

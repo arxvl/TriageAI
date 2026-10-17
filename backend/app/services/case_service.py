@@ -81,6 +81,7 @@ from app.schemas.review import (
     DescriptionOut,
     ExtractedComplaintOut,
     ExtractionOut,
+    FailureOut,
     NoteOut,
     PermissionsOut,
     RecommendationOut,
@@ -356,6 +357,7 @@ class CaseService:
                 for note in self._reviews.notes(case_id)
             ],
             permissions=self._permissions(status, user),
+            failure=self._failure(case_id, status),
         )
 
     # --- The review screen (FR-31, P06 §6.1) ------------------------------
@@ -527,6 +529,39 @@ class CaseService:
             # The regenerate backend is P07; W-04 shows the button disabled.
             can_regenerate=False,
             can_close=is_reviewer and status in DECIDED_STATUSES,
+        )
+
+    def _failure(self, case_id: uuid.UUID, status: CaseStatus) -> FailureOut | None:
+        """Why this case is waiting to be triaged by hand, for W-06 (NFR-09).
+
+        Only for `MANUAL_TRIAGE_REQUIRED`, which is the one status that means
+        "the pipeline gave up and nobody has decided yet". A `PIPELINE_FAILED`
+        entry is never removed — the log is append-only (ADR-12) — so a case that
+        failed, was retried in P07 and succeeded still has one, and reporting it
+        would put "AI unavailable" on a screen showing a perfectly good
+        recommendation.
+
+        Read from the audit entry rather than from `jobs.last_error`, which
+        stores the reason and the time as one interpolated string
+        (`JobQueue.fail`). The audit payload has them as separate values, so
+        nothing here has to parse prose. `failed_at` falls back to the entry's own
+        timestamp: the two are written in the same breath, and a missing or
+        unreadable payload value must not cost the reviewer the whole banner.
+        """
+        if status is not CaseStatus.MANUAL_TRIAGE_REQUIRED:
+            return None
+
+        entry = self._reviews.latest_audit_entry(case_id, AuditAction.PIPELINE_FAILED)
+        if entry is None:
+            return None
+
+        payload = entry.after or {}
+        reason = payload.get("reason")
+        if not isinstance(reason, str) or reason == "":
+            return None
+
+        return FailureOut(
+            reason_code=reason, failed_at=_parse_iso(payload.get("failed_at")) or entry.ts
         )
 
     def _actions(self, case_id: uuid.UUID, row: Row, user: User) -> CaseActionsOut:
@@ -743,6 +778,21 @@ def _as_species(value: object) -> Species | None:
 def _as_text(value: object) -> str | None:
     """A stored optional string, or None for anything that is not one."""
     return value if isinstance(value, str) else None
+
+
+def _parse_iso(value: object) -> datetime | None:
+    """An ISO-8601 instant from a JSONB payload, or None if it is not one.
+
+    Defensive like `_as_text_list`: the value was written into an append-only log
+    by a previous version of the code and can never be corrected there, so an
+    unreadable one falls back rather than raising.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _as_text_list(value: object) -> list[str]:

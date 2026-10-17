@@ -469,3 +469,151 @@
   border: var(--border-width) solid var(--color-border);
   border-radius: 6px;
 }
+
+/* --- the urgency picker, shared by W-05 and W-06 ------------------------- */
+
+.optionList {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Each row is one `<label>` wrapping its radio, so the whole row is the target
+   and the platform keeps the group's arrow-key movement (CategoryOptions). */
+.option {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 6px 0;
+  padding: 8px var(--space-2);
+  font-size: 13px;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* A second carrier for the selection, beside the radio's own dot: the border is
+   visible in greyscale and in print (NFR-21). */
+.optionSelected {
+  background: var(--color-surface);
+  border-color: var(--color-ink);
+  border-width: var(--border-width-strong);
+}
+
+.optionNote {
+  line-height: 1.5;
+}
+
+.optionHint {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* --- form controls in the dialogs and the manual-triage panel ------------ */
+
+.field {
+  display: block;
+  margin-top: var(--space-3);
+}
+
+.field .sectionTitle {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.select,
+.textarea {
+  display: block;
+  width: 100%;
+  padding: 8px var(--space-2);
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: 6px;
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.select:disabled,
+.textarea:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+/* The W-05 live summary: the change about to be recorded, and that it is
+   permanent. Informational, so it is not styled as a warning. */
+.summaryBanner {
+  margin: var(--space-3) 0 0;
+  padding: 10px var(--space-3);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  background: var(--color-highlight);
+  border-left: 4px solid var(--color-highlight-line);
+  border-radius: 6px;
+}
+
+/* --- W-06 manual triage ------------------------------------------------- */
+
+/* Dashed, as ADR-15 §3 draws a case with no category: the panel is a question,
+   not an answer. */
+.manualPanel {
+  border-style: dashed;
+  border-color: var(--color-line-strong);
+  border-width: var(--border-width-strong);
+}
+
+.manualActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.manualActions .footnote {
+  margin: 0;
+}
+
+/* A reviewer who chose manual triage themselves: nothing has gone wrong, so
+   this is a notice and not the warning banner above it. */
+.noticeBanner {
+  margin: var(--space-3) 0;
+  padding: 10px var(--space-3);
+  font-size: 13px;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-left: 4px solid var(--color-line-strong);
+  border-radius: 6px;
+}
+
+/* --- the clinical notes ------------------------------------------------- */
+
+.notesPanel {
+  flex: none;
+  margin-top: var(--space-3);
+}
+
+.notesPanel .note {
+  margin: var(--space-2) 0 0;
+  padding: 8px var(--space-3);
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-line-strong);
+}
+
+.notesPanel .note p:last-child {
+  margin: 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

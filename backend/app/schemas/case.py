@@ -42,6 +42,7 @@ from app.schemas.review import (
     DecisionOut,
     DescriptionOut,
     ExtractionOut,
+    FailureOut,
     NoteOut,
     PermissionsOut,
     RecommendationOut,
@@ -382,3 +383,5 @@ class CaseDetail(BaseModel):
     decision: DecisionOut | None
     notes: list[NoteOut]
     permissions: PermissionsOut
+    # The failure the case is currently sitting on, else null (P06 §6.3).
+    failure: FailureOut | None = None

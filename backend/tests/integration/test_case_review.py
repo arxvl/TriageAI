@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.config import MockLLMBehavior
 from app.jobs.worker import run_pending_jobs_once
 from app.models import (
     Case,
@@ -27,6 +28,7 @@ from app.models import (
     UserRole,
     VTLCategory,
 )
+from app.pipeline.orchestrator import FailureReason
 from scripts.seed import seed
 from tests.conftest import (
     make_clinical_note,
@@ -76,8 +78,28 @@ def demo_case(db_session: Session, pipeline, app_session_factory: sessionmaker) 
     return case
 
 
+@pytest.fixture
+def failed_case(db_session: Session, pipeline_factory, app_session_factory: sessionmaker) -> Case:
+    """`DEMO_1` with the model timing out: `MANUAL_TRIAGE_REQUIRED` (NFR-09).
+
+    Driven through the real failure path rather than by setting the status, so
+    the `PIPELINE_FAILED` audit entry the W-06 banner reads is written the way
+    the orchestrator writes it.
+    """
+    seed(db_session)
+    db_session.flush()
+    case = make_demo_case(db_session, "DEMO_1")
+    pipeline_factory(mock_llm_behavior=MockLLMBehavior.TIMEOUT).run(case.id)
+    run_pending_jobs_once(app_session_factory, pipeline_factory())
+    return case
+
+
 def read(client: TestClient, case: Case) -> Any:
     return client.get(f"{CASES_URL}/{case.id}")
+
+
+def status_of(session: Session, case: Case) -> CaseStatus:
+    return session.scalars(select(Case.status).where(Case.id == case.id)).one()
 
 
 # --- The whole payload ----------------------------------------------------
@@ -429,6 +451,59 @@ def test_closing_becomes_available_once_the_case_is_decided(
     assert permissions["can_close"] is True
     # Still true: an amendment is a decision a reviewer may still record (FR-48).
     assert permissions["can_decide"] is True
+
+
+# --- The W-06 banner: why the case is waiting to be triaged by hand -------
+
+
+def test_a_case_the_pipeline_gave_up_on_reports_why_and_when(
+    reviewer_client: TestClient, failed_case: Case, db_session: Session
+) -> None:
+    """NFR-09, P06 §6.3: W-06 names the failure and the time it happened.
+
+    The reason is the orchestrator's own code, read back from the append-only
+    audit entry rather than parsed out of `jobs.last_error`.
+    """
+    assert status_of(db_session, failed_case) is CaseStatus.MANUAL_TRIAGE_REQUIRED
+
+    failure = read(reviewer_client, failed_case).json()["failure"]
+
+    assert failure is not None
+    assert failure["reason_code"] == FailureReason.EXTRACTION_TIMEOUT.value
+    assert failure["failed_at"]
+
+
+def test_a_failure_reason_carries_no_prompt_or_model_response(
+    reviewer_client: TestClient, failed_case: Case
+) -> None:
+    """CLAUDE.md §9: a code, never a message that could quote the model."""
+    failure = read(reviewer_client, failed_case).json()["failure"]
+
+    assert failure["reason_code"] in {reason.value for reason in FailureReason}
+
+
+def test_a_case_that_never_failed_reports_no_failure(
+    reviewer_client: TestClient, demo_case: Case
+) -> None:
+    body = read(reviewer_client, demo_case).json()
+
+    assert body["failure"] is None
+
+
+def test_a_case_triaged_by_hand_no_longer_reports_the_failure(
+    reviewer_client: TestClient, failed_case: Case, db_session: Session
+) -> None:
+    """The banner belongs to a case that is still waiting, not to its history.
+
+    The `PIPELINE_FAILED` entry is never removed — the log is append-only — so
+    the status is what decides whether the failure is still the case's situation.
+    Its record stays on the audit timeline either way (FR-45).
+    """
+    make_staff_decision(db_session, case=failed_case, final_category=VTLCategory.ORANGE)
+    failed_case.status = CaseStatus.MANUALLY_TRIAGED
+    db_session.flush()
+
+    assert read(reviewer_client, failed_case).json()["failure"] is None
 
 
 @pytest.mark.parametrize("role", [UserRole.INTAKE_STAFF, UserRole.ADMINISTRATOR])

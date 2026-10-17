@@ -493,6 +493,7 @@ export const strings = {
       adjust: "Adjust category…",
       manual: "Mark for manual triage",
       addNote: "Add note",
+      close: "Close case",
       viewAudit: "View audit",
       // IR-06, BR-10. On screen whenever a decision can be made.
       disclaimer:
@@ -528,8 +529,137 @@ export const strings = {
       cancel: "Cancel",
     },
 
+    // W-05 Adjust dialog (FR-33, BR-03).
+    adjustDialog: {
+      title: "Adjust urgency category",
+      // {category} is the recommended category's name.
+      intro: "AI recommendation: {category}. Select the category you have decided on.",
+      // The right-hand marker on the recommendation's own row.
+      currentMarker: "current",
+      upTriage: "Up-triage",
+      downTriage: "Down-triage",
+      categoryLegend: "Urgency category",
+
+      reasonLabel: "Reason for change (required)",
+      reasonPlaceholder: "Choose a reason…",
+      detailsLabel: "Details",
+      // Required only for the "Other" reason, which carries no meaning on its own.
+      detailsLabelRequired: "Details (required)",
+
+      // The live summary. {from} and {to} are category names, {direction} one of
+      // the two words above, lowercased by the screen.
+      summary: "Change: {from} → {to} ({direction}).",
+      permanentNotice:
+        "Your name, the time, and the reason are recorded in the audit trail " +
+        "and cannot be edited later.",
+      // The checklist on screen was prepared for the recommended category, so a
+      // change of category means the action list is prepared again (FR-78).
+      actionsNotice:
+        "The action list for the new category is recorded with this decision. " +
+        "The suggestions shown for the recommended category are not carried over.",
+
+      submit: "Save decision",
+      submitting: "Saving…",
+      cancel: "Cancel",
+    },
+
+    // The fixed list behind an adjustment (FR-33). The codes are the API's; the
+    // screen never shows one.
+    adjustReasons: {
+      CONDITION_DIFFERS_ON_ARRIVAL: "Patient’s condition on arrival differs from the description",
+      SIGN_NOT_CAPTURED: "A sign was not captured in the description",
+      RECOMMENDATION_TOO_LOW: "The recommendation was too low",
+      RECOMMENDATION_TOO_HIGH: "The recommendation was too high",
+      OTHER: "Other (describe below)",
+    },
+
+    // W-06 Manual triage (FR-34, NFR-09, ADR-15 §4).
+    manualTriage: {
+      // The banner for a case the pipeline gave up on.
+      aiUnavailable: "AI unavailable – triage manually using the VTL.",
+      // {reason} is one of `failureReasons`, {time} the time it failed.
+      failureDetail: "{reason} ({time})",
+      safeToTriage: "The case is safe to triage; no data was lost.",
+      // A reviewer who chose manual triage on a case that has a recommendation.
+      // "AI unavailable" would be untrue, so this says what is actually happening.
+      byChoice:
+        "Manual triage. You are setting the category by hand; the AI recommendation " +
+        "stays on the case for the record.",
+
+      title: "Assign a category manually",
+      categoryLegend: "Urgency category",
+      noteLabel: "Note (required)",
+      noteHelper: "Say what you based the category on. It is recorded with the decision.",
+      // The baseline actions belong to the category being assigned, and the
+      // server reads them when the decision is recorded (FR-72).
+      actionsNotice:
+        "The baseline actions for the category you assign are recorded with this " +
+        "decision. Case-specific AI suggestions are not available for this case.",
+
+      submit: "Save manual triage",
+      submitting: "Saving…",
+      cancel: "Cancel manual triage",
+      statusNotice: "Status will change to “Manually triaged”.",
+      retry: "Retry AI processing",
+    },
+
+    // Why the pipeline stopped, in plain language (NFR-09, IR-05). The keys are
+    // `FailureReason` in `backend/app/pipeline/orchestrator.py`.
+    //
+    // TODO(P07): §7.1 renames these codes and puts the sentences in
+    // `app/pipeline/messages.py`, which the response will then carry. This map
+    // goes away at that point.
+    failureReasons: {
+      EXTRACTION_TIMEOUT: "The language model did not respond in time.",
+      GENERATION_TIMEOUT: "The language model did not respond in time.",
+      EXTRACTION_UNAVAILABLE: "The language model could not be reached.",
+      GENERATION_UNAVAILABLE: "The language model could not be reached.",
+      EXTRACTION_INVALID_OUTPUT: "The language model’s answer could not be read.",
+      GENERATION_INVALID_OUTPUT: "The language model’s answer could not be read.",
+      EXTRACTION_FAILED: "The step that reads the description did not finish.",
+      GENERATION_FAILED: "The step that recommends a category did not finish.",
+      RETRIEVAL_FAILED: "The knowledge base could not be searched.",
+      KB_VERSION_MISSING: "No approved knowledge-base version was available.",
+      DESCRIPTION_MISSING: "The owner’s description could not be read.",
+    },
+    // Any other code, including one this interface does not recognise. Never
+    // print the code itself at a clinician.
+    failureReasonFallback: "AI processing could not be completed for this case.",
+
+    // The Add note dialog (FR-37).
+    noteDialog: {
+      title: "Add a clinical note",
+      label: "Note",
+      helper:
+        "Notes are kept with the case and appear on its audit timeline. They cannot be edited later.",
+      submit: "Save note",
+      submitting: "Saving…",
+      cancel: "Cancel",
+    },
+
+    // The Close case dialog (FR-38, IR-08).
+    closeDialog: {
+      // {caseNo} is the case number.
+      title: "Close case {caseNo}?",
+      body:
+        "Closing records that the patient has been seen and removes the case from " +
+        "the triage queue. The decision and the whole record are kept.",
+      permanentNotice: "A closed case cannot be reopened or decided again.",
+      submit: "Close case",
+      submitting: "Closing…",
+      cancel: "Cancel",
+    },
+
     // {caseNo} and {category}; shown on the queue after the decision is saved.
     confirmedToast: "Case {caseNo} confirmed as {category}",
+    // {caseNo}, {from} and {to} are category names.
+    adjustedToast: "Case {caseNo} adjusted from {from} to {to}",
+    // {caseNo} and {category}.
+    manuallyTriagedToast: "Case {caseNo} triaged manually as {category}",
+    // Shown in place, not on the queue: a note does not end the review.
+    noteAddedToast: "Note added",
+    // {caseNo}.
+    closedToast: "Case {caseNo} closed",
 
     notes: {
       title: "Notes",
@@ -549,6 +679,13 @@ export const strings = {
         "This case has already been decided by someone else. The screen has been " +
         "refreshed with the current decision.",
       decisionFailed: "The decision could not be saved right now. Please try again.",
+      noteFailed: "The note could not be saved right now. Please try again.",
+      closeFailed: "The case could not be closed right now. Please try again.",
+      // A 409 on close: the case was closed by someone else while this screen
+      // was open, which is not a failure to report as one (FR-38).
+      closeConflict:
+        "This case has already been closed. The screen has been refreshed with " +
+        "the current state.",
     },
   },
 

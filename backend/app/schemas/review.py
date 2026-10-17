@@ -349,6 +349,27 @@ class NoteOut(BaseModel):
     created_at: datetime
 
 
+class FailureOut(BaseModel):
+    """Why the pipeline gave up on this case, and when (NFR-09 · W-06).
+
+    Shown in the W-06 banner so a reviewer triaging by hand knows the case was
+    not lost and why the system stepped aside. Present only while the case is
+    actually sitting on that failure — see `CaseService._failure`.
+
+    `reason_code` is a plain `str`, not the pipeline's `FailureReason` enum. The
+    schema layer must not import `app.pipeline` (CLAUDE.md §7), and the codes are
+    renamed in P07 §7.1, so a client that does not recognise one has to fall back
+    to a general sentence rather than print a code at a clinician (IR-05).
+
+    TODO(P07): §7.1 adds the plain-language text for each code to
+    `app/pipeline/messages.py`; this response then carries the sentence and the
+    client's own map of codes goes away.
+    """
+
+    reason_code: str
+    failed_at: datetime
+
+
 class PermissionsOut(BaseModel):
     """What this caller may do with this case, as the server sees it.
 

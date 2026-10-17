@@ -185,6 +185,7 @@ function makeCaseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
     decision: null,
     notes: [],
     permissions: { can_decide: true, can_regenerate: false, can_close: false },
+    failure: null,
 
     ...overrides,
   };
@@ -211,18 +212,52 @@ function confirmedCase(): CaseDetail {
   });
 }
 
+/** A case the pipeline gave up on: no recommendation, and a reason why (W-06). */
+function manualTriageCase(overrides: Partial<CaseDetail> = {}): CaseDetail {
+  return makeCaseDetail({
+    status: "MANUAL_TRIAGE_REQUIRED",
+    category: null,
+    recommended_category: null,
+    extraction: null,
+    recommendation: null,
+    references: [],
+    configuration: null,
+    actions: {
+      status: null,
+      generated_for_category: null,
+      baseline: [],
+      tailored: [],
+      rejected_count: 0,
+      is_outdated: false,
+    },
+    failure: { reason_code: "GENERATION_TIMEOUT", failed_at: "2026-10-01T01:20:41Z" },
+    ...overrides,
+  });
+}
+
 function renderCase(
   detail: CaseDetail,
   options: {
     role?: "INTAKE_STAFF" | "VETERINARY_REVIEWER" | "ADMINISTRATOR";
     decision?: unknown;
+    /** Extra or replacement routes, matched before the two defaults. */
+    routes?: Record<string, { status?: number; body?: unknown }>;
   } = {},
 ) {
-  // `/decision` first: `stubFetch` matches on the first key the URL contains.
-  const mock = stubFetch({
-    "/decision": { body: options.decision ?? confirmedCase().decision },
-    [`/cases/${CASE_ID}`]: { body: detail },
-  });
+  // Order matters twice over. `stubFetch` matches on the first key the URL
+  // contains and every path here contains `/cases/{id}`, so the subroutes go in
+  // first and the case itself last. And a key is only defaulted when `routes`
+  // did not supply it — spreading over it would silently shadow a route a test
+  // asked for.
+  const routes: Record<string, { status?: number; body?: unknown }> = {
+    ...(options.routes ?? {}),
+  };
+  if (!("/decision" in routes)) {
+    routes["/decision"] = { body: options.decision ?? confirmedCase().decision };
+  }
+  routes[`/cases/${CASE_ID}`] = { body: detail };
+
+  const mock = stubFetch(routes);
 
   const result = renderWithAuth(
     <Routes>
@@ -248,6 +283,18 @@ function decisionBody(mock: ReturnType<typeof stubFetch>): Record<string, unknow
   const call = mock.mock.calls.filter((entry) => String(entry[0]).includes("/decision")).at(-1);
   expect(call).toBeDefined();
   return JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+}
+
+/** The body posted to a path, or undefined if nothing was. */
+function postedBody(
+  mock: ReturnType<typeof stubFetch>,
+  path: string,
+): Record<string, unknown> | undefined {
+  const call = mock.mock.calls.filter((entry) => String(entry[0]).includes(path)).at(-1);
+  if (call === undefined) {
+    return undefined;
+  }
+  return JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
 }
 
 afterEach(() => {
@@ -484,19 +531,20 @@ describe("CaseReview panel 3 — the recommendation", () => {
     expect(screen.getByText(/in 9\.2 s/)).toBeInTheDocument();
   });
 
+  // A reviewer gets the W-06 picker in this panel's place; everyone else reads
+  // the sentence, because manual triage is not theirs to do (BR-02).
   it("reads a missing recommendation as a case to triage by hand, not an error", async () => {
     renderCase(
-      makeCaseDetail({
-        status: "MANUAL_TRIAGE_REQUIRED",
-        category: null,
-        recommended_category: null,
-        recommendation: null,
-        references: [],
-        configuration: null,
+      manualTriageCase({
+        permissions: { can_decide: false, can_regenerate: false, can_close: false },
       }),
+      { role: "INTAKE_STAFF" },
     );
 
     expect(await screen.findByText(copy.recommendationUnavailable)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: copy.manualTriage.title }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -617,7 +665,7 @@ describe("CaseReview suggested actions", () => {
 });
 
 describe("CaseReview decision bar", () => {
-  it("offers the five controls, with only Confirm wired in this subphase", async () => {
+  it("offers every decision control, with only View audit left for the next step", async () => {
     renderCase(makeCaseDetail());
 
     expect(await screen.findByRole("button", { name: "Confirm Orange" })).toBeEnabled();
@@ -625,12 +673,22 @@ describe("CaseReview decision bar", () => {
       copy.decisionBar.adjust,
       copy.decisionBar.manual,
       copy.decisionBar.addNote,
-      copy.decisionBar.viewAudit,
     ]) {
-      const button = screen.getByRole("button", { name: label });
-      expect(button).toBeDisabled();
-      expect(button).toHaveAttribute("title", copy.availableNextStep);
+      expect(screen.getByRole("button", { name: label })).toBeEnabled();
     }
+
+    // §6.4 builds the timeline this opens.
+    const audit = screen.getByRole("button", { name: copy.decisionBar.viewAudit });
+    expect(audit).toBeDisabled();
+    expect(audit).toHaveAttribute("title", copy.availableNextStep);
+  });
+
+  // FR-38: closing is offered only once a decision exists, which is what
+  // `can_close` reports.
+  it("offers Close case only when the server says the case may be closed", async () => {
+    renderCase(makeCaseDetail());
+    await screen.findByRole("button", { name: "Confirm Orange" });
+    expect(screen.queryByRole("button", { name: copy.decisionBar.close })).not.toBeInTheDocument();
   });
 
   it("always shows the decision-support disclaimer (IR-06, BR-10)", async () => {
@@ -760,6 +818,348 @@ describe("CaseReview confirming a decision", () => {
       expect(screen.getByRole("dialog")).toHaveTextContent(copy.errors.decisionFailed),
     );
   });
+});
+
+describe("CaseReview adjusting a decision (W-05)", () => {
+  it("records the new category and the reason, then returns to the queue", async () => {
+    const { mock } = renderCase(makeCaseDetail(), {
+      decision: { ...confirmedCase().decision, type: "ADJUST", final_category: "RED" },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.adjust }));
+
+    const dialog = screen.getByRole("dialog", { name: copy.adjustDialog.title });
+    fireEvent.click(within(dialog).getByRole("radio", { name: /RED/i }));
+    fireEvent.change(within(dialog).getByRole("combobox"), {
+      target: { value: "CONDITION_DIFFERS_ON_ARRIVAL" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: copy.adjustDialog.submit }));
+
+    expect(await screen.findByText("triage queue")).toBeInTheDocument();
+    const body = decisionBody(mock);
+    expect(body.type).toBe("ADJUST");
+    expect(body.final_category).toBe("RED");
+    expect(body.reason_code).toBe("CONDITION_DIFFERS_ON_ARRIVAL");
+  });
+
+  // FR-78: the checklist on screen was prepared for the recommended category, so
+  // it is not what this decision accepts. The server reads the new category's
+  // baseline live when the key is absent (`_accepted_actions`).
+  it("sends no action list, so the server prepares the new category's own", async () => {
+    const { mock } = renderCase(makeCaseDetail(), {
+      decision: { ...confirmedCase().decision, type: "ADJUST", final_category: "RED" },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.adjust }));
+    fireEvent.click(screen.getByRole("radio", { name: /RED/i }));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "SIGN_NOT_CAPTURED" } });
+    fireEvent.click(screen.getByRole("button", { name: copy.adjustDialog.submit }));
+
+    await screen.findByText("triage queue");
+    expect(decisionBody(mock)).not.toHaveProperty("final_actions");
+  });
+
+  // IR-05: the server's 422 belongs beside the control it names.
+  it("puts a rejected reason back beside the reason dropdown", async () => {
+    renderCase(makeCaseDetail(), {
+      routes: {
+        "/decision": {
+          status: 422,
+          body: errorBody(
+            "VALIDATION_ERROR",
+            "Choose a reason for the change from the list.",
+            "reason_code",
+          ),
+        },
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.adjust }));
+    const dialog = screen.getByRole("dialog", { name: copy.adjustDialog.title });
+    fireEvent.click(within(dialog).getByRole("radio", { name: /RED/i }));
+    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "OTHER" } });
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: "Looked worse on arrival." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: copy.adjustDialog.submit }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toHaveTextContent(
+        "Choose a reason for the change from the list.",
+      ),
+    );
+    expect(screen.queryByText("triage queue")).not.toBeInTheDocument();
+  });
+
+  it("closes on Cancel without recording anything", async () => {
+    const { mock } = renderCase(makeCaseDetail());
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.adjust }));
+    fireEvent.click(screen.getByRole("button", { name: copy.adjustDialog.cancel }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mock.mock.calls.every((call) => !String(call[0]).includes("/decision"))).toBe(true);
+  });
+});
+
+describe("CaseReview manual triage (W-06)", () => {
+  // NFR-09: the case was never lost, and the banner says why and when.
+  it("opens straight into the picker, with the failure reason and its time", async () => {
+    renderCase(manualTriageCase());
+
+    expect(
+      await screen.findByRole("heading", { name: copy.manualTriage.title }),
+    ).toBeInTheDocument();
+
+    const banner = screen.getByText(copy.manualTriage.aiUnavailable, { exact: false });
+    expect(banner).toHaveTextContent(copy.failureReasons.GENERATION_TIMEOUT);
+    expect(banner).toHaveTextContent("9:20");
+    expect(banner).toHaveTextContent(copy.manualTriage.safeToTriage);
+  });
+
+  // IR-05: never print a code at a clinician, even one this build has not met.
+  it("falls back to a general sentence for a reason code it does not know", async () => {
+    renderCase(
+      manualTriageCase({
+        failure: { reason_code: "SOMETHING_NEW_IN_P07", failed_at: "2026-10-01T01:20:41Z" },
+      }),
+    );
+
+    expect(
+      await screen.findByText(copy.failureReasonFallback, { exact: false }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/SOMETHING_NEW_IN_P07/)).not.toBeInTheDocument();
+  });
+
+  // P07 §7.1 owns POST /cases/{id}/retry.
+  it("shows Retry AI processing as not yet available", async () => {
+    renderCase(manualTriageCase());
+
+    const retry = await screen.findByRole("button", { name: copy.manualTriage.retry });
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAttribute("title", copy.availableInP07);
+  });
+
+  it("records the category and the note, then returns to the queue", async () => {
+    const { mock } = renderCase(manualTriageCase(), {
+      decision: {
+        ...confirmedCase().decision,
+        type: "MANUAL",
+        final_category: "ORANGE",
+        direction: "NONE",
+        status: "MANUALLY_TRIAGED",
+      },
+    });
+
+    await screen.findByRole("heading", { name: copy.manualTriage.title });
+    fireEvent.click(screen.getByRole("radio", { name: /ORANGE/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Fast breathing reported; assess on arrival." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: copy.manualTriage.submit }));
+
+    expect(await screen.findByText("triage queue")).toBeInTheDocument();
+    const body = decisionBody(mock);
+    expect(body.type).toBe("MANUAL");
+    expect(body.final_category).toBe("ORANGE");
+    expect(body.note).toBe("Fast breathing reported; assess on arrival.");
+    // The baseline set belongs to the category being assigned, and the server
+    // reads it (FR-72, ADR-18 §6).
+    expect(body).not.toHaveProperty("final_actions");
+  });
+
+  // FR-34, ADR-15 §4: available at any time, not only after a failure.
+  it("lets a reviewer choose manual triage on a case that has a recommendation", async () => {
+    renderCase(makeCaseDetail());
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.manual }));
+
+    expect(screen.getByRole("heading", { name: copy.manualTriage.title })).toBeInTheDocument();
+    // "AI unavailable" would simply be untrue here.
+    expect(screen.getByText(copy.manualTriage.byChoice)).toBeInTheDocument();
+    expect(screen.queryByText(copy.manualTriage.aiUnavailable, { exact: false })).toBeNull();
+  });
+
+  it("goes back to the recommendation when the reviewer changes their mind", async () => {
+    renderCase(makeCaseDetail());
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.manual }));
+    fireEvent.click(screen.getByRole("button", { name: copy.manualTriage.cancel }));
+
+    expect(screen.getByText(copy.recommendationTitle)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: copy.manualTriage.title })).toBeNull();
+  });
+
+  // IR-06's acceptance criterion names W-06 as well as W-04.
+  it("keeps the decision-support disclaimer on screen in manual mode", async () => {
+    renderCase(manualTriageCase());
+
+    await screen.findByRole("heading", { name: copy.manualTriage.title });
+    expect(screen.getByText(copy.decisionBar.disclaimer)).toBeInTheDocument();
+  });
+
+  // Neither Confirm nor Adjust means anything without a recommendation, and the
+  // server refuses both from this status (`DECISION_FROM`).
+  it("offers neither Confirm nor Adjust on a case with no recommendation", async () => {
+    renderCase(manualTriageCase());
+
+    await screen.findByRole("heading", { name: copy.manualTriage.title });
+    expect(screen.getByRole("button", { name: /Confirm/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: copy.decisionBar.adjust })).toBeDisabled();
+  });
+});
+
+describe("CaseReview notes (FR-37)", () => {
+  it("adds a note and shows it on the case without leaving the screen", async () => {
+    const note = {
+      id: "00000000-0000-4000-8000-0000000000n1",
+      text: "Owner called back: the cat passed a small amount of urine.",
+      author_name: "Reviewer Demo",
+      created_at: "2026-10-01T02:10:00Z",
+    };
+    const { mock } = renderCase(makeCaseDetail({ notes: [note] }), {
+      routes: { "/notes": { body: note } },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.addNote }));
+    const dialog = screen.getByRole("dialog", { name: copy.noteDialog.title });
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: note.text } });
+    fireEvent.click(within(dialog).getByRole("button", { name: copy.noteDialog.submit }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(postedBody(mock, "/notes")).toEqual({ text: note.text });
+    // Still on the case: a note is not a decision.
+    expect(screen.queryByText("triage queue")).not.toBeInTheDocument();
+    expect(screen.getByText(note.text)).toBeInTheDocument();
+    expect(screen.getByText(/Reviewer Demo/)).toBeInTheDocument();
+  });
+
+  it("will not save an empty note", async () => {
+    renderCase(makeCaseDetail());
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.addNote }));
+
+    expect(screen.getByRole("button", { name: copy.noteDialog.submit })).toBeDisabled();
+  });
+
+  // A note may be added at any status, a closed case included: the moment to
+  // record an observation is when it is known (`ReviewService.add_note`).
+  it("is available on a case that has already been decided", async () => {
+    renderCase(confirmedCase());
+
+    expect(await screen.findByRole("button", { name: copy.decisionBar.addNote })).toBeEnabled();
+  });
+
+  // A closed case is the one place `can_decide` is false for a reviewer, and a
+  // note is not a decision — so the control survives the read-only bar.
+  it("stays reachable for a reviewer on a closed case", async () => {
+    renderCase({
+      ...confirmedCase(),
+      status: "CLOSED",
+      permissions: { can_decide: false, can_regenerate: false, can_close: false },
+    });
+
+    expect(await screen.findByText(copy.decisionBar.readOnly)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.decisionBar.addNote })).toBeEnabled();
+    // Still nothing that would decide the case.
+    expect(screen.queryByRole("button", { name: /Confirm/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: copy.decisionBar.adjust })).not.toBeInTheDocument();
+  });
+});
+
+describe("CaseReview closing a case (FR-38)", () => {
+  function closable(): CaseDetail {
+    return {
+      ...confirmedCase(),
+      permissions: { can_decide: true, can_regenerate: false, can_close: true },
+    };
+  }
+
+  // IR-08: closing cannot be undone, so it is asked about first.
+  it("asks before closing, then closes and returns to the queue", async () => {
+    const { mock } = renderCase(closable(), {
+      routes: {
+        "/close": {
+          body: {
+            id: CASE_ID,
+            case_no: "C-0142",
+            status: "CLOSED",
+            closed_at: "2026-10-01T03:00:00Z",
+          },
+        },
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.close }));
+
+    const dialog = screen.getByRole("dialog", { name: "Close case C-0142?" });
+    expect(within(dialog).getByText(copy.closeDialog.permanentNotice)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: copy.closeDialog.submit }));
+
+    expect(await screen.findByText("triage queue")).toBeInTheDocument();
+    expect(mock.mock.calls.some((call) => String(call[0]).includes("/close"))).toBe(true);
+  });
+
+  it("closes the dialog on Cancel without closing the case", async () => {
+    const { mock } = renderCase(closable());
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.close }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: copy.closeDialog.cancel }),
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mock.mock.calls.every((call) => !String(call[0]).includes("/close"))).toBe(true);
+  });
+
+  // A 409 here means someone else closed it: the screen was out of date.
+  it("explains a case that was already closed, and stays put", async () => {
+    renderCase(closable(), {
+      routes: {
+        "/close": {
+          status: 409,
+          body: errorBody("INVALID_TRANSITION", "This case is already closed."),
+        },
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.decisionBar.close }));
+
+    const dialog = screen.getByRole("dialog", { name: "Close case C-0142?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: copy.closeDialog.submit }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toHaveTextContent(copy.errors.closeConflict),
+    );
+    expect(screen.queryByText("triage queue")).not.toBeInTheDocument();
+  });
+});
+
+// BR-01, BR-02: the clinical core. Nobody but a Veterinary Reviewer gets any of
+// these controls, whatever else the screen shows them.
+describe("CaseReview decision controls and role", () => {
+  for (const role of ["INTAKE_STAFF", "ADMINISTRATOR"] as const) {
+    it(`offers no decision, note or close control to ${role}`, async () => {
+      renderCase(
+        manualTriageCase({
+          permissions: { can_decide: false, can_regenerate: false, can_close: false },
+        }),
+        { role },
+      );
+
+      expect(await screen.findByText(copy.decisionBar.readOnly)).toBeInTheDocument();
+      for (const label of [
+        copy.decisionBar.adjust,
+        copy.decisionBar.manual,
+        copy.decisionBar.addNote,
+        copy.decisionBar.close,
+      ]) {
+        expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
+      }
+      // And no way to assign a category by hand either.
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    });
+  }
 });
 
 describe("CaseReview loading and failure", () => {

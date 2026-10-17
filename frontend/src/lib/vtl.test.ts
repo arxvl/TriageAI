@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { CaseQueueItem } from "../api/cases";
-import { badgeCategoryOf, isOverdueForDisplay, TARGET_MINUTES, waitProgressPercent } from "./vtl";
+import {
+  badgeCategoryOf,
+  directionOf,
+  isOverdueForDisplay,
+  TARGET_MINUTES,
+  waitProgressPercent,
+} from "./vtl";
 
 function row(overrides: Partial<CaseQueueItem> = {}): Pick<CaseQueueItem, "category" | "status"> {
   return { category: null, status: "AWAITING_REVIEW", ...overrides };
@@ -67,5 +73,22 @@ describe("waitProgressPercent", () => {
 
   it("is 0 with no target, where the caller draws no bar at all", () => {
     expect(waitProgressPercent(22, null)).toBe(0);
+  });
+});
+
+describe("directionOf", () => {
+  // The mirror of `direction()` in backend/app/services/case_transitions.py.
+  it("calls a move towards a more urgent category an up-triage", () => {
+    expect(directionOf("ORANGE", "RED")).toBe("UP");
+    expect(directionOf("BLUE", "YELLOW")).toBe("UP");
+  });
+
+  it("calls a move towards a less urgent category a down-triage", () => {
+    expect(directionOf("ORANGE", "GREEN")).toBe("DOWN");
+    expect(directionOf("RED", "BLUE")).toBe("DOWN");
+  });
+
+  it("has no direction when the category did not move", () => {
+    expect(directionOf("YELLOW", "YELLOW")).toBe("SAME");
   });
 });

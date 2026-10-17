@@ -479,6 +479,20 @@ export interface CaseAlert {
   acknowledged_at: string | null;
 }
 
+/**
+ * Why the pipeline gave up on this case, and when (NFR-09, W-06).
+ *
+ * Null unless the case is `MANUAL_TRIAGE_REQUIRED` — the one status that means
+ * the pipeline stopped and nobody has decided yet. `reason_code` is a stable
+ * code, never shown as itself: the screen maps it to a sentence and falls back to
+ * a general one for a code it does not know (IR-05).
+ */
+export interface CaseFailure {
+  reason_code: string;
+  /** ISO-8601 UTC. */
+  failed_at: string;
+}
+
 /** The latest decision on a case, or the one just recorded (FR-36). */
 export interface CaseDecision {
   id: string;
@@ -549,6 +563,8 @@ export interface CaseDetail {
   decision: CaseDecision | null;
   notes: CaseNote[];
   permissions: CasePermissions;
+  /** The failure the case is sitting on, for W-06's banner. */
+  failure: CaseFailure | null;
 }
 
 /** One row of the action list a reviewer finalizes with their decision (FR-76). */
