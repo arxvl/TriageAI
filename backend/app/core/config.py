@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     app_env: AppEnv = AppEnv.DEV
     tz_display: str = "Asia/Manila"
 
+    EXTRACTION_PROMPT_VERSION: str = "v1.0"
+
     # ---- LLM provider (M2) ----
     LLM_PROVIDER: Literal["mock", "hosted", "ollama"] = "mock"
     LLM_BASE_URL: str = ""

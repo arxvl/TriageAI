@@ -5,29 +5,9 @@
 
 You will replace `MockEntityExtractor` with `LLMEntityExtractor`. It sends the de-identified text to the chosen LLM with a versioned prompt, validates the JSON against `ExtractionOutput`, maps complaints to the fixed list, removes invented evidence, and retries once.
 
-## What M2 already gave you (do not rebuild)
-
-M2 is complete, so the following exist and are tested. This guide only adds the
-extraction stage on top of them.
-
-| Already built | Where |
-|---|---|
-| `LLMProvider` implementations (hosted, Ollama, mock) with error mapping, retries on 429/5xx, rate limiting | `app/adapters/llm/` |
-| Every `LLM_*` and `OLLAMA_*` setting, including `LLM_TEMPERATURE` (blank = send nothing) | `app/core/config.py`, `.env.example` |
-| Registry wiring for `LLM_PROVIDER` | `app/pipeline/registry.py` |
-| Connectivity, schema, determinism and spike scripts | `backend/scripts/llm_*.py` |
-| The chosen model and its measured reproducibility | ADR-06 selection record |
-
-**Temperature:** the adapter decides it from `LLM_TEMPERATURE`. The extractor never
-passes a temperature, and you do not add a temperature field here.
-
-**Schema in the prompt:** the adapter already appends the JSON Schema to the system
-message when `LLM_SCHEMA_IN_PROMPT=true`, so the prompt file below does **not** embed
-the schema itself.
-
 ## Prerequisites
 
-- [x] M2 done: `llm_ping` and `llm_schema_check` pass, and ADR-06 names the chosen model.
+- [x] M2 done: `llm_ping` works and the model is chosen.
 - [x] P02 seed ran: the `presenting_complaints` table holds 21 codes.
 - [x] 10 spike descriptions exist in `evaluation/spike/descriptions.yaml`.
 
@@ -193,22 +173,22 @@ class LLMEntityExtractor:
 - The orchestrator reads `model_id`, `prompt_version`, and `last_latency_ms` from the stage for storage (FR-26, CLAUDE.md §8.2). The class above provides all three.
 - The P05 orchestrator passes the signalment as a dict (CLAUDE.md §8.2), so the prompt receives age, sex, and weight from the form.
 
-Add **only** `EXTRACTION_PROMPT_VERSION=v1.0` to the settings and `.env.example`. Every other `LLM_*` setting already exists from M2 — do not add a second copy.
+Add `EXTRACTION_PROMPT_VERSION=v1.0` to the settings and `.env.example`.
 
 ## Step 4. Unit tests (no real LLM) — `backend/tests/unit/pipeline/test_extraction_llm.py`
 
 Use a `FakeLLM` whose `complete_json` returns queued dicts or raises. Cover:
 
-| Case | Fake returns | Expected |
-|---|---|---|
-| valid | full valid dict | `ExtractionOutput`; the species forced from the form |
-| invalid then valid | `{}` then a valid dict | success after 1 retry; the fake was called twice |
-| invalid twice | `{}`, `{}` | `ExtractionFailed` |
-| unknown code | complaint `"KIDNEY_STONES"` | mapped to `OTHER` |
-| two primaries | 2 × `is_primary=True` | exactly one primary |
-| no complaint | empty list | `OTHER`, primary |
-| invented span | span text not in the input | span removed |
-| `LLMTimeout` raised | — | propagates, so the orchestrator takes the failure path |
+| Case                | Fake returns                | Expected                                               |
+| ------------------- | --------------------------- | ------------------------------------------------------ |
+| valid               | full valid dict             | `ExtractionOutput`; the species forced from the form   |
+| invalid then valid  | `{}` then a valid dict      | success after 1 retry; the fake was called twice       |
+| invalid twice       | `{}`, `{}`                  | `ExtractionFailed`                                     |
+| unknown code        | complaint `"KIDNEY_STONES"` | mapped to `OTHER`                                      |
+| two primaries       | 2 × `is_primary=True`       | exactly one primary                                    |
+| no complaint        | empty list                  | `OTHER`, primary                                       |
+| invented span       | span text not in the input  | span removed                                           |
+| `LLMTimeout` raised | —                           | propagates, so the orchestrator takes the failure path |
 
 **Check 4.** `pytest -q tests/unit/pipeline/test_extraction_llm.py` passes.
 
@@ -223,10 +203,6 @@ Use a `FakeLLM` whose `complete_json` returns queued dicts or raises. Cover:
    ```bash
    docker compose exec backend pytest -m llm tests/golden -q
    ```
-
-   Each golden run costs real quota: 10 cases × 3 runs = 30 calls. Check your remaining
-   daily allowance first (M2 Step 1), and develop against `PIPELINE_EXTRACTOR=mock`
-   between runs.
 
    **Target:** at least 9 of the 10 cases pass. Always check these three:
    - "no blood in the vomit" appears under negated findings
@@ -248,9 +224,6 @@ Use a `FakeLLM` whose `complete_json` returns queued dicts or raises. Cover:
    - the configuration footnote shows `extraction/v1.0` and the real model ID.
 4. The retriever and generator are still mocks, so the categories come from the fixtures or the generic mock. That is expected until M6.
 5. Check that latency stays within NFR-01. Read `stage_ms.extract` from the latency report (P10) or directly from the `recommendations.params` column. It should be at most 5 s at the median.
-6. If extraction output varies between identical runs, that is the reproducibility
-   figure M2 Step 9 measured, not a bug in this stage. Record it; do not try to fix it
-   by lowering temperature on a provider that ignores the parameter.
 
 ## Done when
 
