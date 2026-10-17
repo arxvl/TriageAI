@@ -42,6 +42,6 @@ select = ["E", "F", "I", "B", "UP", "S"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Puts the backend root on sys.path so tests can share helpers via
-# `from tests.conftest import ...`.
+addopts = "-m 'not llm'"
+markers = ["llm: calls a real LLM provider; costs quota, excluded by default"]
 pythonpath = ["."]

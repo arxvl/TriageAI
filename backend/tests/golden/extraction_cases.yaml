@@ -1,0 +1,94 @@
+
+# Golden cases for extraction (M3 Step 5).
+# S04-S10 are reconstructed examples, not verified copies of the original M2 cases.
+
+- id: S01
+  species: CAT
+  text: >-
+    Male cat, 3 years. Since this morning he keeps going to the litter box and cries,
+    but nothing comes out. He vomited twice.
+  expected_primary: URINARY_OBSTRUCTION
+  expected_negated: []
+  expected_red_flag: true
+
+- id: S02
+  species: DOG
+  text: >-
+    Dog, 4 years. He has been scratching and licking his paws for two weeks.
+    He is eating and playing normally.
+  expected_primary: SKIN_ITCH
+  expected_negated: []
+  expected_red_flag: false
+
+- id: S03
+  species: DOG
+  text: >-
+    Dog is breathing very fast with his mouth open, and his gums look bluish.
+  expected_primary: RESPIRATORY_DISTRESS
+  expected_negated: []
+  expected_red_flag: true
+
+- id: S04
+  species: DOG
+  text: >-
+    Dog, 5 years. He vomited three times today. The owner says there was no blood
+    in the vomit. He is drinking small amounts of water.
+  expected_primary: VOMITING
+  expected_negated:
+    - "no blood"
+  expected_red_flag: false
+
+- id: S05
+  species: DOG
+  text: >-
+    Dog, 6 years. The owner says he has not been himself lately and seems
+    different from usual, but cannot explain exactly what is wrong.
+  expected_primary: OTHER
+  expected_negated: []
+  expected_red_flag: false
+
+- id: S06
+  species: DOG
+  text: >-
+    Dog, 2 years. He was hit by a motorcycle and is now limping.
+    There is a bleeding wound on his front leg.
+  expected_primary: TRAUMA
+  expected_negated: []
+  expected_red_flag: true
+
+- id: S07
+  species: DOG
+  text: >-
+    Dog, 4 years. After being left outside in the afternoon heat, he began
+    panting heavily, drooling, and struggling to stand.
+  expected_primary: HEAT_STRESS
+  expected_negated: []
+  expected_red_flag: true
+
+- id: S08
+  species: DOG
+  text: >-
+    Dog, 3 years. The owner saw him eat rat poison about 20 minutes ago.
+    He is drooling and has started trembling.
+  expected_primary: TOXIN_INGESTION
+  expected_negated: []
+  expected_red_flag: true
+
+- id: S09
+  species: DOG
+  text: >-
+    Dog, 5 years. The owner reports, "Parang ayaw niyang kumain at matamlay
+    siya mula kahapon." The dog has been eating less and appears less active
+    since yesterday.
+  expected_primary: INAPPETENCE
+  expected_negated: []
+  expected_red_flag: false
+
+- id: S10
+  species: CAT
+  text: >-
+    Cat, 2 years. She sneezed several times today and has a small amount
+    of clear nasal discharge. She is eating, drinking, and playing normally.
+  expected_primary: COUGH_SNEEZE
+  expected_negated: []
+  expected_red_flag: false
