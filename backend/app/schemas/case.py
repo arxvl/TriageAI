@@ -35,6 +35,18 @@ from app.models.enums import (
     Species,
     VTLCategory,
 )
+from app.schemas.review import (
+    AlertOut,
+    CaseHeaderOut,
+    ConfigurationOut,
+    DecisionOut,
+    DescriptionOut,
+    ExtractionOut,
+    NoteOut,
+    PermissionsOut,
+    RecommendationOut,
+    ReferenceOut,
+)
 
 DESCRIPTION_MIN_LENGTH = 20
 DESCRIPTION_MAX_LENGTH = 2_000
@@ -322,13 +334,27 @@ class CaseActionsOut(BaseModel):
 
 
 class CaseDetail(BaseModel):
-    """One case, as much of it as P05b needs (FR-71..FR-79).
+    """One case, everything the Case Review screen shows (FR-31, W-04).
 
-    Deliberately small. P06 §6.1 is what builds the review screen's response —
-    the verbatim description, the extraction with its evidence spans, the
-    references, the configuration, the alerts, the decision and the permissions.
-    This is the slice the suggested actions need, added here so they can be read
-    and role-filtered as soon as the pipeline produces them.
+    The order of the three panel sections is the order ADR-15 puts them on
+    screen: `description` first, then `extraction`, then `recommendation`. The
+    reviewer reaches the AI's answer after the evidence they can check it
+    against, which is the main structural defence against automation bias, and
+    a response that listed the recommendation first would invite a client to lay
+    the screen out the other way round.
+
+    Everything below `actions` is null on a case that has not got that far: a
+    case still in `SUBMITTED` has no extraction, one in
+    `MANUAL_TRIAGE_REQUIRED` has no recommendation and no references, and an
+    undecided case has no decision. The screen reads those nulls as "not
+    available" (W-06), never as an error.
+
+    The top-level `category` / `recommended_category` / `confirmed_category`
+    triple is kept from the P05b slice. It is redundant against
+    `recommendation.category` and `decision.final_category`, and deliberately
+    so: the queue and the review screen must agree about which category a case
+    displays and which of the two it came from, and they agree by reading the
+    same fields (FR-29, FR-36, IR-04).
 
     No owner name and no contact number, as in every other response (FR-07,
     DR-04).
@@ -344,3 +370,15 @@ class CaseDetail(BaseModel):
     has_red_flag: bool
     created_at: datetime
     actions: CaseActionsOut
+
+    # The review screen (P06 §6.1).
+    header: CaseHeaderOut
+    description: DescriptionOut
+    extraction: ExtractionOut | None
+    recommendation: RecommendationOut | None
+    references: list[ReferenceOut]
+    configuration: ConfigurationOut | None
+    alerts: list[AlertOut]
+    decision: DecisionOut | None
+    notes: list[NoteOut]
+    permissions: PermissionsOut

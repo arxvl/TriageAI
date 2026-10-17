@@ -32,12 +32,16 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import CaseNotFound, SpeciesOutOfScope
-from app.core.vtl import is_overdue, target_minutes
+from app.core.vtl import TARGET_MINUTES, is_overdue, target_minutes
 from app.jobs.queue import STAGE_KEY, JobQueue, JobStage
 from app.models import (
     ActionSource,
     ActionsStatus,
+    AdjustReason,
     CaseStatus,
+    ConfidenceLevel,
+    DecisionDirection,
+    DecisionType,
     IntakeChannel,
     JobStatus,
     JobType,
@@ -53,6 +57,7 @@ from app.repositories.case_repository import (
     OwnerReferenceValues,
     SignalmentValues,
 )
+from app.repositories.review_repository import ReviewRepository
 from app.schemas.case import (
     CaseActionsOut,
     CaseCreate,
@@ -68,7 +73,23 @@ from app.schemas.case import (
     SpeciesInput,
     SuggestedActionOut,
 )
+from app.schemas.review import (
+    AlertOut,
+    CaseHeaderOut,
+    ConfigurationOut,
+    DecisionOut,
+    DescriptionOut,
+    ExtractedComplaintOut,
+    ExtractionOut,
+    NoteOut,
+    PermissionsOut,
+    RecommendationOut,
+    ReferenceOut,
+    SafetyFloorRuleOut,
+)
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
+from app.services.case_transitions import DECIDED_STATUSES
+from app.services.evidence_spans import locate
 
 Clock = Callable[[], datetime]
 
@@ -92,6 +113,7 @@ class CaseService:
     ) -> None:
         self._session = session
         self._cases = CaseRepository(session)
+        self._reviews = ReviewRepository(session)
         self._jobs = JobQueue(session)
         self._audit = AuditService(session)
         self._now = now or _utc_now
@@ -249,22 +271,44 @@ class CaseService:
     # --- Suggested actions (FR-71..FR-79, ADR-18) --------------------------
 
     def get_detail(self, case_id: uuid.UUID, user: User) -> CaseDetail:
-        """One case with its suggested actions, role-filtered (FR-79).
+        """Everything the Case Review screen shows, role-filtered (FR-31, W-04).
 
-        The P05b slice of the review response; P06 §6.1 extends it. `user` is
-        taken rather than read from a request because the filtering is a business
-        rule, not a presentation detail: a caller who is not a Veterinary
-        Reviewer must not receive unfinalized model-suggested actions, and that
-        has to hold however this is called (SR-05, FR-79).
+        `user` is taken rather than read from a request because two of the rules
+        here are business rules, not presentation details, and have to hold
+        however this is called (SR-05):
+
+        * a caller who is not a Veterinary Reviewer does not receive
+          unfinalized model-suggested actions (FR-79);
+        * opening the case **as a reviewer** acknowledges its red-flag alerts,
+          which is what clears the W-02 banner (FR-12).
+
+        That second one makes this read have a side effect, which is unusual
+        enough to be worth stating: the acknowledgement records that a reviewer
+        has seen the alert, and the only moment the system can observe that is
+        when they open the case. A read by intake staff or an administrator
+        acknowledges nothing — neither of them is the person the alert is
+        escalating to (BR-02).
         """
         row = self._cases.detail_row(case_id)
         if row is None:
             raise CaseNotFound()
 
+        header_row = self._reviews.header_row(case_id)
+        if header_row is None:
+            raise CaseNotFound()
+
+        now = self._now()
+        status = CaseStatus(row.status)
+        self._acknowledge_alerts(case_id, user, now)
+
+        extraction = self._reviews.latest_extraction(case_id)
+        recommendation = self._reviews.latest_recommendation(case_id)
+        references = [] if recommendation is None else self._reviews.references(recommendation.id)
+
         return CaseDetail(
             id=row.id,
             case_no=row.case_no,
-            status=CaseStatus(row.status),
+            status=status,
             species=Species(row.species),
             category=_as_category(row.category),
             recommended_category=_as_category(row.recommended_category),
@@ -272,6 +316,217 @@ class CaseService:
             has_red_flag=row.has_red_flag,
             created_at=row.created_at,
             actions=self._actions(case_id, row, user),
+            header=self._header(header_row, _as_category(row.category), now),
+            description=self._description(case_id, extraction),
+            extraction=None if extraction is None else self._extraction(extraction),
+            recommendation=(
+                None if recommendation is None else self._recommendation(recommendation)
+            ),
+            references=[
+                ReferenceOut(
+                    rank=reference.rank,
+                    entry_title=reference.entry_title,
+                    source_title=reference.source_title,
+                    source_url=reference.source_url,
+                    passage_text=reference.passage_text,
+                    score=None if reference.score is None else float(reference.score),
+                    is_cited=reference.is_cited,
+                )
+                for reference in references
+            ],
+            configuration=(None if recommendation is None else self._configuration(recommendation)),
+            alerts=[
+                AlertOut(
+                    rule_code=alert.rule_code,
+                    rule_label=alert.rule_label,
+                    min_category=VTLCategory(alert.min_category),
+                    created_at=alert.created_at,
+                    acknowledged_at=alert.acknowledged_at,
+                )
+                for alert in self._reviews.alerts(case_id)
+            ],
+            decision=self._decision(case_id, status),
+            notes=[
+                NoteOut(
+                    id=note.id,
+                    text=note.text,
+                    author_name=note.author_name,
+                    created_at=note.created_at,
+                )
+                for note in self._reviews.notes(case_id)
+            ],
+            permissions=self._permissions(status, user),
+        )
+
+    # --- The review screen (FR-31, P06 §6.1) ------------------------------
+
+    def _acknowledge_alerts(self, case_id: uuid.UUID, user: User, now: datetime) -> None:
+        """Record that a reviewer has seen this case's red-flag alerts (FR-12).
+
+        Committed on its own, before the rest of the response is assembled: the
+        acknowledgement is a fact whether or not the read that triggered it
+        succeeds, and the alerts the response then reports carry the timestamp
+        that was just written rather than disagreeing with it.
+        """
+        if user.role is not UserRole.VETERINARY_REVIEWER:
+            return
+        if self._reviews.acknowledge_alerts(case_id, now):
+            self._session.commit()
+
+    def _header(self, row: Row, category: VTLCategory | None, now: datetime) -> CaseHeaderOut:
+        """The W-04 header, with the waiting time measured against `now`.
+
+        Measured here against the same instant as everything else in this
+        response, for the same reason the queue does it: a header that says
+        "waiting 6 min of 15 min" and a badge derived from a different clock
+        read would be able to disagree.
+        """
+        waiting_minutes = _minutes_between(row.created_at, now)
+        return CaseHeaderOut(
+            case_no=row.case_no,
+            species=Species(row.species),
+            pet_name=row.pet_name,
+            age_value=float(row.age_value) if row.age_value is not None else None,
+            age_unit=row.age_unit,
+            sex=Sex(row.sex) if row.sex is not None else Sex.UNKNOWN,
+            neutered=row.neutered,
+            breed=row.breed,
+            weight_kg=float(row.weight_kg) if row.weight_kg is not None else None,
+            intake_channel=IntakeChannel(row.intake_channel),
+            created_at=row.created_at,
+            created_by_name=row.created_by_name,
+            closed_at=row.closed_at,
+            waiting_minutes=waiting_minutes,
+            target_minutes=target_minutes(category),
+            is_overdue=is_overdue(category, waiting_minutes),
+        )
+
+    def _description(self, case_id: uuid.UUID, extraction: Row | None) -> DescriptionOut:
+        """Panel 1: the verbatim description and the text the pipeline read.
+
+        A case always has a description — it cannot be created without one
+        (FR-05) — but it may not have an extraction yet, and an extraction
+        written before migration 0004 has no stored de-identified text. Either
+        way `deidentified_text` is None and the screen shows the original with
+        no highlights.
+        """
+        text = self._reviews.description(case_id) or ""
+        deidentified = None if extraction is None else extraction.input_text
+        return DescriptionOut(
+            text=text,
+            deidentified_text=deidentified,
+            differs=deidentified is not None and deidentified != text,
+        )
+
+    def _extraction(self, row: Row) -> ExtractionOut:
+        """Panel 2: the extracted information, with located evidence spans.
+
+        `entities` is the whole `ExtractionOutput` contract object as stored, so
+        the fields are read out of it by name. A missing or mistyped key reads as
+        absent rather than raising: this response is how a reviewer sees a case
+        at all, and one malformed value must not take the screen down.
+        """
+        entities = row.entities if isinstance(row.entities, dict) else {}
+        complaints = self._reviews.extraction_complaints(row.id)
+
+        return ExtractionOut(
+            id=row.id,
+            version=row.version,
+            is_corrected=row.is_corrected,
+            species=_as_species(entities.get("species")),
+            presenting_complaints=[
+                ExtractedComplaintOut(
+                    code=complaint.code,
+                    name=complaint.name,
+                    is_primary=complaint.is_primary,
+                )
+                for complaint in complaints
+            ],
+            onset_duration=_as_text(entities.get("onset_duration")),
+            frequency_severity=_as_text(entities.get("frequency_severity")),
+            associated_signs=_as_text_list(entities.get("associated_signs")),
+            negated_findings=_as_text_list(entities.get("negated_findings")),
+            exposure_history=_as_text(entities.get("exposure_history")),
+            relevant_history=_as_text(entities.get("relevant_history")),
+            red_flags=_as_text_list(row.red_flags),
+            missing_information=_as_text_list(row.missing_information),
+            evidence_spans=locate(entities.get("evidence_spans"), row.input_text),
+            created_at=row.created_at,
+        )
+
+    def _recommendation(self, row: Row) -> RecommendationOut:
+        """Panel 3: the recommendation after the safety validator (ADR-09).
+
+        The safety-floor rules are resolved to the clinic's own labels, because
+        W-04 names the rule in words and `MALE_CAT_NO_URINE` is not a sentence
+        (IR-03). A code whose rule row has since been removed keeps the code and
+        reports a null label rather than disappearing from the notice.
+        """
+        category = VTLCategory(row.category)
+        codes = _as_text_list(row.safety_floor_rule_codes)
+        labels = self._reviews.rule_labels(codes)
+        return RecommendationOut(
+            id=row.id,
+            version=row.version,
+            category=category,
+            target_minutes=TARGET_MINUTES[category],
+            rationale=row.rationale,
+            confidence=ConfidenceLevel(row.confidence),
+            safety_floor_applied=row.safety_floor_applied,
+            safety_floor_rules=[
+                SafetyFloorRuleOut(code=code, label=labels.get(code)) for code in codes
+            ],
+            low_confidence_reasons=_as_text_list(row.low_confidence_reasons),
+            created_at=row.created_at,
+        )
+
+    def _configuration(self, row: Row) -> ConfigurationOut:
+        """The provenance footnote: what produced this recommendation (FR-26)."""
+        return ConfigurationOut(
+            model_id=row.model_id,
+            prompt_version=row.prompt_version,
+            kb_version_no=row.kb_version_no,
+            generated_at=row.created_at,
+            latency_ms=row.latency_ms,
+        )
+
+    def _decision(self, case_id: uuid.UUID, status: CaseStatus) -> DecisionOut | None:
+        """The latest decision on this case, if a reviewer has made one."""
+        row = self._reviews.latest_decision(case_id)
+        if row is None:
+            return None
+        category = VTLCategory(row.final_category)
+        return DecisionOut(
+            id=row.id,
+            type=DecisionType(row.type),
+            final_category=category,
+            target_minutes=TARGET_MINUTES[category],
+            reason_code=None if row.reason_code is None else AdjustReason(row.reason_code),
+            reason_text=row.reason_text,
+            direction=DecisionDirection(row.direction),
+            decided_by_name=row.decided_by_name,
+            decided_at=row.decided_at,
+            amends_id=row.amends_id,
+            status=status,
+        )
+
+    def _permissions(self, status: CaseStatus, user: User) -> PermissionsOut:
+        """What this caller may do with this case (BR-02, SR-05).
+
+        A description of the server's rules so the screen can hide controls
+        rather than offer buttons that answer 403 or 409 — never the enforcement
+        itself, which is `require_role` and `ReviewService`.
+
+        `can_decide` stays true on a case that is already decided, because a
+        reviewer may still record an amendment (FR-48). It goes false only when
+        the case is closed.
+        """
+        is_reviewer = user.role is UserRole.VETERINARY_REVIEWER
+        return PermissionsOut(
+            can_decide=is_reviewer and status is not CaseStatus.CLOSED,
+            # The regenerate backend is P07; W-04 shows the button disabled.
+            can_regenerate=False,
+            can_close=is_reviewer and status in DECIDED_STATUSES,
         )
 
     def _actions(self, case_id: uuid.UUID, row: Row, user: User) -> CaseActionsOut:
@@ -468,6 +723,38 @@ def _as_category(value: object) -> VTLCategory | None:
     if value is None:
         return None
     return VTLCategory(value)
+
+
+def _as_species(value: object) -> Species | None:
+    """Normalise a species out of the stored extraction JSON, or None.
+
+    `entities` is JSONB written by a pipeline stage. A value that is not one of
+    the two supported species reads as absent rather than raising: the case row
+    carries the authoritative species, and the review screen shows that.
+    """
+    if value is None:
+        return None
+    try:
+        return Species(value)
+    except ValueError:
+        return None
+
+
+def _as_text(value: object) -> str | None:
+    """A stored optional string, or None for anything that is not one."""
+    return value if isinstance(value, str) else None
+
+
+def _as_text_list(value: object) -> list[str]:
+    """A stored list of strings, dropping anything that is not one.
+
+    Defensive for the same reason as `_as_species`: these lists come out of
+    JSONB columns a stage wrote, and one unexpected element must not make the
+    case unreadable.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _cited_ranks(cited_chunk_ids: object) -> list[int]:

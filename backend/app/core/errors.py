@@ -121,6 +121,58 @@ class CaseNotFound(AppError):
     message = "That case could not be found."
 
 
+class InvalidCaseTransition(AppError):
+    """409: the case is not in a state where this action is allowed.
+
+    A conflict, not a validation failure: the request is well formed and would
+    have been correct a moment ago or on another case. The reviewer's screen is
+    simply out of date — someone else decided first, or the case has been closed
+    — so the client should re-read the case rather than fix a field (FR-32,
+    FR-34, FR-38).
+    """
+
+    code = "INVALID_TRANSITION"
+    status_code = 409
+    message = "This case is no longer in a state where that action is allowed."
+
+
+class AmendmentRequired(AppError):
+    """409: the case is already decided, so a change must be an amendment.
+
+    A finalized decision is never edited and never silently replaced (FR-48,
+    ADR-12). Recording a different one means sending `amends_id`, which keeps
+    the original row and the reason it was superseded.
+    """
+
+    code = "AMENDMENT_REQUIRED"
+    status_code = 409
+    message = (
+        "This case has already been decided. Record a correction as an amendment, "
+        "which keeps the original decision and its reason."
+    )
+
+
+class InvalidDecision(AppError):
+    """422: the decision is well formed but its fields do not agree.
+
+    Whether a decision needs a category, a reason code or a note depends on its
+    type, and a cross-field rule has no Pydantic error type to key wording on —
+    so these are raised by `ReviewService` instead, and carry the field the form
+    should point at, exactly as a Pydantic failure would (IR-05, FR-33, FR-34).
+    """
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+    message = "Some of the information you entered is not valid."
+
+    def __init__(self, message: str | None = None, *, field: str | None = None) -> None:
+        self.field = field
+        super().__init__(message)
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, self.field)
+
+
 class CSRFFailed(AppError):
     code = "CSRF_FAILED"
     status_code = 403

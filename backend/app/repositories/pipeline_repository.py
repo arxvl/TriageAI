@@ -394,6 +394,7 @@ class PipelineRepository:
         *,
         case_id: uuid.UUID,
         version: int,
+        input_text: str,
         extraction: ExtractionOutput,
         model_id: str,
         prompt_version: str,
@@ -404,10 +405,16 @@ class PipelineRepository:
 
         `complaint_codes` is `(code, is_primary)` already mapped to codes that
         exist, so the FK cannot be violated by a stage that invented one.
+
+        `input_text` is the **de-identified** description the stage was given,
+        never the raw one (ADR-10). It is stored because the evidence spans in
+        `entities` are exact substrings of it and the review screen has to map
+        them to character offsets (FR-13).
         """
         row = ExtractionResult(
             case_id=case_id,
             version=version,
+            input_text=input_text,
             entities=extraction.model_dump(mode="json"),
             red_flags=list(extraction.red_flags),
             missing_information=list(extraction.missing_information),

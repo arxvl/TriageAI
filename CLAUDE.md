@@ -8,9 +8,9 @@ This file is read at the start of every Claude Code session. Follow it in every 
 
 ## 0. Build progress — do not redo completed work
 
-| Done                                                                                                                                                                                                            | In progress / next                                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| P01 scaffold · P02 database · P03 auth and RBAC · P04 intake and queue · P05 pipeline framework (mocks) · P05b suggested actions framework · M1 de-identification and red-flag screening · **M2 LLM provider adapter and model selection** | M3 extraction → P06 review → M4 → P08 → M5 → P07 → M6 → M6b → P09 → M7 → P10 |
+| Done                                                                                                                                                                                                                                                   | In progress / next                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| P01 scaffold · P02 database · P03 auth and RBAC · P04 intake and queue · P05 pipeline framework (mocks) · P05b suggested actions framework · M1 de-identification and red-flag screening · M2 LLM provider adapter and model selection · M3 extraction | P06 review → M4 → P08 → M5 → P07 → M6 → M6b → P09 → M7 → P10 |
 
 Treat every file under `backend/app/adapters/llm/`, `backend/scripts/llm_*.py`,
 `app/pipeline/deidentify_rules.py` and `app/pipeline/redflags_keywords.py` as

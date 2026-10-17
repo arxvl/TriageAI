@@ -13,6 +13,7 @@
  * - There is no owner-reference field on any response. Owner name and contact
  *   number are accepted on the way in and returned by nothing (FR-07, DR-04).
  */
+import type { UserRole } from "./auth";
 import { apiFetch } from "./client";
 
 export type Species = "DOG" | "CAT";
@@ -265,8 +266,374 @@ export interface CaseStatusOut {
 // what W-02 refreshes from (IR-22), and the per-case polling this response is for
 // belongs to the Case Review screen in P06. The types above are the contract, kept
 // here with the rest of the endpoint's shapes.
-//
-// `GET /cases/{id}` has no caller either. P05b gives it the case header and the
-// suggested actions; P06 §6.1 extends it into the whole review response and
-// builds the W-04 checklist against it, so its types are declared there rather
-// than half-declared here.
+
+/* --- The Case Review screen (W-04..W-07, P06 §6.1) ---------------------- */
+
+/** Where one suggested action came from. Shown as a tag on every row (IR-23). */
+export type ActionSource = "BASELINE" | "AI" | "REVIEWER";
+
+/** What a reviewer did with one action when finalizing the list (FR-76). */
+export type ActionStatus = "SUGGESTED" | "KEPT" | "EDITED" | "REMOVED" | "ADDED";
+
+export type ConfidenceLevel = "HIGH" | "MEDIUM" | "LOW";
+
+export type DecisionDirection = "UP" | "DOWN" | "SAME" | "NONE";
+
+/**
+ * Why a reviewer moved the category away from the recommendation (FR-33).
+ *
+ * A fixed list, not free text: these codes are the data behind the disagreement
+ * analysis. `reason_text` carries the detail and is required for OTHER.
+ */
+export type AdjustReason =
+  | "CONDITION_DIFFERS_ON_ARRIVAL"
+  | "SIGN_NOT_CAPTURED"
+  | "RECOMMENDATION_TOO_LOW"
+  | "RECOMMENDATION_TOO_HIGH"
+  | "OTHER";
+
+/** One row of the W-04 action checklist (FR-73, IR-23). */
+export interface SuggestedAction {
+  text: string;
+  /** `references[].rank` values, which is how a row sits beside its passage. */
+  cited_ranks: number[];
+  source: ActionSource;
+}
+
+/**
+ * The two action layers for one case (FR-71..FR-79, ADR-18).
+ *
+ * `baseline` is always present — it is read from the knowledge base for the
+ * case's current category, so it survives a failed actions job and follows a
+ * reviewer who changes the category. `tailored` is best effort and is empty for
+ * a caller who is not a Veterinary Reviewer (FR-79).
+ */
+export interface CaseActions {
+  status: ActionsStatus | null;
+  generated_for_category: VTLCategory | null;
+  baseline: string[];
+  tailored: SuggestedAction[];
+  rejected_count: number;
+  /** A decision settled on a category these were not generated for (FR-78). */
+  is_outdated: boolean;
+}
+
+/** The W-04 header: who the patient is and how long they have waited. */
+export interface CaseHeader {
+  case_no: string;
+  species: Species;
+  pet_name: string | null;
+  age_value: number | null;
+  age_unit: AgeUnit | null;
+  sex: Sex;
+  neutered: boolean | null;
+  breed: string | null;
+  weight_kg: number | null;
+  intake_channel: IntakeChannel;
+  /** ISO-8601 UTC; rendered in Asia/Manila (DR-03). */
+  created_at: string;
+  created_by_name: string | null;
+  closed_at: string | null;
+  waiting_minutes: number;
+  /** Null for a case with no category, which has no target (FR-30). */
+  target_minutes: number | null;
+  is_overdue: boolean;
+}
+
+/**
+ * Panel 1: what the owner said, and what the pipeline actually read.
+ *
+ * Evidence offsets index into `deidentified_text`, not `text`. When `differs` is
+ * true the panel shows that text instead and says so, because a highlight
+ * positioned against the wrong string would mark the wrong words (ADR-10).
+ * `deidentified_text` is null for a case with no extraction.
+ */
+export interface CaseDescription {
+  text: string;
+  deidentified_text: string | null;
+  differs: boolean;
+}
+
+/**
+ * One highlight, as offsets into `CaseDescription.deidentified_text` (FR-13).
+ *
+ * `found: false` with null offsets means the stored span no longer matches. The
+ * span is still returned, so the panel can show the quoted evidence as text
+ * beside the value rather than silently showing less than the extraction claimed.
+ */
+export interface EvidenceSpan {
+  field: string;
+  text: string;
+  start: number | null;
+  end: number | null;
+  found: boolean;
+}
+
+export interface ExtractedComplaint {
+  code: string;
+  name: string | null;
+  is_primary: boolean;
+}
+
+/** Panel 2: the extracted information. Read-only until P07. */
+export interface CaseExtraction {
+  id: string;
+  version: number;
+  is_corrected: boolean;
+  species: Species | null;
+  presenting_complaints: ExtractedComplaint[];
+  onset_duration: string | null;
+  frequency_severity: string | null;
+  associated_signs: string[];
+  negated_findings: string[];
+  exposure_history: string | null;
+  relevant_history: string | null;
+  red_flags: string[];
+  /** Rendered as "Ask the owner" on W-04. */
+  missing_information: string[];
+  evidence_spans: EvidenceSpan[];
+  created_at: string;
+}
+
+/**
+ * A red-flag rule that raised the category (FR-23, IR-03).
+ *
+ * The notice names the `label`; the `code` is kept so the rule stays
+ * identifiable when the label is later edited.
+ */
+export interface SafetyFloorRule {
+  code: string;
+  label: string | null;
+}
+
+/** Panel 3: the recommendation after the deterministic safety validator. */
+export interface CaseRecommendation {
+  id: string;
+  version: number;
+  category: VTLCategory;
+  target_minutes: number;
+  rationale: string;
+  confidence: ConfidenceLevel;
+  safety_floor_applied: boolean;
+  safety_floor_rules: SafetyFloorRule[];
+  /** Codes the screen renders as plain language (FR-24). */
+  low_confidence_reasons: string[];
+  created_at: string;
+}
+
+/**
+ * One retrieved passage, in rank order (FR-31).
+ *
+ * The source fields are the copies stored with the recommendation, so an old
+ * case shows the passage as it read at the time (ADR-14).
+ */
+export interface CaseReference {
+  rank: number;
+  entry_title: string;
+  source_title: string | null;
+  source_url: string | null;
+  passage_text: string;
+  score: number | null;
+  is_cited: boolean;
+}
+
+/** The provenance footnote under panel 3 (FR-26, NFR-23). */
+export interface CaseConfiguration {
+  model_id: string;
+  prompt_version: string;
+  kb_version_no: number | null;
+  generated_at: string;
+  latency_ms: number | null;
+}
+
+/**
+ * One red-flag alert on a case (FR-12).
+ *
+ * Carries the rule's label, never the text that matched it: that is a substring
+ * of the owner's description (DR-04). `acknowledged_at` is stamped the first
+ * time a Veterinary Reviewer opens the case, which clears the W-02 banner.
+ */
+export interface CaseAlert {
+  rule_code: string;
+  rule_label: string | null;
+  min_category: VTLCategory;
+  created_at: string;
+  acknowledged_at: string | null;
+}
+
+/** The latest decision on a case, or the one just recorded (FR-36). */
+export interface CaseDecision {
+  id: string;
+  type: DecisionType;
+  final_category: VTLCategory;
+  target_minutes: number;
+  reason_code: AdjustReason | null;
+  reason_text: string | null;
+  direction: DecisionDirection;
+  decided_by_name: string | null;
+  decided_at: string;
+  amends_id: string | null;
+  status: CaseStatus;
+}
+
+export interface CaseNote {
+  id: string;
+  text: string;
+  author_name: string | null;
+  created_at: string;
+}
+
+/**
+ * What this caller may do with this case, as the server sees it.
+ *
+ * For hiding controls, never for allowing them: the server refuses the request
+ * whatever these say (SR-05, BR-02). `can_regenerate` is false until P07, where
+ * W-04 shows the button disabled.
+ */
+export interface CasePermissions {
+  can_decide: boolean;
+  can_regenerate: boolean;
+  can_close: boolean;
+}
+
+/**
+ * One case, everything the Case Review screen shows (FR-31, W-04).
+ *
+ * The panel order is ADR-15's: description, then extraction, then
+ * recommendation. The reviewer reaches the AI's answer after the evidence they
+ * can check it against, which is the structural defence against automation bias
+ * — so a screen built from this must not reorder the three.
+ *
+ * `extraction`, `recommendation`, `configuration` and `decision` are null when
+ * the case has not got that far. W-04 and W-06 read those nulls as "not
+ * available", never as an error.
+ */
+export interface CaseDetail {
+  id: string;
+  case_no: string;
+  status: CaseStatus;
+  species: Species;
+  /** The category on display: the confirmed one if there is one (FR-29). */
+  category: VTLCategory | null;
+  recommended_category: VTLCategory | null;
+  confirmed_category: VTLCategory | null;
+  has_red_flag: boolean;
+  created_at: string;
+  actions: CaseActions;
+
+  header: CaseHeader;
+  description: CaseDescription;
+  extraction: CaseExtraction | null;
+  recommendation: CaseRecommendation | null;
+  references: CaseReference[];
+  configuration: CaseConfiguration | null;
+  alerts: CaseAlert[];
+  decision: CaseDecision | null;
+  notes: CaseNote[];
+  permissions: CasePermissions;
+}
+
+/** One row of the action list a reviewer finalizes with their decision (FR-76). */
+export interface FinalActionInput {
+  text: string;
+  source: ActionSource;
+  status: ActionStatus;
+  /** The suggestion this came from; omitted for an action the reviewer wrote. */
+  suggestion_id?: string;
+}
+
+/**
+ * A decision on one case (FR-32, FR-33, FR-34).
+ *
+ * `final_category` is omitted for a CONFIRM: the point of confirming is that
+ * the recommendation's category stands, and the server takes it from there.
+ *
+ * Omitting `final_actions` is not the same as sending `[]`. Omitted means the
+ * reviewer did not touch the checklist, and the server records the list they
+ * were shown as kept; `[]` means they removed everything.
+ */
+export interface DecisionRequest {
+  type: DecisionType;
+  final_category?: VTLCategory;
+  reason_code?: AdjustReason;
+  reason_text?: string;
+  note?: string;
+  /** Set to record a correction; the original decision is kept (FR-48). */
+  amends_id?: string;
+  final_actions?: FinalActionInput[];
+}
+
+/** What closing a case returns (FR-38). */
+export interface CaseClosed {
+  id: string;
+  case_no: string;
+  status: CaseStatus;
+  closed_at: string;
+}
+
+/**
+ * One row of the per-case audit timeline (FR-42, FR-45, W-07).
+ *
+ * `action` is the stable code, so a translated interface can substitute its own
+ * wording (NFR-27); `label` and `details` are the sentence the server composed.
+ * `actor_name` and `actor_role` are null for the pipeline's own entries — the
+ * pipeline is not a person (ADR-12).
+ */
+export interface AuditTimelineItem {
+  ts: string;
+  actor_name: string | null;
+  actor_role: UserRole | null;
+  action: string;
+  label: string;
+  details: string | null;
+}
+
+/**
+ * The timeline for one case, with the FR-46 intervals in seconds.
+ *
+ * Either interval may be null: a case with no recommendation has no first one,
+ * an undecided case no second. Both are measured to the *first* recommendation
+ * and the *first* decision, so a regeneration or an amendment does not reopen
+ * them.
+ */
+export interface AuditTimeline {
+  items: AuditTimelineItem[];
+  submission_to_recommendation_s: number | null;
+  recommendation_to_decision_s: number | null;
+  /** A property of the database, which W-07 states as fact (FR-43, ADR-12). */
+  append_only: boolean;
+}
+
+/** One case, for the Case Review screen (FR-31). */
+export async function readCase(caseId: string): Promise<CaseDetail> {
+  return apiFetch<CaseDetail>(`/cases/${caseId}`);
+}
+
+/** Confirm, adjust, or manually triage a case. Reviewers only (FR-35). */
+export async function recordDecision(
+  caseId: string,
+  payload: DecisionRequest,
+): Promise<CaseDecision> {
+  return apiFetch<CaseDecision>(`/cases/${caseId}/decision`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Attach a clinical note to a case. Reviewers only (FR-37). */
+export async function addCaseNote(caseId: string, text: string): Promise<CaseNote> {
+  return apiFetch<CaseNote>(`/cases/${caseId}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
+
+/** Close a case, removing it from the active queue. Reviewers only (FR-38). */
+export async function closeCase(caseId: string): Promise<CaseClosed> {
+  return apiFetch<CaseClosed>(`/cases/${caseId}/close`, { method: "POST" });
+}
+
+/** The chronological record of one case (FR-45, FR-46). */
+export async function readCaseAudit(caseId: string): Promise<AuditTimeline> {
+  return apiFetch<AuditTimeline>(`/cases/${caseId}/audit`);
+}

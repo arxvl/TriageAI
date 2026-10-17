@@ -27,7 +27,16 @@ from app.schemas.case import (
     CaseQueueFilters,
     CaseStatusOut,
 )
+from app.schemas.review import (
+    AuditTimeline,
+    CaseClosed,
+    DecisionCreate,
+    DecisionOut,
+    NoteCreate,
+    NoteOut,
+)
 from app.services.case_service import CaseService
+from app.services.review_service import ReviewService
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -46,6 +55,10 @@ QueueReader = Annotated[
         require_role(UserRole.INTAKE_STAFF, UserRole.VETERINARY_REVIEWER, UserRole.ADMINISTRATOR)
     ),
 ]
+# Confirm, adjust, manual triage, notes and close are the Veterinary Reviewer's
+# alone — not the administrator's, who runs the clinic's accounts and reports but
+# makes no clinical judgement (FR-35, BR-02, SR-05).
+ReviewerUser = Annotated[User, Depends(require_role(UserRole.VETERINARY_REVIEWER))]
 
 
 @router.post("", status_code=CASE_CREATED_STATUS)
@@ -87,18 +100,66 @@ def read_case_status(case_id: uuid.UUID, db: DbSession, user: IntakeUser) -> Cas
     return CaseService(db).get_status(case_id)
 
 
+@router.post("/{case_id}/decision")
+def record_decision(
+    case_id: uuid.UUID, payload: DecisionCreate, db: DbSession, user: ReviewerUser
+) -> DecisionOut:
+    """Confirm, adjust, or manually triage a case (FR-32, FR-33, FR-34, FR-35).
+
+    This is the endpoint that makes a category final. Nothing else in the system
+    writes one, which is the Human-in-the-Loop guarantee (BR-01, NFR-07).
+
+    Answers 409 when the case is not in a state that allows the decision — it
+    has already been decided, or is still being processed — and 422 when the
+    decision's fields do not agree with each other, such as an adjustment with
+    no reason code (BR-03). A case that has already been decided is changed only
+    by sending `amends_id`; the original is never edited (FR-48).
+    """
+    return ReviewService(db).record_decision(case_id, payload, user)
+
+
+@router.post("/{case_id}/notes")
+def add_note(case_id: uuid.UUID, payload: NoteCreate, db: DbSession, user: ReviewerUser) -> NoteOut:
+    """Attach a clinical note to a case (FR-37).
+
+    The note appears on the case's audit timeline (FR-45).
+    """
+    return ReviewService(db).add_note(case_id, payload, user)
+
+
+@router.post("/{case_id}/close")
+def close_case(case_id: uuid.UUID, db: DbSession, user: ReviewerUser) -> CaseClosed:
+    """Close a case, removing it from the active queue (FR-38).
+
+    Answers 409 before a decision has been recorded: a case must not leave the
+    working list without an urgency category behind it.
+    """
+    return ReviewService(db).close_case(case_id, user)
+
+
+@router.get("/{case_id}/audit")
+def read_case_audit(case_id: uuid.UUID, db: DbSession, user: QueueReader) -> AuditTimeline:
+    """The chronological record of one case, with its timing intervals (FR-45, FR-46).
+
+    Readable by all three roles: the audit trail is what makes the system
+    accountable, and an administrator reporting on it is one of the reasons it
+    exists (FR-41, ADR-12).
+    """
+    return ReviewService(db).get_timeline(case_id)
+
+
 @router.get("/{case_id}")
 def read_case(case_id: uuid.UUID, db: DbSession, user: QueueReader) -> CaseDetail:
-    """One case and its suggested actions (FR-71..FR-79).
+    """One case, everything the Case Review screen shows (FR-31, W-04).
 
-    The P05b slice of the review response: P06 §6.1 adds the description, the
-    extraction, the references, the decision and the permissions to this same
-    route.
+    Declared after the `/{case_id}/<literal>` routes above, so none of them is
+    swallowed by this one.
 
     All three roles may read a case — a reviewer decides on it, intake staff
     follow one they entered, an administrator reports on it. What differs is the
     content: unfinalized AI-suggested actions are returned to Veterinary
-    Reviewers only, and the service enforces that rather than the router
-    (FR-79).
+    Reviewers only, and reading the case **as a reviewer** acknowledges its
+    red-flag alerts. The service enforces both rather than the router
+    (FR-12, FR-79).
     """
     return CaseService(db).get_detail(case_id, user)

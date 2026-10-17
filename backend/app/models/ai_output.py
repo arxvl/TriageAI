@@ -26,6 +26,15 @@ class ExtractionResult(Base, UUIDPKMixin, CreatedAtMixin):
     case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"))
     vignette_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vignettes.id"))
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The **de-identified** description this extraction was produced from
+    # (ADR-10). Stored because the evidence spans inside `entities` are exact
+    # substrings of it, and the review screen positions its highlights against
+    # it rather than against the raw text (FR-13, FR-31).
+    #
+    # Nullable: an extraction written before migration 0004 has none, and it
+    # cannot be reconstructed. Clinical free text, so it is never written to an
+    # audit payload or a log record (CLAUDE.md §9, SR-17).
+    input_text: Mapped[str | None] = mapped_column(Text)
     entities: Mapped[dict] = mapped_column(JSONB, nullable=False)
     red_flags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     missing_information: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

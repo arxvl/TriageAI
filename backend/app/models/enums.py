@@ -54,6 +54,24 @@ class DecisionType(StrEnum):
     MANUAL = "MANUAL"
 
 
+class AdjustReason(StrEnum):
+    """Why a reviewer moved the category away from the recommendation (FR-33).
+
+    A reason is mandatory for an ADJUST (BR-03) and comes from this fixed list
+    rather than free text, because these codes are the data behind the
+    disagreement analysis: "the model under-triaged" and "the patient looked
+    different on arrival" are different findings about the system, and prose
+    cannot be counted. `reason_text` carries the detail, and is itself required
+    when the code is `OTHER`.
+    """
+
+    CONDITION_DIFFERS_ON_ARRIVAL = "CONDITION_DIFFERS_ON_ARRIVAL"
+    SIGN_NOT_CAPTURED = "SIGN_NOT_CAPTURED"
+    RECOMMENDATION_TOO_LOW = "RECOMMENDATION_TOO_LOW"
+    RECOMMENDATION_TOO_HIGH = "RECOMMENDATION_TOO_HIGH"
+    OTHER = "OTHER"
+
+
 class ConfidenceLevel(StrEnum):
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"

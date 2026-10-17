@@ -49,10 +49,12 @@ from app.core.security import hash_password
 from app.db.session import get_db
 from app.main import create_app
 from app.models import (
+    AdjustReason,
     AgeUnit,
     AuditEntry,
     Case,
     CaseStatus,
+    ClinicalNote,
     ConfidenceLevel,
     DecisionDirection,
     DecisionType,
@@ -411,22 +413,59 @@ def make_staff_decision(
     direction: DecisionDirection = DecisionDirection.SAME,
     decided_by: User | None = None,
     decided_at: datetime | None = None,
+    reason_code: AdjustReason | None = None,
+    amends_id: uuid.UUID | None = None,
 ) -> StaffDecision:
-    """Insert a reviewer's decision, which outranks the AI category (FR-29)."""
+    """Insert a reviewer's decision, which outranks the AI category (FR-29).
+
+    These rows stand in for `ReviewService`'s output where a test only needs a
+    decided case to exist — the queue ordering tests, mostly. A test *about*
+    deciding goes through the endpoint, so the transitions and the audit entries
+    are exercised too.
+    """
     reviewer = decided_by or make_user(session, role=UserRole.VETERINARY_REVIEWER)
+    is_adjust = decision_type is DecisionType.ADJUST
     decision = StaffDecision(
         case_id=case.id,
         type=decision_type,
         final_category=final_category,
-        # Required whenever the type is ADJUST (ck_staff_decisions_...).
-        reason_code="FIXTURE" if decision_type is DecisionType.ADJUST else None,
+        # Required whenever the type is ADJUST (ck_staff_decisions_...), and
+        # since migration 0004 it has to be an `adjust_reason` value rather than
+        # any placeholder string.
+        reason_code=reason_code or (AdjustReason.OTHER if is_adjust else None),
+        reason_text="Fixture reason." if is_adjust else None,
         direction=direction,
         decided_by=reviewer.id,
         decided_at=decided_at or datetime.now(UTC),
+        amends_id=amends_id,
     )
     session.add(decision)
     session.flush()
     return decision
+
+
+def make_clinical_note(
+    session: Session,
+    *,
+    case: Case,
+    author: User | None = None,
+    text: str = "Fixture note.",
+    created_at: datetime | None = None,
+) -> ClinicalNote:
+    """Insert a clinical note on a case (FR-37).
+
+    `created_at` is settable because the server default is the *transaction's*
+    timestamp: two notes added by one test share it, and notes are ordered
+    chronologically, so a test asserting on their order has to place them at
+    distinct instants rather than rely on insertion order.
+    """
+    writer = author or make_user(session, role=UserRole.VETERINARY_REVIEWER)
+    note = ClinicalNote(case_id=case.id, author_id=writer.id, text=text)
+    if created_at is not None:
+        note.created_at = created_at
+    session.add(note)
+    session.flush()
+    return note
 
 
 def make_red_flag_rule(

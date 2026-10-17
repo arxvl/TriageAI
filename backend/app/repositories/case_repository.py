@@ -401,9 +401,9 @@ class CaseRepository:
         selected here (CLAUDE.md §9, DR-04).
 
         Ordered most urgent first by the rule's own minimum category, then oldest
-        first, so the banner leads with the case that cannot wait. Nothing writes
-        `acknowledged_at` until P07, so every alert on an open case shows until the
-        case is closed.
+        first, so the banner leads with the case that cannot wait. An alert is
+        acknowledged when a Veterinary Reviewer opens the case it is about
+        (P06 §6.1), which is what clears it from the banner.
         """
         # Plain urgency order, not the queue's FR-29 rank: an alert always has a
         # minimum category, so the "no category yet" slot does not apply.

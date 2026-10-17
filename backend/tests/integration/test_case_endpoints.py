@@ -773,3 +773,63 @@ def test_no_owner_reference_appears_in_a_case_detail(
 
     assert OWNER_NAME not in body
     assert CONTACT_NUMBER not in body
+
+
+def test_the_queue_ranks_an_adjusted_case_by_the_decision_s_category(
+    api_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """FR-29, P06 §6.1 task 7: the confirmed category wins over the AI's.
+
+    The queue query has coalesced the two since P04, but no decision could
+    exist until P06, so this is the first test that can reach the branch. Driven
+    through the decision endpoint rather than a fixture row, so what re-sorts the
+    queue is the same write a reviewer makes.
+
+    `VALID_CASE` matches no demo fixture, so the mock generator's generic answer
+    applies: YELLOW. Adjusting it to RED moves it to the top of the queue.
+    """
+    signed_in(api_client, db_session, UserRole.VETERINARY_REVIEWER)
+    case_id = triaged_case(api_client, db_session, app_session_factory, pipeline)
+
+    before = row_for(api_client, case_id)
+    assert before["recommended_category"] == VTLCategory.YELLOW.value
+    assert before["confirmed_category"] is None
+    assert before["category"] == VTLCategory.YELLOW.value
+    assert before["status"] == CaseStatus.AWAITING_REVIEW.value
+
+    decided = api_client.post(
+        f"{CASES_URL}/{case_id}/decision",
+        json={
+            "type": "ADJUST",
+            "final_category": "RED",
+            "reason_code": "CONDITION_DIFFERS_ON_ARRIVAL",
+        },
+        headers=csrf_headers(api_client),
+    )
+    assert decided.status_code == 200
+
+    body = api_client.get(CASES_URL).json()
+    after = next(item for item in body["items"] if item["id"] == case_id)
+
+    # The row now displays the decision's category and its target time.
+    assert after["category"] == VTLCategory.RED.value
+    assert after["confirmed_category"] == VTLCategory.RED.value
+    # And still reports the AI's, which is what lets the chip read
+    # "Adjusted (Yellow -> Red)" rather than only "Adjusted" (FR-36, IR-04).
+    assert after["recommended_category"] == VTLCategory.YELLOW.value
+    assert after["decision_type"] == DecisionType.ADJUST.value
+    assert after["status"] == CaseStatus.ADJUSTED.value
+    assert after["target_minutes"] == 0
+
+    # RED sorts first, so the adjustment moved the case to the top (FR-29).
+    assert body["items"][0]["id"] == case_id
+    assert body["counts"]["by_category"][VTLCategory.RED.value] >= 1
+
+
+def row_for(client: TestClient, case_id: str) -> Any:
+    """The case's row in the Triage Queue."""
+    body = client.get(CASES_URL).json()
+    return next(item for item in body["items"] if item["id"] == case_id)

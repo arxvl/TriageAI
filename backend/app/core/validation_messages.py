@@ -100,6 +100,47 @@ MESSAGES: dict[str, dict[str, str]] = {
     "offset": {
         ANY_ERROR: "The number of cases to skip must be 0 or more.",
     },
+    # --- Case review and decisions, W-04..W-06 (FR-32..FR-38) ------------
+    # Only the shape of one field is registered here. Whether a decision needs
+    # a category, a reason or a note depends on its *type*, so those rules live
+    # in `ReviewService` and raise `InvalidDecision` with the field they belong
+    # to — a cross-field rule has no Pydantic error type to key on.
+    "type": {
+        "missing": "Choose what you are recording: confirm, adjust, or manual triage.",
+        ANY_ERROR: "Choose confirm, adjust, or manual triage.",
+    },
+    "final_category": {
+        ANY_ERROR: "Choose one of the five urgency categories.",
+    },
+    "reason_code": {
+        ANY_ERROR: "Choose a reason for the change from the list.",
+    },
+    "reason_text": {
+        "string_too_long": "The details must be 2,000 characters or fewer. Shorten them a little.",
+        ANY_ERROR: "Enter the details as text, or leave them blank.",
+    },
+    "note": {
+        "string_too_short": "Enter the note.",
+        "string_too_long": "The note must be 2,000 characters or fewer. Shorten it a little.",
+        ANY_ERROR: "Enter the note, up to 2,000 characters.",
+    },
+    "final_actions": {
+        "too_long": "An action list can hold at most 50 actions.",
+        ANY_ERROR: "Send the action list as an ordered list of actions.",
+    },
+    # One row of that list. Registered under its dotted path rather than its
+    # leaf name, because `NoteCreate` also calls its field `text` and the two
+    # deserve different sentences.
+    "final_actions.text": {
+        "string_too_short": "Enter the action.",
+        "string_too_long": "An action must be 300 characters or fewer. Shorten it.",
+        ANY_ERROR: "Enter the action, up to 300 characters.",
+    },
+    "text": {
+        "string_too_short": "Enter the note.",
+        "string_too_long": "The note must be 2,000 characters or fewer. Shorten it a little.",
+        ANY_ERROR: "Enter the note, up to 2,000 characters.",
+    },
 }
 
 # Where Pydantic puts the part of the request a field came from. Dropped from
@@ -124,11 +165,27 @@ def plain_message(field: str | None, error_type: str) -> str | None:
 
     The caller falls back to Pydantic's own message, so an unregistered field is
     a worse message rather than a missing one.
+
+    Three keys are tried, most specific first: the field as reported, the same
+    path with list indices removed, then the leaf name. The middle one is what
+    separates `final_actions.0.text` from the `text` of a clinical note — two
+    fields that share a leaf name and need different sentences.
     """
     if field is None:
         return None
-    # Nested fields are registered under their leaf name.
-    by_type = MESSAGES.get(field.rsplit(".", 1)[-1])
-    if by_type is None:
-        return None
-    return by_type.get(error_type) or by_type.get(ANY_ERROR)
+    for key in _lookup_keys(field):
+        by_type = MESSAGES.get(key)
+        if by_type is None:
+            continue
+        message = by_type.get(error_type) or by_type.get(ANY_ERROR)
+        if message is not None:
+            return message
+    return None
+
+
+def _lookup_keys(field: str) -> list[str]:
+    """The keys to try for `field`, most specific first, without duplicates."""
+    parts = field.split(".")
+    unindexed = ".".join(part for part in parts if not part.isdigit())
+    candidates = [field, unindexed, parts[-1]]
+    return list(dict.fromkeys(candidates))

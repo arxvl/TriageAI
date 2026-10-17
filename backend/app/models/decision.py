@@ -1,11 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, CreatedAtMixin, UUIDPKMixin
-from app.models.enums import DecisionDirection, DecisionType, VTLCategory, pg_enum
+from app.models.enums import (
+    AdjustReason,
+    DecisionDirection,
+    DecisionType,
+    VTLCategory,
+    pg_enum,
+)
 
 
 class StaffDecision(Base, UUIDPKMixin):
@@ -18,7 +24,7 @@ class StaffDecision(Base, UUIDPKMixin):
     final_category: Mapped[VTLCategory] = mapped_column(
         pg_enum(VTLCategory, "vtl_category"), nullable=False
     )
-    reason_code: Mapped[str | None] = mapped_column(String(100))
+    reason_code: Mapped[AdjustReason | None] = mapped_column(pg_enum(AdjustReason, "adjust_reason"))
     reason_text: Mapped[str | None] = mapped_column(Text)
     direction: Mapped[DecisionDirection] = mapped_column(
         pg_enum(DecisionDirection, "decision_direction"), nullable=False

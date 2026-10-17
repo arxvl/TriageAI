@@ -46,6 +46,17 @@ class AuditAction(StrEnum):
     # corrected (SR-17, FR-43).
     ACTIONS_SUGGESTED = "ACTIONS_SUGGESTED"
     ACTIONS_FAILED = "ACTIONS_FAILED"
+    # The human-in-the-loop decision (P06 §6.1). `DECISION_RECORDED` carries the
+    # before and after **category and status only** — never the reviewer's
+    # reason text, which is clinical free text and lives on the decision row
+    # where it can be read beside the case (FR-42, ADR-12).
+    DECISION_RECORDED = "DECISION_RECORDED"
+    # Counts per status, never an action's text (SR-17).
+    ACTIONS_FINALIZED = "ACTIONS_FINALIZED"
+    # The note itself is not audited, only that one was added: a note is
+    # clinical content and the log cannot be corrected (FR-43).
+    NOTE_ADDED = "NOTE_ADDED"
+    CASE_CLOSED = "CASE_CLOSED"
 
 
 class AuditService:

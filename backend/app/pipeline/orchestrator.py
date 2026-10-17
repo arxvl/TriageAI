@@ -431,7 +431,7 @@ class _TriageRun:
         text = self._deidentify(case)
         red_flag_hits = self._screen(case, text)
         extraction = self._extract(case, text)
-        extraction_row_id = self._store_extraction(case, extraction)
+        extraction_row_id = self._store_extraction(case, text, extraction)
 
         kb_version_id = self._repo.latest_kb_version_id()
         if kb_version_id is None:
@@ -533,8 +533,16 @@ class _TriageRun:
             lambda: stage.extract(text, case.species, case.signalment),
         )
 
-    def _store_extraction(self, case: CaseRunInput, extraction: ExtractionOutput) -> uuid.UUID:
-        """Step 5: store the extraction and its complaint rows, then commit."""
+    def _store_extraction(
+        self, case: CaseRunInput, text: str, extraction: ExtractionOutput
+    ) -> uuid.UUID:
+        """Step 5: store the extraction and its complaint rows, then commit.
+
+        `text` is the de-identified description the extractor was given, stored
+        on the row so the review screen can map the evidence spans to character
+        offsets later (FR-13, ADR-10). It is the de-identified string and never
+        the raw one: raw text does not leave the de-identifier.
+        """
         stage = self._pipeline.extractor
         known = self._repo.known_complaint_codes(
             [complaint.code for complaint in extraction.presenting_complaints] + ["OTHER"]
@@ -542,6 +550,7 @@ class _TriageRun:
         row = self._repo.insert_extraction(
             case_id=self._case_id,
             version=self._repo.next_extraction_version(self._case_id),
+            input_text=text,
             extraction=extraction,
             model_id=stage.model_id,
             prompt_version=stage.prompt_version,
@@ -691,6 +700,11 @@ class _TriageRun:
             AuditAction.RECOMMENDATION_CREATED,
             {
                 "status": CaseStatus.AWAITING_REVIEW.value,
+                # The row this entry is about, as the actions entries already
+                # carry theirs: an audit entry that cannot be tied back to the
+                # recommendation it describes is a weaker record, and the P06
+                # timeline reads the reference count through it (FR-26, FR-45).
+                "recommendation_id": str(recommendation_id),
                 "category": final.category.value,
                 "confidence": final.confidence.value,
                 "safety_floor_applied": final.safety_floor_applied,
