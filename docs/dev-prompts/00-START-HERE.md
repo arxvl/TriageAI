@@ -46,7 +46,7 @@ The table lists every step in order and maps it to your PD8 roadmap. "CC" means 
 | ✅ 3 | P03 Authentication and RBAC                   | CC       | P02                     | 0             |
 | ✅ 4 | P04 Case intake and Triage Queue              | CC       | P03                     | 1             |
 | ✅ 5 | P05 Triage pipeline framework (mocks)         | CC       | P04                     | 1             |
-| ✅5b  | P05b Suggested actions framework (mocks)      | CC       | P05                     | 1–2           |
+| ✅5b | P05b Suggested actions framework (mocks)      | CC       | P05                     | 1–2           |
 | ✅ 6 | M1 De-identification and red-flag screening   | You      | P05                     | 2             |
 | ✅ 7 | M2 LLM provider setup and selection           | You      | P05                     | 1 (spike)     |
 | 8   | M3 Clinical entity extraction                 | You      | M1, M2                  | 2             |

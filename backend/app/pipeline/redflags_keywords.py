@@ -22,7 +22,7 @@ def normalize(text: str) -> str:
 
 class KeywordRedFlagScreener:
     model_id = "keywords"
-    prompt_version = "redflag-phrases-v1"  # bump when the YAML changes
+    prompt_version = "redflag-phrases-v2"  # bump when the YAML changes
     last_latency_ms = 0
 
     def __init__(self, phrases: dict, rules_provider):

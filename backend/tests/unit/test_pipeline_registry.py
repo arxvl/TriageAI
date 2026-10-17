@@ -75,7 +75,6 @@ IMPLEMENTED_LLM_PROVIDER_CASES: list[tuple[dict[str, str], type]] = [
 # row also sets a real de-identifier, so it is the missing module that trips and
 # not the safety guard.
 NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
-    ({"PIPELINE_EXTRACTOR": "llm"}, "PIPELINE_EXTRACTOR=llm", "M3"),
     ({"KB_INDEXER": "pgvector"}, "KB_INDEXER=pgvector", "M5"),
     ({"PIPELINE_RETRIEVER": "pgvector"}, "PIPELINE_RETRIEVER=pgvector", "M6"),
     ({"PIPELINE_GENERATOR": "llm"}, "PIPELINE_GENERATOR=llm", "M6"),
@@ -307,9 +306,9 @@ def test_the_message_says_how_to_get_back_to_a_working_configuration(
     monkeypatch: pytest.MonkeyPatch, session_factory: FakeSessionFactory
 ) -> None:
     """A broken real stage must be revertible in seconds during a demo (ADR-17)."""
-    settings = settings_with(monkeypatch, PIPELINE_EXTRACTOR="llm")
+    settings = settings_with(monkeypatch, PIPELINE_GENERATOR="llm")
 
-    with pytest.raises(StageNotImplementedError, match="PIPELINE_EXTRACTOR=mock"):
+    with pytest.raises(StageNotImplementedError, match="PIPELINE_GENERATOR=mock"):
         build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
 
 

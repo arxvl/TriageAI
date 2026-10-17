@@ -83,7 +83,17 @@ BLUE_GUMS_CYANOSIS:
     - "blue tongue"
     - "tongue looks blue"
     - "turning blue"
-
+    - "gums look bluish"
+    - "gums are bluish"
+    - "gums turned blue"
+    - "gums turning blue"
+    - "gums have turned blue"
+    - "bluish tongue"
+    - "tongue looks bluish"
+    - "tongue is blue"
+    - "lips look blue"
+    - "lips are blue"
+    - "bluish lips"
 PALE_GUMS:
   negatable: true
   phrases:

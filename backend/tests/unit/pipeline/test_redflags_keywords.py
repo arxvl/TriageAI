@@ -113,6 +113,21 @@ CASES = [
         "MALE",
         set(),
     ),
+    (
+        "bluish gums, owner's wording",
+        "His gums look bluish and he collapsed.",
+        Species.DOG,
+        None,
+        {"BLUE_GUMS_CYANOSIS"},
+    ),
+    (
+        "gums turned blue",
+        "Her gums turned blue after she choked.",
+        Species.CAT,
+        "FEMALE",
+        {"BLUE_GUMS_CYANOSIS"},
+    ),
+    ("pink gums do not fire", "His gums look pink and healthy.", Species.DOG, None, set()),
 ]
 
 

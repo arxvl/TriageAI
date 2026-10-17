@@ -25,6 +25,8 @@ supersedes the team verification for that item.
 | 2026-__-__ | PALE_GUMS — ORANGE | | | | | |
 | 2026-__-__ | MALE_CAT_NO_URINE — ORANGE | | | | | |
 | 2026-__-__ | TOXIN_INGESTION — ORANGE | | | | | |
+| 2026-10-17 | BLUE_GUMS_CYANOSIS: phrases v1 → v2. Added 11 alternate wordings ("gums look bluish", "gums are bluish", "gums turned blue", "gums turning blue", "gums have turned blue", "bluish tongue", "tongue looks bluish", "tongue is blue", "lips look blue", "lips are blue", "bluish lips"). Minimum category unchanged (RED). | Thomovsky E, Ilie L. Basic triage in dogs and cats: Part I. Can Vet J 2024;65(2):162–172. https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/ (cyanosis as a sign of respiratory distress, Red category, Fig. 1). Accessed 2026-10-__ | <your name> | <a different team member> | Accepted | Wording variants of the same finding, not a new clinical claim. The source names cyanosis in general; gums, tongue and lips are the sites where owners describe it. Found because the DEMO_2 text ("His gums look bluish") matched no rule. Tested: DEMO_2 now fires this rule; "no bluish gums" and unrelated texts do not. Screener `prompt_version` is now `redflag-phrases-v2`. |
+| 2026-10-17 | Considered and NOT added: open-mouth breathing, and "won't get up when I call him" | Thomovsky & Ilie 2024, Practice tip 1: dogs and cats pant or breathe open-mouthed when overheated, which mimics respiratory distress | <your name> | <a different team member> | Not added | Too non-specific on their own and would over-trigger. DEMO_2 is already floored at RED by the cyanosis phrase. Revisit if M7 shows critical cases being missed. |
 
 ## Knowledge base entries (M5 Parts A–C)
 
