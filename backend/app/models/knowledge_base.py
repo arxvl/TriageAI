@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -114,11 +115,7 @@ class RedFlagRule(Base, UUIDPKMixin):
 
 
 class KBChunk(Base, UUIDPKMixin, CreatedAtMixin):
-    """A chunk of a knowledge base entry.
-
-    No `embedding` column here — it and its HNSW index are added manually
-    in M4, once the embedding model is chosen (ADR-04, ADR-07).
-    """
+    """A chunk of a knowledge base entry."""
 
     __tablename__ = "kb_chunks"
 
@@ -126,6 +123,9 @@ class KBChunk(Base, UUIDPKMixin, CreatedAtMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(nullable=True)
 
 
 class KBVersion(Base, UUIDPKMixin):

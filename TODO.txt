@@ -1,1 +1,3 @@
 M4: pgvector embeddings
+
+final tests (see claude)

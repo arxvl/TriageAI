@@ -20,7 +20,10 @@ services:
       - "5433:5432"
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
     env_file: .env
     depends_on:
       db:

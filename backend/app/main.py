@@ -1,6 +1,6 @@
 """The FastAPI application, and the lifespan that owns the job worker (ADR-08).
 
-Three things happen at startup, in this order, and the order is the point:
+Four things happen at startup, in this order, and the order is the point:
 
 1. **The pipeline is built** (`build_pipeline`), always — including when the
    worker is disabled. It is the only place a stage configuration is validated, so
@@ -10,6 +10,10 @@ Three things happen at startup, in this order, and the order is the point:
 2. **Stale jobs are recovered** — jobs a crash left `RUNNING` go back to `QUEUED`,
    so the cases they were working on are not stuck in `PROCESSING` (NFR-13).
 3. **The worker thread starts**, and is stopped before the process exits.
+4. **The embedding model is warmed up** — when `EMBEDDING_PROVIDER` is set and
+   `EMBEDDING_WARMUP` is on, one short text is embedded so the first case does
+   not pay for the load, and a wrong model name or a dimension mismatch fails
+   startup instead of a case (M4). It runs whether or not the worker is on.
 
 Steps 2 and 3 are skipped when `JOB_WORKER_ENABLED` is false. That is the test
 configuration: the tests drive the queue with `run_pending_jobs_once` so a run is
@@ -21,6 +25,7 @@ without reaching into the cached `get_settings()`.
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -64,6 +69,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+def _warm_up_embedder(settings: Settings) -> None:
+    """Load the embedding model now, so no case has to wait for it.
+
+    The model cache is shared per process, so the embedder the pipeline holds
+    reuses this load. Nothing is caught: a wrong model name or a dimension
+    mismatch raises here, at startup, rather than inside a case (M4).
+    """
+    if not (settings.EMBEDDING_PROVIDER and settings.EMBEDDING_WARMUP):
+        return
+    # Lazy, so the app still starts with no sentence-transformers installed when
+    # EMBEDDING_PROVIDER is blank.
+    from app.adapters.embeddings.sentence_transformer import SentenceTransformerEmbedder
+
+    started = time.perf_counter()
+    SentenceTransformerEmbedder.from_settings(settings).embed(["warm-up"])
+    logger.info("embedding model ready in %.1f s", time.perf_counter() - started)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
@@ -95,6 +118,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.job_worker = worker
     try:
+        # Last, and whether or not the worker is on: the KB import and the
+        # retriever both need the model. Inside the `try`, so a failure here
+        # still stops a worker that was started above.
+        _warm_up_embedder(settings)
         yield
     finally:
         if worker is not None:

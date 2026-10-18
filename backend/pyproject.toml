@@ -16,9 +16,12 @@ dependencies = [
   "httpx",
   "python-multipart",
   "pyyaml",
+  "pgvector",
+  "numpy"
 ]
 
 [project.optional-dependencies]
+embeddings = ["sentence-transformers"]
 dev = ["pytest", "pytest-cov", "ruff"]
 
 [build-system]

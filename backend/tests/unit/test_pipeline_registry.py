@@ -13,6 +13,8 @@ from typing import Any
 
 import pytest
 
+from app.adapters.embeddings.base import EmbeddingProvider
+from app.adapters.embeddings.sentence_transformer import SentenceTransformerEmbedder
 from app.adapters.llm.hosted import HostedLLMProvider
 from app.adapters.llm.mock import MockLLMProvider
 from app.adapters.llm.ollama import OllamaLLMProvider
@@ -70,21 +72,19 @@ IMPLEMENTED_LLM_PROVIDER_CASES: list[tuple[dict[str, str], type]] = [
 ]
 
 # Every non-mock option whose module is still to be written, with the M-guide its
-# error message must name. M1 and M2 are merged, so `rules`, `keywords`, `hosted`
-# and `ollama` are in the IMPLEMENTED tables above instead. The EMBEDDING_PROVIDER
-# row also sets a real de-identifier, so it is the missing module that trips and
-# not the safety guard.
+# error message must name. M1, M2 and M4 are merged, so `rules`, `keywords`,
+# `hosted`, `ollama` and `sentence_transformer` are covered by the tests above and
+# below instead of here.
 NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
     ({"KB_INDEXER": "pgvector"}, "KB_INDEXER=pgvector", "M5"),
     ({"PIPELINE_RETRIEVER": "pgvector"}, "PIPELINE_RETRIEVER=pgvector", "M6"),
     ({"PIPELINE_GENERATOR": "llm"}, "PIPELINE_GENERATOR=llm", "M6"),
     ({"PIPELINE_ACTIONS": "llm"}, "PIPELINE_ACTIONS=llm", "M6b"),
-    (
-        {"EMBEDDING_PROVIDER": "sentence_transformer", "PIPELINE_DEIDENTIFIER": "rules"},
-        "EMBEDDING_PROVIDER=sentence_transformer",
-        "M4",
-    ),
 ]
+
+
+def _must_not_load(_self: object) -> None:
+    raise AssertionError("building the embedder must not load the model")
 
 
 class FakeSessionFactory:
@@ -312,16 +312,36 @@ def test_the_message_says_how_to_get_back_to_a_working_configuration(
         build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
 
 
-def test_embedding_provider_is_told_to_be_left_blank(
+def test_an_embedding_provider_is_built_only_when_one_is_selected(
     monkeypatch: pytest.MonkeyPatch, session_factory: FakeSessionFactory
 ) -> None:
-    """There is no mock embedder; mock stages need no embeddings (CLAUDE.md §8.3)."""
-    settings = settings_with(
-        monkeypatch, EMBEDDING_PROVIDER="sentence_transformer", PIPELINE_DEIDENTIFIER="rules"
-    )
+    """Blank means no embedder; `sentence_transformer` builds M4's adapter.
 
-    with pytest.raises(StageNotImplementedError, match="blank"):
-        build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+    There is no mock embedder, because mock stages need no embeddings at all, so
+    blank is a working configuration rather than a missing one (CLAUDE.md §8.3,
+    ADR-07). `EMBEDDING_PROVIDER` is the only thing that differs between the two
+    builds here: the safety guard keys off `LLM_PROVIDER`, which stays mock.
+
+    The adapter loads its model on the first `embed`, not in `from_settings`, so
+    building it imports neither `sentence_transformers` nor `torch` — asserted by
+    a `_load` that fails the test if it is called, which is the one place the
+    adapter would import either.
+    """
+    monkeypatch.setattr(SentenceTransformerEmbedder, "_load", _must_not_load)
+
+    blank = build_pipeline(settings_with(monkeypatch), session_factory=session_factory)  # type: ignore[arg-type]
+
+    assert blank.deps.embedder is None
+
+    settings = settings_with(monkeypatch, EMBEDDING_PROVIDER="sentence_transformer")
+    selected = build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+
+    embedder = selected.deps.embedder
+    assert type(embedder) is SentenceTransformerEmbedder
+    assert isinstance(embedder, EmbeddingProvider)
+    assert embedder.model_id == settings.embedding_model
+    assert embedder.dim == settings.embedding_dim
+    assert session_factory.calls == 0
 
 
 def test_an_unrelated_import_error_is_not_disguised(

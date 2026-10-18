@@ -8,9 +8,9 @@ You will add the vector column and the HNSW index to `kb_chunks`, install a loca
 
 ## Prerequisites
 
-- [ ] P02 migrations are applied. `kb_chunks` exists **without** an `embedding` column.
-- [ ] `db/init/01-extensions.sql` created the `vector` extension.
-- [ ] Your laptop has at least 8 GB RAM, with Docker allowed to use at least 4 GB.
+- [x] P02 migrations are applied. `kb_chunks` exists **without** an `embedding` column.
+- [x] `db/init/01-extensions.sql` created the `vector` extension.
+- [x] Your laptop has at least 8 GB RAM, with Docker allowed to use at least 4 GB.
 
 ---
 
@@ -217,7 +217,7 @@ With very few rows, PostgreSQL may not use the index at all. That is normal; the
 
 ## Done when
 
-- [ ] The migration is applied, `\d kb_chunks` shows the vector column and the HNSW index, and downgrade/upgrade works.
+- [x] The migration is applied, `\d kb_chunks` shows the vector column and the HNSW index, and downgrade/upgrade works.
 - [ ] Checks 6 and 7 pass.
-- [ ] ADR-07 is updated with the provisional model, dimension, and max input.
+- [x] ADR-07 is updated with the provisional model, dimension, and max input.
 - [ ] Committed, with a PR into `develop`. `KB_INDEXER` and `PIPELINE_RETRIEVER` stay `mock` until M5 and M6.

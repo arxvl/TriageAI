@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     GROQ_RPM: int = 0
     GROQ_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_object"
 
+    EMBEDDING_PROVIDER: Literal["", "sentence_transformer"] = ""  # blank = no embedder is built
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dim: int = 384
+    embedding_device: str = "cpu"
+    embedding_batch_size: int = 32
+    EMBEDDING_WARMUP: bool = True
+
     pipeline_deidentifier: DeidentifierOption = DeidentifierOption.MOCK
     pipeline_redflags: RedFlagsOption = RedFlagsOption.MOCK
     llm_provider: LLMProviderOption = LLMProviderOption.MOCK
