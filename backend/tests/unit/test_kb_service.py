@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.config import AppEnv
 from app.core.errors import InvalidKBEntry, InvalidKBTransition, KBNotFound
 from app.models import (
+    AuditEntry,
     Job,
     JobType,
     KBEntry,
@@ -42,6 +43,7 @@ from app.schemas.kb import (
 from app.services.kb_service import KBService
 from tests.conftest import (
     audit_actions,
+    baseline_actions_content,
     kb_entry_content,
     make_kb_entry,
     make_red_flag_rule,
@@ -80,6 +82,47 @@ def entry_payload(**overrides: object) -> KBEntryCreate:
     }
     fields.update(overrides)
     return KBEntryCreate(**fields)  # type: ignore[arg-type]
+
+
+def actions_payload(**overrides: object) -> KBEntryCreate:
+    """A complete, fictitious baseline action set (FR-72, ADR-18)."""
+    fields: dict[str, object] = {
+        "kind": KBEntryKind.URGENCY_ACTIONS,
+        "urgency_category": VTLCategory.ORANGE,
+        "complaint_code": None,
+        "title": "Suggested staff actions - Orange",
+        "species": [Species.DOG, Species.CAT],
+        "content": baseline_actions_content(),
+        "source_title": "Fixture Source Title",
+        "source_publisher": "Fixture Publisher",
+        "source_url": "https://example.invalid/fixture",
+        "access_date": date(2026, 10, 12),
+        "slug": "actions-orange",
+    }
+    fields.update(overrides)
+    return KBEntryCreate(**fields)  # type: ignore[arg-type]
+
+
+def make_baseline_set(
+    session: Session,
+    *,
+    category: VTLCategory = VTLCategory.ORANGE,
+    status: KBEntryStatus = KBEntryStatus.ACTIVE,
+    slug: str | None = None,
+    lines: int = 3,
+) -> KBEntry:
+    """An `URGENCY_ACTIONS` entry straight into the table, as the seed writes one."""
+    return make_kb_entry(
+        session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=category,
+        status=status,
+        slug=slug,
+        title=f"Suggested staff actions - {category.value}",
+        content=baseline_actions_content(lines),
+        with_source=True,
+    )
 
 
 def ensure_complaint(session: Session) -> None:
@@ -146,10 +189,20 @@ def test_a_slug_that_is_taken_is_refused(db_session: Session) -> None:
 
 
 @pytest.mark.parametrize("words", [49, 1_501])
-def test_content_outside_the_word_bounds_is_refused_by_the_schema(words: int) -> None:
-    """50-1,500 words: long enough to be a passage, short enough to chunk."""
-    with pytest.raises(ValueError, match="between 50 and 1,500 words|50 and 1500 words"):
-        entry_payload(content=kb_entry_content(words))
+def test_content_outside_the_word_bounds_is_refused(db_session: Session, words: int) -> None:
+    """50-1,500 words: long enough to be a passage, short enough to chunk.
+
+    Refused by the service rather than by `KBEntryCreate`, because the bound
+    depends on the kind: a baseline action set is lines, not prose (8.2b).
+    """
+    ensure_complaint(db_session)
+    user = admin(db_session)
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).create_entry(entry_payload(content=kb_entry_content(words)), user)
+
+    assert error.value.field == "content"
+    assert "between 50 and 1,500 words" in str(error.value)
 
 
 @pytest.mark.parametrize("field", ["source_title", "source_publisher", "source_url", "access_date"])
@@ -369,6 +422,196 @@ def test_retiring_a_draft_is_a_conflict(db_session: Session) -> None:
 
     with pytest.raises(InvalidKBTransition):
         service(db_session, indexer=_RecordingIndexer()).retire_entry(entry.id, user)
+
+
+# --- Urgency-action entries (P08 §8.2b, FR-72, ADR-18) --------------------
+# A baseline action set goes through the same workflow as clinical content, with
+# two rules of its own: one ACTIVE set per category, and a warning when retiring
+# one leaves the category with nothing.
+
+
+def test_a_baseline_action_set_can_be_authored(db_session: Session) -> None:
+    user = admin(db_session)
+
+    detail = service(db_session).create_entry(actions_payload(), user)
+
+    assert detail.kind is KBEntryKind.URGENCY_ACTIONS
+    assert detail.urgency_category is VTLCategory.ORANGE
+    assert detail.complaint_code is None
+    assert detail.status is KBEntryStatus.DRAFT
+
+
+def test_a_baseline_action_set_is_not_held_to_the_fifty_word_floor(db_session: Session) -> None:
+    """Three short imperatives are about twenty words (M5 Part D)."""
+    user = admin(db_session)
+    content = baseline_actions_content()
+    assert len(content.split()) < 50
+
+    detail = service(db_session).create_entry(actions_payload(content=content), user)
+    result = service(db_session).submit_entry(detail.id, user)
+
+    assert result.status is KBEntryStatus.PENDING_REVIEW
+
+
+@pytest.mark.parametrize("lines", [2, 7])
+def test_a_baseline_set_outside_the_line_bounds_is_refused(db_session: Session, lines: int) -> None:
+    user = admin(db_session)
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).create_entry(
+            actions_payload(content=baseline_actions_content(lines)), user
+        )
+
+    assert error.value.field == "content"
+    assert "one per line" in str(error.value)
+
+
+def test_a_baseline_line_naming_a_drug_is_refused(db_session: Session) -> None:
+    """FR-28: baseline text is shown verbatim and never passes the validator."""
+    user = admin(db_session)
+    content = "Alert the veterinarian now\nGive butorphanol for pain\nPrepare oxygen"
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).create_entry(actions_payload(content=content), user)
+
+    assert error.value.field == "content"
+    assert "Line 2 names a medication" in str(error.value)
+
+
+def test_a_complaint_entry_that_sets_an_urgency_category_is_refused(db_session: Session) -> None:
+    """P08 §8.2b: the two kinds are exclusive (ADR-18)."""
+    ensure_complaint(db_session)
+    user = admin(db_session)
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).create_entry(entry_payload(urgency_category=VTLCategory.ORANGE), user)
+
+    assert error.value.field == "urgency_category"
+    assert error.value.status_code == 422
+
+
+def test_editing_a_complaint_draft_cannot_give_it_an_urgency_category(
+    db_session: Session,
+) -> None:
+    ensure_complaint(db_session)
+    user = admin(db_session)
+    detail = service(db_session).create_entry(entry_payload(), user)
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).update_entry(
+            detail.id, KBEntryUpdate(urgency_category=VTLCategory.ORANGE), user
+        )
+
+    assert error.value.field == "urgency_category"
+
+
+def test_a_baseline_set_that_sets_a_complaint_code_is_refused(db_session: Session) -> None:
+    ensure_complaint(db_session)
+    user = admin(db_session)
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).create_entry(actions_payload(complaint_code=COMPLAINT), user)
+
+    assert error.value.field == "complaint_code"
+
+
+def test_a_baseline_set_may_cite_no_red_flag_rule(db_session: Session) -> None:
+    """A baseline set explains no rule: it is never retrieved or cited (FR-49)."""
+    user = admin(db_session)
+    make_red_flag_rule(db_session, code="FIXTURE_RULE")
+
+    with pytest.raises(InvalidKBEntry) as error:
+        service(db_session).create_entry(actions_payload(red_flag_codes=["FIXTURE_RULE"]), user)
+
+    assert error.value.field == "red_flag_codes"
+
+
+def test_approving_a_second_set_for_one_category_is_a_conflict(db_session: Session) -> None:
+    """P08 §8.2b task 2: at most one ACTIVE baseline set per category (FR-72).
+
+    409 rather than 422: nothing about the entry is wrong, the category is taken,
+    and `baseline_actions` must never find two answers for one category.
+    """
+    author = admin(db_session)
+    reviewer = approver(db_session)
+    make_baseline_set(db_session, category=VTLCategory.ORANGE)
+    replacement = service(db_session).create_entry(actions_payload(), author)
+    service(db_session).submit_entry(replacement.id, author)
+
+    with pytest.raises(InvalidKBTransition) as error:
+        service(db_session).approve_entry(replacement.id, reviewer)
+
+    assert "ORANGE" in str(error.value)
+    assert error.value.status_code == 409
+    assert db_session.scalars(select(Job).where(Job.type == JobType.KB_INDEX)).first() is None
+
+
+def test_approving_a_set_for_a_free_category_is_accepted(db_session: Session) -> None:
+    """The ACTIVE set of *another* category is no obstacle."""
+    author = admin(db_session)
+    reviewer = approver(db_session)
+    make_baseline_set(db_session, category=VTLCategory.RED)
+    entry = service(db_session).create_entry(actions_payload(), author)
+    service(db_session).submit_entry(entry.id, author)
+
+    result = service(db_session).approve_entry(entry.id, reviewer)
+
+    assert result.job_id is not None
+    assert result.status is KBEntryStatus.PENDING_REVIEW
+
+
+def test_two_drafts_for_one_category_may_both_be_written(db_session: Session) -> None:
+    """A replacement is written and reviewed while the current set is still live."""
+    user = admin(db_session)
+    make_baseline_set(db_session, category=VTLCategory.ORANGE, slug="actions-orange-live")
+
+    first = service(db_session).create_entry(actions_payload(slug="actions-orange"), user)
+    second = service(db_session).create_entry(actions_payload(slug="actions-orange-again"), user)
+
+    assert first.status is KBEntryStatus.DRAFT
+    assert second.status is KBEntryStatus.DRAFT
+
+
+def test_retiring_a_baseline_set_warns_that_the_category_falls_back(
+    db_session: Session,
+) -> None:
+    """P08 §8.2b task 2: no baseline actions until a replacement is approved."""
+    user = admin(db_session)
+    entry = make_baseline_set(db_session, category=VTLCategory.ORANGE, slug="actions-orange")
+    indexer = _RecordingIndexer()
+
+    result = service(db_session, indexer=indexer).retire_entry(entry.id, user)
+
+    assert result.status is KBEntryStatus.RETIRED
+    assert result.warning is not None
+    assert "ORANGE cases will show no baseline actions" in result.warning
+    # Nothing to drop: a baseline set is never chunked (ADR-18 §2).
+    assert indexer.removed == []
+
+
+def test_retiring_a_clinical_entry_carries_no_warning(db_session: Session) -> None:
+    user = admin(db_session)
+    entry = make_kb_entry(db_session, status=KBEntryStatus.ACTIVE, slug="fixture-no-warning")
+
+    result = service(db_session, indexer=_RecordingIndexer()).retire_entry(entry.id, user)
+
+    assert result.warning is None
+
+
+def test_the_retirement_audit_entry_records_the_category_and_the_gap(
+    db_session: Session,
+) -> None:
+    user = admin(db_session)
+    entry = make_baseline_set(db_session, category=VTLCategory.BLUE, slug="actions-blue")
+
+    service(db_session, indexer=_RecordingIndexer()).retire_entry(entry.id, user)
+
+    recorded = db_session.scalars(
+        select(AuditEntry).where(AuditEntry.action == "KB_ENTRY_RETIRED")
+    ).one()
+    assert recorded.after["urgency_category"] == "BLUE"
+    assert recorded.after["left_category_without_baseline"] is True
+    assert "content" not in recorded.after
 
 
 # --- Listing (FR-51, FR-54) ----------------------------------------------

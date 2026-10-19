@@ -145,6 +145,10 @@ SEED_KB_VERSION_NOTE = "Seed – baseline urgency action entries only"
 # They are seeded ACTIVE and linked into KB version 0 so that the actions
 # lookup has something to return while the pipeline runs on mocks; the approval
 # workflow in P08 is what produces a real ACTIVE entry.
+#
+# Each set holds three to six actions, each under 25 words, because that is the
+# rule the workflow enforces on an `URGENCY_ACTIONS` entry (P08 §8.2b, M5 Part
+# D): a seeded set a curator opens in W-08 has to be one they could submit.
 SAMPLE_MARKER = "SAMPLE – replace with sourced content in M5"
 BASELINE_SOURCE_TITLE = "TriageAI seed placeholder"
 
@@ -182,6 +186,7 @@ URGENCY_ACTIONS: tuple[tuple[VTLCategory, str, tuple[str, ...]], ...] = (
         (
             "Seat the owner in the waiting area and state the expected waiting time.",
             "Ask the owner to report any change in the patient straight away.",
+            "Recheck the patient if the wait goes past the target time.",
         ),
     ),
     (
@@ -190,6 +195,7 @@ URGENCY_ACTIONS: tuple[tuple[VTLCategory, str, tuple[str, ...]], ...] = (
         (
             "Offer the next routine appointment.",
             "Explain which changes would mean coming back sooner.",
+            "Ask the owner to call the clinic if anything changes before then.",
         ),
     ),
 )

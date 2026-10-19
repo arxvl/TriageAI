@@ -581,6 +581,31 @@ def kb_entry_content(words: int = 60) -> str:
     return " ".join((sentence * repeats)[:words])
 
 
+# One action per line, imperative, well inside the 25-word limit, and naming no
+# medication, dose or diagnosis — the shape M5 Part D asks of a baseline set and
+# the FR-28 boundary `baseline_line_failure` enforces. All invented.
+BASELINE_ACTION_LINES: tuple[str, ...] = (
+    "Move the patient to the treatment area now.",
+    "Alert the veterinarian immediately.",
+    "Prepare oxygen and monitoring equipment.",
+    "Recheck breathing effort and alertness every few minutes.",
+    "Keep the patient quiet and handling to a minimum.",
+    "Ask the owner what changed since arrival.",
+)
+
+
+def baseline_actions_content(lines: int = 3) -> str:
+    """Fictitious `URGENCY_ACTIONS` content of exactly `lines` actions (FR-72).
+
+    `lines` may exceed the six phrasings above; the surplus is numbered, so a
+    test about the line *count* can ask for seven without two of them colliding
+    as duplicates.
+    """
+    available = list(BASELINE_ACTION_LINES)
+    extra = [f"Record observation number {number} in the case notes." for number in range(1, 20)]
+    return "\n".join((available + extra)[:lines])
+
+
 def make_kb_entry(
     session: Session,
     *,

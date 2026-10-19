@@ -10,13 +10,21 @@ from pathlib import Path
 import pytest
 import yaml
 
-from app.schemas.kb import CONTENT_MAX_WORDS, CONTENT_MIN_WORDS
+from app.models.enums import KBEntryKind, VTLCategory
+from app.pipeline.action_validator import MAX_WORDS
+from app.schemas.kb import (
+    ACTIONS_MAX_LINES,
+    ACTIONS_MIN_LINES,
+    CONTENT_MAX_WORDS,
+    CONTENT_MIN_WORDS,
+)
 from app.schemas.kb_import import (
     RULES_FILENAME,
     KBEntryFile,
     parse_entry_file,
     parse_rules_file,
 )
+from tests.conftest import baseline_actions_content
 
 # The repository's own knowledge_base/. Three levels up from
 # backend/tests/unit/ is the repository root on the host, and `/` inside the
@@ -42,6 +50,31 @@ def entry_document(**overrides: object) -> dict:
             "access_date": "2026-10-12",
         },
         "red_flag_codes": ["MALE_CAT_NO_URINE"],
+    }
+    document.update(overrides)
+    return {key: value for key, value in document.items() if value is not ...}
+
+
+def actions_document(**overrides: object) -> dict:
+    """A valid `URGENCY_ACTIONS` document, with `overrides` applied (8.2b).
+
+    The shape M5 Part D writes: `kind` and `urgency_category` instead of a
+    `complaint_code`, content of one imperative action per line, and no
+    `red_flag_codes` — a baseline set explains no red flag.
+    """
+    document = {
+        "slug": "actions-orange",
+        "kind": "URGENCY_ACTIONS",
+        "urgency_category": "ORANGE",
+        "title": "Suggested staff actions - Orange (very urgent, within 15 minutes)",
+        "species": ["DOG", "CAT"],
+        "content": baseline_actions_content(),
+        "source": {
+            "title": "Fixture Source",
+            "publisher": "Fixture Publisher",
+            "url": "https://example.invalid/fixture",
+            "access_date": "2026-10-12",
+        },
     }
     document.update(overrides)
     return {key: value for key, value in document.items() if value is not ...}
@@ -152,12 +185,13 @@ def test_the_slug_must_equal_the_filename(tmp_path: Path) -> None:
     assert "'something-else'" in errors[0].message
 
 
-@pytest.mark.parametrize("key", ["kind", "urgency_category", "red_flag_code"])
+@pytest.mark.parametrize("key", ["red_flag_code", "sources", "category"])
 def test_an_unknown_key_is_rejected_by_name(tmp_path: Path, key: str) -> None:
-    """`kind` and `urgency_category` belong to subphase 8.2b (ADR-18).
+    """The misspellings `extra="forbid"` exists for.
 
-    `red_flag_code` is the misspelling `extra="forbid"` exists for: left alone it
-    would import an entry citing no rule at all.
+    `red_flag_code` left alone would import an entry citing no rule at all, and
+    `category` is the near-miss for `urgency_category` now that subphase 8.2b has
+    added it (ADR-18).
     """
     _, errors = parse_entry_file(write_entry(tmp_path, entry_document(**{key: "COMPLAINT"})))
 
@@ -192,6 +226,166 @@ def test_species_are_deduplicated() -> None:
     entry = KBEntryFile.model_validate(entry_document(species=["CAT", "CAT", "DOG"]))
 
     assert [str(species) for species in entry.species] == ["CAT", "DOG"]
+
+
+# --- Urgency-action entries (P08 §8.2b, ADR-18) ---------------------------
+# A baseline action set is an entry like any other, and the format differs in
+# exactly three ways: `kind`, `urgency_category` in place of `complaint_code`,
+# and content that is lines rather than prose.
+
+
+def test_an_urgency_actions_file_parses() -> None:
+    entry = KBEntryFile.model_validate(actions_document())
+
+    assert entry.kind is KBEntryKind.URGENCY_ACTIONS
+    assert entry.urgency_category is VTLCategory.ORANGE
+    assert entry.complaint_code is None
+    assert entry.red_flag_codes == []
+
+
+def test_an_entry_file_without_a_kind_is_a_complaint_entry() -> None:
+    """Every file written before 8.2b still means what it did (ADR-18)."""
+    entry = KBEntryFile.model_validate(entry_document())
+
+    assert entry.kind is KBEntryKind.COMPLAINT
+    assert entry.urgency_category is None
+
+
+def test_an_urgency_actions_file_without_a_category_is_rejected(tmp_path: Path) -> None:
+    """P08 §8.2b task 1: the file must name the category it is for."""
+    _, errors = parse_entry_file(
+        write_entry(tmp_path, actions_document(urgency_category=...), name="actions-orange")
+    )
+
+    assert [error.field for error in errors] == ["urgency_category"]
+    assert "RED, ORANGE, YELLOW, GREEN or BLUE" in errors[0].message
+
+
+def test_a_complaint_entry_that_sets_an_urgency_category_is_rejected(tmp_path: Path) -> None:
+    """The two kinds are exclusive (ck_kb_entries_urgency_category_iff_urgency_actions)."""
+    _, errors = parse_entry_file(write_entry(tmp_path, entry_document(urgency_category="ORANGE")))
+
+    assert [error.field for error in errors] == ["urgency_category"]
+    assert "baseline action set" in errors[0].message
+
+
+def test_an_urgency_actions_file_that_sets_a_complaint_code_is_rejected(tmp_path: Path) -> None:
+    _, errors = parse_entry_file(
+        write_entry(
+            tmp_path,
+            actions_document(complaint_code="URINARY_OBSTRUCTION"),
+            name="actions-orange",
+        )
+    )
+
+    assert [error.field for error in errors] == ["complaint_code"]
+    assert "urgency category" in errors[0].message
+
+
+def test_a_complaint_entry_without_a_complaint_code_is_rejected(tmp_path: Path) -> None:
+    _, errors = parse_entry_file(write_entry(tmp_path, entry_document(complaint_code=...)))
+
+    assert [error.field for error in errors] == ["complaint_code"]
+
+
+def test_an_urgency_actions_file_may_cite_no_red_flag_rule(tmp_path: Path) -> None:
+    """`red_flag_rules.entry_id` names the entry that *explains* a rule (FR-49).
+
+    A baseline action set explains nothing: it is not retrievable and is never
+    cited in a rationale.
+    """
+    _, errors = parse_entry_file(
+        write_entry(
+            tmp_path,
+            actions_document(red_flag_codes=["MALE_CAT_NO_URINE"]),
+            name="actions-orange",
+        )
+    )
+
+    assert [error.field for error in errors] == ["red_flag_codes"]
+
+
+@pytest.mark.parametrize("lines", [ACTIONS_MIN_LINES - 1, ACTIONS_MAX_LINES + 1])
+def test_an_urgency_actions_file_outside_the_line_bounds_is_rejected(
+    tmp_path: Path, lines: int
+) -> None:
+    """M5 Part D: three to six actions per category, one per line."""
+    _, errors = parse_entry_file(
+        write_entry(
+            tmp_path,
+            actions_document(content=baseline_actions_content(lines)),
+            name="actions-orange",
+        )
+    )
+
+    assert [error.field for error in errors] == ["content"]
+    assert f"between {ACTIONS_MIN_LINES} and {ACTIONS_MAX_LINES} actions" in errors[0].message
+
+
+@pytest.mark.parametrize("lines", [ACTIONS_MIN_LINES, ACTIONS_MAX_LINES])
+def test_an_urgency_actions_file_on_the_line_bounds_is_accepted(tmp_path: Path, lines: int) -> None:
+    entry, errors = parse_entry_file(
+        write_entry(
+            tmp_path,
+            actions_document(content=baseline_actions_content(lines)),
+            name="actions-orange",
+        )
+    )
+
+    assert errors == []
+    assert entry is not None
+
+
+def test_a_baseline_set_is_not_held_to_the_fifty_word_floor(tmp_path: Path) -> None:
+    """Three short imperatives are about twenty words, and that is the point."""
+    content = baseline_actions_content()
+    assert len(content.split()) < CONTENT_MIN_WORDS
+
+    entry, errors = parse_entry_file(
+        write_entry(tmp_path, actions_document(content=content), name="actions-orange")
+    )
+
+    assert errors == []
+    assert entry is not None
+
+
+def test_a_baseline_line_over_the_word_limit_is_rejected(tmp_path: Path) -> None:
+    long_line = " ".join(["monitor"] * (MAX_WORDS + 1))
+    _, errors = parse_entry_file(
+        write_entry(
+            tmp_path,
+            actions_document(content=f"{baseline_actions_content()}\n{long_line}"),
+            name="actions-orange",
+        )
+    )
+
+    assert [error.field for error in errors] == ["content"]
+    assert f"Line 4 is longer than {MAX_WORDS} words" in errors[0].message
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Give butorphanol for the pain", "names a medication"),
+        ("Give 0.2 mg/kg of the usual analgesic", "names a dose"),
+        ("The cat has a urethral obstruction", "states a diagnosis"),
+    ],
+)
+def test_a_baseline_line_past_the_fr28_boundary_is_rejected(
+    tmp_path: Path, line: str, expected: str
+) -> None:
+    """FR-28: baseline text is shown verbatim and never passes the validator."""
+    _, errors = parse_entry_file(
+        write_entry(
+            tmp_path,
+            actions_document(content=f"Alert the veterinarian immediately\n{line}\nPrepare oxygen"),
+            name="actions-orange",
+        )
+    )
+
+    assert [error.field for error in errors] == ["content"]
+    assert errors[0].message.startswith("Line 2 ")
+    assert expected in errors[0].message
 
 
 # --- Malformed files ------------------------------------------------------

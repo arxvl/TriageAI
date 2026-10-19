@@ -336,6 +336,10 @@ class MockKBIndexer(_MockStage):
     The knowledge-base approval workflow (P08) calls this so the approval itself
     can be built and tested before chunking and embedding exist. The real indexer
     is written manually in M5 as `app.kb.indexer_pgvector:PgVectorKBIndexer`.
+
+    Neither method is reached for an `URGENCY_ACTIONS` entry — `run_kb_index` and
+    `KBService.retire_entry` skip it — so 0 here means "a mock indexed nothing",
+    never "a baseline action set has no chunks" (ADR-18 §2).
     """
 
     def index_entry(self, entry_id: uuid.UUID) -> int:

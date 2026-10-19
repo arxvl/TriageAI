@@ -22,6 +22,7 @@ from app.models import (
     VTLCategory,
     kb_version_entries,
 )
+from app.schemas.kb import content_problem
 from scripts.seed import (
     COMPLAINTS,
     RED_FLAG_RULES,
@@ -176,6 +177,25 @@ def test_seed_creates_one_active_baseline_action_set_per_category(db_session: Se
         assert entry.content.splitlines()
         # Unreplaced placeholder content must be obvious (M5 Part D).
         assert SAMPLE_MARKER in entry.title
+
+
+def test_every_seeded_baseline_set_would_pass_the_workflow(db_session: Session) -> None:
+    """A seeded set has to be one a curator could submit (P08 §8.2b).
+
+    The placeholders are replaced in M5 Part D, and until then they are what
+    W-08 shows: a set the content rule would refuse would be an entry nobody
+    could edit and resubmit.
+    """
+    seed(db_session)
+
+    sets = db_session.scalars(
+        select(KBEntry).where(KBEntry.kind == KBEntryKind.URGENCY_ACTIONS)
+    ).all()
+
+    assert len(sets) == EXPECTED_BASELINE_COUNT
+    for entry in sets:
+        problem = content_problem(entry.content, KBEntryKind.URGENCY_ACTIONS)
+        assert problem is None, f"{entry.urgency_category}: {problem}"
 
 
 def test_baseline_actions_name_no_drug_dose_or_diagnosis(db_session: Session) -> None:

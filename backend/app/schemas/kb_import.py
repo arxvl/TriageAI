@@ -9,16 +9,21 @@ arrives in bulk.
 Four things here are deliberate.
 
 **The bounds come from `schemas/kb.py`, not from a second copy.** `SLUG_PATTERN`,
-`RULE_CODE_PATTERN`, the 50–1,500 word content rule and `word_count` are imported
-from the API schemas, so a file the importer accepts is an entry W-08 would also
-accept. If they diverged, an entry could be imported that could never be
-submitted.
+`RULE_CODE_PATTERN` and `content_problem` — the per-kind content rule — are
+imported from the API schemas, so a file the importer accepts is an entry W-08
+would also accept. If they diverged, an entry could be imported that could never
+be submitted.
 
 **`extra="forbid"` on every model.** A misspelled key in a curated file is a
 silent omission otherwise: `red_flag_code:` would import an entry citing no rule
 at all. Forbidding unknown keys turns that into a reported error naming the key.
-It is also what keeps `kind:` and `urgency_category:` out until subphase 8.2b
-adds urgency-action import (ADR-18).
+
+**The two kinds are one model, checked across fields.** A file is a `COMPLAINT`
+entry or an `URGENCY_ACTIONS` baseline set (ADR-18), and which of
+`complaint_code` and `urgency_category` it must carry follows from `kind`. The
+pairing is checked in `parse_entry_file` rather than in a validator so the error
+can name the field it is about; a cross-field `ValueError` carries no location
+and would be reported against the file as a whole.
 
 **A rule file imports placeholder rules.** `is_placeholder` defaults to `True`:
 a rule that arrived from a file has not been through the approval workflow, and
@@ -41,12 +46,12 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core.validation_messages import field_from_location, plain_message
-from app.models.enums import Species, VTLCategory
+from app.models.enums import KBEntryKind, Species, VTLCategory
 from app.schemas.kb import (
     CONTENT_MAX_LENGTH,
     RULE_CODE_PATTERN,
     SLUG_PATTERN,
-    require_word_count,
+    content_problem,
 )
 
 __all__ = [
@@ -111,21 +116,26 @@ class SourceBlock(BaseModel):
 
 
 class KBEntryFile(BaseModel):
-    """`knowledge_base/entries/<slug>.yaml` — one COMPLAINT entry.
+    """`knowledge_base/entries/<slug>.yaml` — one entry of either kind.
 
-    `kind` and `urgency_category` are absent on purpose and rejected by
-    `extra="forbid"`: this subphase imports clinical entries only, and the five
-    `URGENCY_ACTIONS` sets arrive with 8.2b (ADR-18).
+    `kind` defaults to `COMPLAINT`, so every file written before subphase 8.2b
+    still parses unchanged. An `URGENCY_ACTIONS` file sets `kind` and
+    `urgency_category` and leaves `complaint_code` out: a baseline action set
+    belongs to a VTL category, not to a presenting complaint (ADR-18, M5 Part D).
 
     `complaint_code` is checked for *shape* here and for *existence* by the
-    importer, which is the only side with a database.
+    importer, which is the only side with a database. The source block is
+    required on both kinds: a baseline set is curated clinical content and FR-50
+    makes no exception for it.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     slug: str = Field(min_length=1, max_length=120, pattern=SLUG_PATTERN)
+    kind: KBEntryKind = KBEntryKind.COMPLAINT
     title: str = Field(min_length=1, max_length=300)
-    complaint_code: str = Field(min_length=1, max_length=64)
+    complaint_code: str | None = Field(default=None, min_length=1, max_length=64)
+    urgency_category: VTLCategory | None = None
     species: list[Species] = Field(min_length=1)
     content: str = Field(min_length=1, max_length=CONTENT_MAX_LENGTH)
     source: SourceBlock
@@ -136,11 +146,6 @@ class KBEntryFile(BaseModel):
     def _trim(cls, value: object) -> object:
         """Trimmed before the length and pattern checks, so blanks fail."""
         return value.strip() if isinstance(value, str) else value
-
-    @field_validator("content")
-    @classmethod
-    def _bounded_words(cls, value: str) -> str:
-        return require_word_count(value)
 
     @field_validator("species")
     @classmethod
@@ -240,6 +245,97 @@ def _errors_from(path: Path, error: ValidationError) -> list[FileError]:
     return reported
 
 
+# What each kind requires and what it must not carry (P08 §8.2b, ADR-18). The
+# same exclusivity the two check constraints on `kb_entries` state, reported here
+# as a field and a sentence instead of an integrity error.
+_KIND_FIELDS: dict[KBEntryKind, tuple[str, str]] = {
+    KBEntryKind.COMPLAINT: ("complaint_code", "urgency_category"),
+    KBEntryKind.URGENCY_ACTIONS: ("urgency_category", "complaint_code"),
+}
+
+_KIND_REQUIRED: dict[str, str] = {
+    "complaint_code": (
+        "is required on a clinical entry. Name the presenting complaint this entry is about."
+    ),
+    "urgency_category": (
+        "is required on a baseline action set. Name the VTL category these actions are for: "
+        "RED, ORANGE, YELLOW, GREEN or BLUE."
+    ),
+}
+
+_KIND_FORBIDDEN: dict[str, str] = {
+    "complaint_code": (
+        "belongs to a clinical entry. A baseline action set belongs to an urgency category, "
+        "not to a presenting complaint. Remove it."
+    ),
+    "urgency_category": (
+        "belongs to a baseline action set (kind: URGENCY_ACTIONS). Remove it from a clinical entry."
+    ),
+}
+
+
+def _cross_field_errors(path: Path, entry: KBEntryFile) -> list[FileError]:
+    """Everything wrong with this file that one field alone cannot show.
+
+    All of them, not the first: a curator writing their first urgency-action file
+    should learn in one run that they also left `complaint_code` in it
+    (P08 §8.2 — "report every error with its file and field").
+    """
+    required, forbidden = _KIND_FIELDS[entry.kind]
+    reported = []
+
+    if getattr(entry, required) is None:
+        reported.append(FileError(path, required, _KIND_REQUIRED[required]))
+    if getattr(entry, forbidden) is not None:
+        reported.append(FileError(path, forbidden, _KIND_FORBIDDEN[forbidden]))
+    if entry.kind is KBEntryKind.URGENCY_ACTIONS and entry.red_flag_codes:
+        # `red_flag_rules.entry_id` points at the entry that *explains* a rule,
+        # and a baseline action set explains nothing: it is not retrievable and
+        # is never cited in a rationale (FR-49).
+        reported.append(
+            FileError(
+                path,
+                "red_flag_codes",
+                "is only for a clinical entry. A baseline action set explains no red flag, "
+                "so remove the list.",
+            )
+        )
+
+    problem = content_problem(entry.content, entry.kind)
+    if problem is not None:
+        reported.append(FileError(path, "content", problem))
+    return reported
+
+
+def _content_error_from_document(
+    path: Path, document: dict, reported: list[FileError]
+) -> list[FileError]:
+    """The content problem in a file that failed validation elsewhere.
+
+    The content rule is not a field validator — it needs the kind and reports a
+    line number, and a Pydantic `value_error` on `content` is flattened to one
+    registered sentence (see the module docstring). So a file with a blank title
+    *and* three lines too few would otherwise have its content problem withheld
+    until the title was fixed, and P08 §8.2 asks for every error in one run.
+
+    Nothing is reported when `content` or `kind` is itself among the failures:
+    the rule cannot be applied to a value that is missing or the wrong type.
+    """
+    blocked = {"content", "kind"}
+    if any(error.field in blocked for error in reported):
+        return []
+    content = document.get("content")
+    if not isinstance(content, str):
+        return []
+    try:
+        kind = KBEntryKind(document.get("kind", KBEntryKind.COMPLAINT))
+    except ValueError:
+        return []
+
+    problem = content_problem(content.strip(), kind)
+    return [] if problem is None else [FileError(path, "content", problem)]
+
+
 def parse_entry_file(path: Path) -> tuple[KBEntryFile | None, list[FileError]]:
     """Parse one entry file. Either the entry, or every problem with it.
 
@@ -255,7 +351,8 @@ def parse_entry_file(path: Path) -> tuple[KBEntryFile | None, list[FileError]]:
     try:
         entry = KBEntryFile.model_validate(document)
     except ValidationError as error:
-        return None, _errors_from(path, error)
+        reported = _errors_from(path, error)
+        return None, reported + _content_error_from_document(path, document, reported)
 
     if entry.slug != path.stem:
         return None, [
@@ -266,7 +363,9 @@ def parse_entry_file(path: Path) -> tuple[KBEntryFile | None, list[FileError]]:
                 f"Rename the file or change the slug so the two match.",
             )
         ]
-    return entry, []
+
+    errors = _cross_field_errors(path, entry)
+    return (None, errors) if errors else (entry, [])
 
 
 def parse_rules_file(path: Path) -> tuple[list[RedFlagRuleFile], list[FileError]]:

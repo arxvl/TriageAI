@@ -18,6 +18,14 @@ entry standing — an approval that visibly did not take effect, which is the
 honest state. The error is a reason **code** on the job row, never a traceback
 or model output (CLAUDE.md §9); `GET /kb/entries/{id}` reads it back.
 
+An `URGENCY_ACTIONS` entry skips step 1 entirely. It holds the baseline actions
+for one VTL category, is looked up by category and must never come back from a
+similarity search, so it is not chunked or embedded at all and its chunk count is
+0 (ADR-18 §2, P08 §8.2b task 3). It is still activated and still published in the
+version, like any other ACTIVE entry. Its category is re-checked first: only one
+ACTIVE set may hold a category, and another approval can have been committed
+while this job sat in the queue.
+
 The indexer is passed in rather than built here. It comes from the registry
 (`KB_INDEXER`), is `MockKBIndexer` until M5, and is the only thing in this file
 that will change when the real one arrives.
@@ -32,7 +40,7 @@ from enum import StrEnum
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import KB_INDEX_APPROVER_KEY, KB_INDEX_ENTRY_KEY
-from app.models import Job, KBEntryStatus, User, UserRole
+from app.models import Job, KBEntry, KBEntryKind, KBEntryStatus, User, UserRole
 from app.pipeline.stages import KBIndexer
 from app.repositories.kb_repository import KBRepository
 from app.services.audit_service import KB_ENTRY_ENTITY, AuditAction, AuditService
@@ -61,6 +69,10 @@ class KBIndexFailureReason(StrEnum):
     ENTRY_NOT_FOUND = "KB_ENTRY_NOT_FOUND"
     ENTRY_NOT_PENDING_REVIEW = "KB_ENTRY_NOT_PENDING_REVIEW"
     INDEXING_FAILED = "KB_INDEXING_FAILED"
+    # A second ACTIVE baseline action set for one category, approved while this
+    # job waited (FR-72, ADR-18). `KBService.approve_entry` refuses it at request
+    # time; this is the race the queue leaves open.
+    URGENCY_ACTIONS_CATEGORY_TAKEN = "KB_URGENCY_ACTIONS_CATEGORY_TAKEN"
 
 
 @dataclass(frozen=True)
@@ -133,31 +145,49 @@ def run_kb_index(
         )
 
     slug_or_id = entry.slug or str(entry.id)
-    try:
-        # TODO(manual:M5): `MockKBIndexer` indexes nothing and answers 0. The real
-        # chunking-and-embedding indexer is
-        # `app.kb.indexer_pgvector:PgVectorKBIndexer`, selected by KB_INDEXER.
-        chunk_count = indexer.index_entry(entry_id)
-    except Exception:
-        session.rollback()
-        # No model output and no exception text in the log record: a stage's
-        # message may quote content, and this line is written at ERROR level
-        # (CLAUDE.md §9). The traceback goes to the operator's log only.
-        logger.exception("indexing an approved entry failed", extra={"entry_id": str(entry_id)})
-        AuditService(session).record(
-            action=AuditAction.KB_INDEX_FAILED,
-            entity_type=KB_ENTRY_ENTITY,
-            entity_id=str(entry_id),
-            user_id=approver_id,
-            role=role,
-            before={"status": KBEntryStatus.PENDING_REVIEW.value},
-            after={
-                "status": KBEntryStatus.PENDING_REVIEW.value,
-                "reason": KBIndexFailureReason.INDEXING_FAILED.value,
-            },
+
+    if _category_taken(repository, entry):
+        logger.warning(
+            "KB_INDEX job for a baseline action set whose category is taken",
+            extra={"entry_id": str(entry_id), "urgency_category": str(entry.urgency_category)},
         )
-        session.commit()
-        return KBIndexRunResult(entry_id, failure_reason=KBIndexFailureReason.INDEXING_FAILED)
+        _record_failure(
+            session,
+            entry_id,
+            approver_id=approver_id,
+            role=role,
+            reason=KBIndexFailureReason.URGENCY_ACTIONS_CATEGORY_TAKEN,
+        )
+        return KBIndexRunResult(
+            entry_id, failure_reason=KBIndexFailureReason.URGENCY_ACTIONS_CATEGORY_TAKEN
+        )
+
+    if entry.kind is KBEntryKind.URGENCY_ACTIONS:
+        # Not chunked, not embedded, never similarity-searched: the baseline set
+        # is read by category (ADR-18 §2, P08 §8.2b task 3).
+        # TODO(manual:M5): `PgVectorKBIndexer` is deliberately never handed one of
+        # these, so it does not need a kind check of its own.
+        chunk_count = 0
+    else:
+        try:
+            # TODO(manual:M5): `MockKBIndexer` indexes nothing and answers 0. The real
+            # chunking-and-embedding indexer is
+            # `app.kb.indexer_pgvector:PgVectorKBIndexer`, selected by KB_INDEXER.
+            chunk_count = indexer.index_entry(entry_id)
+        except Exception:
+            session.rollback()
+            # No model output and no exception text in the log record: a stage's
+            # message may quote content, and this line is written at ERROR level
+            # (CLAUDE.md §9). The traceback goes to the operator's log only.
+            logger.exception("indexing an approved entry failed", extra={"entry_id": str(entry_id)})
+            _record_failure(
+                session,
+                entry_id,
+                approver_id=approver_id,
+                role=role,
+                reason=KBIndexFailureReason.INDEXING_FAILED,
+            )
+            return KBIndexRunResult(entry_id, failure_reason=KBIndexFailureReason.INDEXING_FAILED)
 
     repository.set_entry_status(
         entry,
@@ -177,6 +207,9 @@ def run_kb_index(
             "slug": entry.slug,
             "kind": str(entry.kind),
             "chunk_count": chunk_count,
+            # False for a baseline action set, which is why its chunk count is 0:
+            # 0 on its own would read as an indexer that found nothing to chunk.
+            "indexed": entry.kind is not KBEntryKind.URGENCY_ACTIONS,
         },
     )
 
@@ -190,6 +223,47 @@ def run_kb_index(
     )
     session.commit()
     return KBIndexRunResult(entry_id, chunk_count=chunk_count, version_no=published.version_no)
+
+
+def _category_taken(repository: KBRepository, entry: KBEntry) -> bool:
+    """Whether another ACTIVE baseline set already holds this entry's category.
+
+    Always false for a `COMPLAINT` entry. For a baseline set it is the last gate
+    before `uq_kb_entries_active_urgency_actions` would raise, which inside a
+    worker is an unexplained failed job rather than a reason code (FR-72).
+    """
+    if entry.kind is not KBEntryKind.URGENCY_ACTIONS or entry.urgency_category is None:
+        return False
+    return (
+        repository.active_urgency_actions_entry(entry.urgency_category, exclude_id=entry.id)
+        is not None
+    )
+
+
+def _record_failure(
+    session: Session,
+    entry_id: uuid.UUID,
+    *,
+    approver_id: uuid.UUID | None,
+    role: UserRole | None,
+    reason: KBIndexFailureReason,
+) -> None:
+    """Record an approval that did not take effect, and commit that alone.
+
+    Committed on its own because the log is the only account of it: the entry is
+    still `PENDING_REVIEW`, no version was published, and the approver's own
+    entry a moment earlier says they approved (FR-43, ADR-12).
+    """
+    AuditService(session).record(
+        action=AuditAction.KB_INDEX_FAILED,
+        entity_type=KB_ENTRY_ENTITY,
+        entity_id=str(entry_id),
+        user_id=approver_id,
+        role=role,
+        before={"status": KBEntryStatus.PENDING_REVIEW.value},
+        after={"status": KBEntryStatus.PENDING_REVIEW.value, "reason": reason.value},
+    )
+    session.commit()
 
 
 def _role_of(session: Session, user_id: uuid.UUID | None) -> UserRole | None:

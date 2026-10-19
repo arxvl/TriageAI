@@ -109,6 +109,13 @@ class Retriever(Protocol):
         `kb_version_id` pins the search to one published knowledge-base version,
         so a recommendation can be reproduced later (ADR-14).
 
+        Only `COMPLAINT` entries are searchable. An `URGENCY_ACTIONS` entry holds
+        the baseline actions for one VTL category, is read by category and has no
+        chunks at all, so no passage may ever come from one (ADR-18 §2).
+        TODO(manual:M6): `PgVectorRetriever` searches `kb_chunks`, which the
+        indexer never writes a row into for a baseline action set, so the
+        exclusion holds without a kind filter in the query.
+
         Raises:
             RetrievalFailed: the search could not be performed.
         """
@@ -167,9 +174,17 @@ class KBIndexer(Protocol):
     """Used by the knowledge-base approval workflow (P08), not by a triage run."""
 
     def index_entry(self, entry_id: uuid.UUID) -> int:
-        """Chunk and index an approved entry; returns the chunk count."""
+        """Chunk and index an approved entry; returns the chunk count.
+
+        Never called for an `URGENCY_ACTIONS` entry: `run_kb_index` skips it and
+        reports 0 chunks, because a baseline action set is looked up by category
+        and must never be similarity-searched (ADR-18 §2, P08 §8.2b).
+        """
         ...
 
     def remove_entry(self, entry_id: uuid.UUID) -> None:
-        """Drop a retired entry's chunks so retrieval can no longer return them."""
+        """Drop a retired entry's chunks so retrieval can no longer return them.
+
+        Not called for an `URGENCY_ACTIONS` entry either; it has no chunks.
+        """
         ...

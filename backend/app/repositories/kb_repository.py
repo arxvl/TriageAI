@@ -86,6 +86,29 @@ class KBRepository:
             self._session.scalars(select(KBEntry.slug).where(KBEntry.slug.like(f"{slug}-rev%")))
         )
 
+    def active_urgency_actions_entry(
+        self, category: VTLCategory, *, exclude_id: uuid.UUID | None = None
+    ) -> KBEntry | None:
+        """The ACTIVE baseline action set for one category, or None (ADR-18).
+
+        `uq_kb_entries_active_urgency_actions` guarantees there is at most one, so
+        this is a lookup and not a list. Two callers need it: the approval gate,
+        which refuses a second set for a category the service can name, and the
+        importer, which treats a changed `actions-<category>.yaml` as a revision
+        of the set it replaces.
+
+        `exclude_id` leaves the entry being acted on out, so an entry does not
+        collide with itself.
+        """
+        statement = select(KBEntry).where(
+            KBEntry.kind == KBEntryKind.URGENCY_ACTIONS,
+            KBEntry.status == KBEntryStatus.ACTIVE,
+            KBEntry.urgency_category == category,
+        )
+        if exclude_id is not None:
+            statement = statement.where(KBEntry.id != exclude_id)
+        return self._session.scalars(statement).first()
+
     def complaint_exists(self, code: str) -> bool:
         return self._session.get(PresentingComplaint, code) is not None
 

@@ -31,7 +31,12 @@ from app.models import (
 )
 from app.schemas.kb_import import parse_entry_file, parse_rules_file
 from app.services.kb_import import ImportOutcome, ImportReport, KBImporter, revision_slug
-from tests.conftest import make_kb_entry, make_red_flag_rule, make_user
+from tests.conftest import (
+    baseline_actions_content,
+    make_kb_entry,
+    make_red_flag_rule,
+    make_user,
+)
 
 CONTENT = (
     "SAMPLE - not source-verified. Fixture entry content written only so the "
@@ -76,6 +81,52 @@ def entry_document(**overrides: object) -> dict:
     }
     document.update(overrides)
     return document
+
+
+ACTIONS_SLUG = "actions-orange"
+
+
+def actions_document(**overrides: object) -> dict:
+    """An `URGENCY_ACTIONS` file, in the shape M5 Part D writes (8.2b)."""
+    document: dict = {
+        "slug": ACTIONS_SLUG,
+        "kind": "URGENCY_ACTIONS",
+        "urgency_category": "ORANGE",
+        "title": "Suggested staff actions - Orange",
+        "species": ["DOG", "CAT"],
+        "content": baseline_actions_content(),
+        "source": {
+            "title": "Fixture Source",
+            "publisher": "Fixture Publisher",
+            "url": "https://example.invalid/fixture",
+            "access_date": "2026-10-12",
+        },
+    }
+    document.update(overrides)
+    return document
+
+
+def make_baseline_set(
+    session: Session,
+    *,
+    category: VTLCategory = VTLCategory.ORANGE,
+    status: KBEntryStatus = KBEntryStatus.ACTIVE,
+    slug: str | None = None,
+    title: str = "Suggested staff actions - Orange [SAMPLE]",
+    lines: int = 3,
+) -> KBEntry:
+    """A stored baseline set. `slug=None` is how `scripts/seed.py` writes one."""
+    return make_kb_entry(
+        session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=category,
+        status=status,
+        slug=slug,
+        title=title,
+        content=baseline_actions_content(lines),
+        with_source=True,
+    )
 
 
 def entry_file(tmp_path: Path, document: dict) -> object:
@@ -414,6 +465,179 @@ def test_revision_slug_skips_the_numbers_already_taken() -> None:
     assert revision_slug("cat", []) == "cat-rev2"
     assert revision_slug("cat", ["cat-rev2"]) == "cat-rev3"
     assert revision_slug("cat", ["cat-rev2", "cat-rev3"]) == "cat-rev4"
+
+
+# --- Urgency-action entries (P08 §8.2b, ADR-18) ---------------------------
+# A baseline action set is matched by category as well as by slug, because the
+# five sets `scripts/seed.py` writes have no slug at all and only one ACTIVE set
+# may hold a category.
+
+
+def test_an_urgency_actions_file_becomes_a_draft(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    report = import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.CREATED]
+    entry = stored(db_session, ACTIONS_SLUG)
+    assert entry is not None
+    assert entry.kind is KBEntryKind.URGENCY_ACTIONS
+    assert entry.urgency_category is VTLCategory.ORANGE
+    assert entry.complaint_code is None
+    assert entry.status is KBEntryStatus.DRAFT
+
+
+def test_a_file_for_a_seeded_category_revises_the_live_set(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    """The seeded sets have no slug, so the category is what matches them (8.2b).
+
+    The file takes its own slug, because nothing holds it: `actions-orange`, not
+    `actions-orange-rev2`.
+    """
+    seeded = make_baseline_set(db_session, slug=None)
+
+    report = import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.REVISED]
+    revision = stored(db_session, ACTIONS_SLUG)
+    assert revision is not None
+    assert revision.id != seeded.id
+    assert revision.status is KBEntryStatus.DRAFT
+    assert revision.revises_entry_id == seeded.id
+    assert revision.urgency_category is VTLCategory.ORANGE
+    # Every column of the live set is as the seed left it (ADR-14).
+    db_session.refresh(seeded)
+    assert seeded.status is KBEntryStatus.ACTIVE
+    assert seeded.title == "Suggested staff actions - Orange [SAMPLE]"
+    assert seeded.content == baseline_actions_content(3)
+
+
+def test_re_importing_the_same_urgency_file_updates_that_revision(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    """The second run finds the revision by slug: no second draft, no -rev2."""
+    make_baseline_set(db_session, slug=None)
+    import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    report = import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.UNCHANGED]
+    assert count(db_session, KBEntry) == 2
+    assert stored(db_session, f"{ACTIONS_SLUG}-rev2") is None
+
+
+def test_a_changed_urgency_file_updates_the_open_revision(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    make_baseline_set(db_session, slug=None)
+    import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    report = import_entries(
+        importer,
+        [entry_file(tmp_path, actions_document(content=baseline_actions_content(4)))],
+    )
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.UPDATED]
+    revision = stored(db_session, ACTIONS_SLUG)
+    assert revision is not None
+    assert revision.content == baseline_actions_content(4)
+    assert count(db_session, KBEntry) == 2
+
+
+def test_a_file_for_a_category_with_no_set_at_all_is_created(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    """Another category's live set is no match: the lookup is per category."""
+    make_baseline_set(db_session, category=VTLCategory.RED, slug=None)
+
+    report = import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.CREATED]
+    entry = stored(db_session, ACTIONS_SLUG)
+    assert entry is not None
+    assert entry.revises_entry_id is None
+
+
+def test_an_urgency_file_matched_by_slug_revises_under_a_rev_slug(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    """Once the imported set is itself live, the base slug is taken."""
+    live = make_baseline_set(db_session, slug=ACTIONS_SLUG)
+
+    report = import_entries(
+        importer,
+        [entry_file(tmp_path, actions_document(content=baseline_actions_content(5)))],
+    )
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.REVISED]
+    revision = stored(db_session, f"{ACTIONS_SLUG}-rev2")
+    assert revision is not None
+    assert revision.revises_entry_id == live.id
+
+
+def test_a_file_that_changes_an_entrys_kind_is_an_error(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    """The two kinds are exclusive; an entry cannot cross between them (ADR-18)."""
+    complaint(db_session)
+    import_entries(importer, [entry_file(tmp_path, entry_document())])
+
+    report = import_entries(
+        importer,
+        [
+            entry_file(
+                tmp_path,
+                actions_document(slug=ENTRY_SLUG, title="Now claiming to be a baseline set"),
+            )
+        ],
+    )
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.ERROR]
+    assert "cannot change kind" in (report.entries[0].detail or "")
+    entry = stored(db_session, ENTRY_SLUG)
+    assert entry is not None
+    assert entry.kind is KBEntryKind.COMPLAINT
+    assert entry.urgency_category is None
+
+
+def test_an_unchanged_urgency_file_for_a_live_set_writes_nothing(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    make_baseline_set(db_session, slug=ACTIONS_SLUG, title="Suggested staff actions - Orange")
+    before = count(db_session, AuditEntry)
+    # Every field as `make_kb_entry(with_source=True)` stored it, so the file and
+    # the row really are identical and the comparison has nothing to report.
+    document = actions_document(
+        source={
+            "title": "Fixture Source Title",
+            "publisher": "Fixture Publisher",
+            "url": "https://example.invalid/fixture",
+            "access_date": "2026-10-12",
+        }
+    )
+
+    report = import_entries(importer, [entry_file(tmp_path, document)])
+
+    assert [row.outcome for row in report.entries] == [ImportOutcome.UNCHANGED]
+    assert count(db_session, KBEntry) == 1
+    assert count(db_session, AuditEntry) == before
+
+
+def test_the_urgency_import_audit_entry_records_the_category_not_the_content(
+    db_session: Session, importer: KBImporter, tmp_path: Path
+) -> None:
+    """FR-43, CLAUDE.md §9: ids, codes and counts; never the curated text."""
+    import_entries(importer, [entry_file(tmp_path, actions_document())])
+
+    recorded = db_session.scalars(
+        select(AuditEntry).where(AuditEntry.action == "KB_ENTRY_CREATED")
+    ).one()
+    assert recorded.after["urgency_category"] == "ORANGE"
+    assert recorded.after["kind"] == "URGENCY_ACTIONS"
+    assert recorded.after["source"] == "import"
+    assert "content" not in recorded.after
+    assert "Alert the veterinarian" not in str(recorded.after)
 
 
 # --- Red-flag rules (NFR-08, BR-04) ---------------------------------------

@@ -29,6 +29,7 @@ from app.pipeline.action_validator import (
     NO_VALID_CITATION,
     REJECTION_REASONS,
     TOO_LONG,
+    baseline_line_failure,
     validate,
 )
 from app.pipeline.types import Passage, SuggestedAction
@@ -314,3 +315,53 @@ def test_inputs_are_not_mutated() -> None:
 
     assert actions[0].cited_ranks == [1, 99]
     assert [passage.rank for passage in passages] == [1, 2, 3]
+
+
+# --- Baseline action lines (P08 §8.2b, FR-28, FR-72) ----------------------
+# The lines of an `URGENCY_ACTIONS` entry are shown to staff verbatim and never
+# pass `validate`, so the knowledge-base workflow screens them with the same
+# four content rules before the entry can be imported or submitted.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Move the patient to the treatment area now",
+        "Alert the veterinarian immediately",
+        "Prepare oxygen and monitoring equipment",
+        "Recheck breathing effort and alertness every 15 minutes",
+        "Ask the owner whether the patient has passed any urine",
+        "Carry the patient in; do not let it walk",
+    ],
+)
+def test_a_triage_level_baseline_line_passes(text: str) -> None:
+    """The other half of FR-28: ordinary baseline wording must get through."""
+    assert baseline_line_failure(text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Give butorphanol for pain", CONTAINS_DRUG),
+        ("Give 0.2 mg/kg of the usual analgesic", CONTAINS_DOSE),
+        ("Start antibiotics before the consultation", CONTAINS_DRUG),
+        ("The cat has a urethral obstruction", CONTAINS_DIAGNOSIS),
+    ],
+)
+def test_a_baseline_line_past_the_fr28_boundary_is_refused(text: str, expected: str) -> None:
+    assert baseline_line_failure(text) == expected
+
+
+def test_a_baseline_line_is_held_to_the_same_word_limit() -> None:
+    assert baseline_line_failure(" ".join(["monitor"] * MAX_WORDS)) is None
+    assert baseline_line_failure(" ".join(["monitor"] * (MAX_WORDS + 1))) == TOO_LONG
+
+
+def test_a_baseline_line_needs_no_citation() -> None:
+    """An approved `URGENCY_ACTIONS` entry is its own provenance (ADR-18 §2).
+
+    `validate` drops an uncited action; a baseline line has nothing to cite and
+    must not be refused for it (FR-74 against FR-72).
+    """
+    assert baseline_line_failure("Prepare oxygen and monitoring equipment") is None
+    assert only_reason("Prepare oxygen and monitoring equipment", []) == NO_VALID_CITATION

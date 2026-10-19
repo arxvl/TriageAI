@@ -134,6 +134,14 @@ Three consequences worth knowing:
   A published version's entry list cannot be updated — the database rejects it (FR-54, DR-05).
 - **Red-flag rules screen cases only once approved.** The eight rules the seed writes are marked
   as placeholders, which `APP_ENV=dev` includes and any other environment excludes (NFR-08).
+- **Baseline action sets are knowledge-base entries too.** An entry is either a `COMPLAINT` entry
+  — clinical content, chunked and retrievable — or an `URGENCY_ACTIONS` entry holding the baseline
+  suggested actions for one VTL category (FR-71, FR-72, ADR-18). A baseline set carries a citation
+  and is versioned like any other entry, but is looked up by category and never chunked, embedded
+  or similarity-searched. At most one may be ACTIVE per category, so approving a replacement
+  answers 409 until the live one is retired — and retiring it warns that the category will show no
+  baseline actions until a replacement is approved. Its lines are held to the same FR-28 boundary
+  as the AI-tailored actions: no medication, no dose, no diagnosis.
 
 ### Importing curated files
 

@@ -62,7 +62,9 @@ __all__ = [
     "NO_VALID_CITATION",
     "REJECTION_REASONS",
     "TOO_LONG",
+    "action_lines",
     "baseline_actions",
+    "baseline_line_failure",
     "validate",
 ]
 
@@ -228,15 +230,15 @@ def _asserts_diagnosis(text: str) -> bool:
     return False
 
 
-def _first_failure(text: str, cited_ranks: list[int]) -> str | None:
-    """The code of the first rule this action fails, or None if it passes.
+def _content_failure(text: str) -> str | None:
+    """The code of the first content rule this text fails, or None.
 
-    Rules 1 to 5 of P05b §5b.2, in order. Rule 1 is applied to the *already
-    filtered* ranks, so the caller decides what a valid citation is and this
-    only reports that nothing survived.
+    Rules 2 to 5 of P05b §5b.2 — the word limit, dose expressions, medication
+    names and asserted diagnoses — in that order. Separate from rule 1 because
+    the citation rule does not apply to every caller: a baseline action line
+    cites nothing, the approved `URGENCY_ACTIONS` entry being its own provenance
+    (FR-72, ADR-18 §2).
     """
-    if not cited_ranks:
-        return NO_VALID_CITATION
     if len(text.split()) > MAX_WORDS:
         return TOO_LONG
     if _contains_dose(text):
@@ -246,6 +248,34 @@ def _first_failure(text: str, cited_ranks: list[int]) -> str | None:
     if _asserts_diagnosis(text):
         return CONTAINS_DIAGNOSIS
     return None
+
+
+def baseline_line_failure(text: str) -> str | None:
+    """The code of the first FR-28 rule one baseline action line fails, or None.
+
+    The knowledge-base workflow screens every line of an `URGENCY_ACTIONS` entry
+    with this before the entry can be imported or submitted (P08 §8.2b). Baseline
+    text never passes `validate` and is shown to staff verbatim, so without this
+    the one action text nobody screens would also be the only one no second pair
+    of eyes checks word by word (FR-28, ADR-18 §1).
+
+    The same four rules, the same codes and the same order as a tailored action,
+    deliberately: a line a curator writes and a line a model proposes are read off
+    the same screen and must meet the same boundary.
+    """
+    return _content_failure(text)
+
+
+def _first_failure(text: str, cited_ranks: list[int]) -> str | None:
+    """The code of the first rule this action fails, or None if it passes.
+
+    Rules 1 to 5 of P05b §5b.2, in order. Rule 1 is applied to the *already
+    filtered* ranks, so the caller decides what a valid citation is and this
+    only reports that nothing survived.
+    """
+    if not cited_ranks:
+        return NO_VALID_CITATION
+    return _content_failure(text)
 
 
 def validate(
@@ -291,6 +321,16 @@ def validate(
     return kept[: max(max_items, 0)], reasons
 
 
+def action_lines(content: str) -> list[str]:
+    """The actions an `URGENCY_ACTIONS` entry holds: its non-empty lines (FR-72).
+
+    The one split, used both by `baseline_actions` when the pipeline reads an
+    approved set and by `schemas.kb.content_problem` when the workflow validates
+    one. Two splits could accept a set of four actions and display three.
+    """
+    return [line.strip() for line in content.splitlines() if line.strip()]
+
+
 def baseline_actions(
     session: Session,
     category: VTLCategory,
@@ -315,4 +355,4 @@ def baseline_actions(
             kb_version_id,
         )
         return []
-    return [line.strip() for line in content.splitlines() if line.strip()]
+    return action_lines(content)

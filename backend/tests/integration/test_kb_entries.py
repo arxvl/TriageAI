@@ -15,8 +15,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import KBEntryStatus, PresentingComplaint, User, UserRole
+from app.models import (
+    KBEntryKind,
+    KBEntryStatus,
+    PresentingComplaint,
+    User,
+    UserRole,
+    VTLCategory,
+)
 from tests.conftest import (
+    baseline_actions_content,
     csrf_headers,
     kb_entry_content,
     make_kb_entry,
@@ -44,6 +52,44 @@ def entry_body(**overrides: object) -> dict:
     }
     body.update(overrides)
     return body
+
+
+def actions_body(**overrides: object) -> dict:
+    """A baseline action set as W-08's editor will post one (8.2b, ADR-18)."""
+    body: dict = {
+        "kind": KBEntryKind.URGENCY_ACTIONS.value,
+        "urgency_category": VTLCategory.ORANGE.value,
+        "title": "Suggested staff actions - Orange",
+        "species": ["DOG", "CAT"],
+        "content": baseline_actions_content(),
+        "source_title": "Fixture Source Title",
+        "source_publisher": "Fixture Publisher",
+        "source_url": "https://example.invalid/fixture",
+        "access_date": str(date(2026, 10, 12)),
+        "slug": "actions-orange",
+    }
+    body.update(overrides)
+    return body
+
+
+def make_baseline_set(
+    session: Session,
+    *,
+    category: VTLCategory = VTLCategory.ORANGE,
+    status: KBEntryStatus = KBEntryStatus.ACTIVE,
+    slug: str | None = None,
+):
+    return make_kb_entry(
+        session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=category,
+        status=status,
+        slug=slug,
+        title=f"Suggested staff actions - {category.value}",
+        content=baseline_actions_content(),
+        with_source=True,
+    )
 
 
 def ensure_complaint(session: Session) -> None:
@@ -447,6 +493,114 @@ def test_intake_staff_cannot_retire_an_entry(api_client: TestClient, db_session:
     response = api_client.post(f"{ENTRIES_URL}/{entry.id}/retire", headers=csrf_headers(api_client))
 
     assert response.status_code == 403
+
+
+# --- Urgency-action entries (P08 §8.2b, ADR-18) ---------------------------
+
+
+def test_an_administrator_creates_a_baseline_action_set(
+    api_client: TestClient, db_session: Session
+) -> None:
+    as_admin(api_client, db_session)
+
+    response = api_client.post(ENTRIES_URL, json=actions_body(), headers=csrf_headers(api_client))
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["kind"] == KBEntryKind.URGENCY_ACTIONS.value
+    assert body["urgency_category"] == VTLCategory.ORANGE.value
+    assert body["complaint_code"] is None
+    assert body["status"] == KBEntryStatus.DRAFT.value
+
+
+def test_a_clinical_entry_cannot_set_an_urgency_category(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """The two kinds are exclusive, answered as a 422 naming the field."""
+    ensure_complaint(db_session)
+    as_admin(api_client, db_session)
+
+    response = api_client.post(
+        ENTRIES_URL,
+        json=entry_body(urgency_category=VTLCategory.ORANGE.value),
+        headers=csrf_headers(api_client),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["field"] == "urgency_category"
+
+
+def test_a_baseline_set_with_too_few_actions_is_a_422(
+    api_client: TestClient, db_session: Session
+) -> None:
+    as_admin(api_client, db_session)
+
+    response = api_client.post(
+        ENTRIES_URL,
+        json=actions_body(content=baseline_actions_content(2)),
+        headers=csrf_headers(api_client),
+    )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["field"] == "content"
+    assert "one per line" in error["message"]
+
+
+def test_intake_staff_cannot_create_a_baseline_action_set(
+    api_client: TestClient, db_session: Session
+) -> None:
+    signed_in(api_client, db_session, UserRole.INTAKE_STAFF)
+
+    response = api_client.post(ENTRIES_URL, json=actions_body(), headers=csrf_headers(api_client))
+
+    assert response.status_code == 403
+
+
+def test_approving_a_second_set_for_one_category_is_a_409(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """P08 §8.2b task 2: one ACTIVE baseline set per category (FR-72)."""
+    make_baseline_set(db_session, slug="actions-orange-live")
+    replacement = make_baseline_set(
+        db_session, status=KBEntryStatus.PENDING_REVIEW, slug="actions-orange"
+    )
+    as_approver(api_client, db_session)
+
+    response = api_client.post(
+        f"{ENTRIES_URL}/{replacement.id}/approve", headers=csrf_headers(api_client)
+    )
+
+    assert response.status_code == 409
+    assert "ORANGE" in response.json()["error"]["message"]
+
+
+def test_retiring_a_baseline_set_answers_with_the_fallback_warning(
+    api_client: TestClient, db_session: Session
+) -> None:
+    entry = make_baseline_set(db_session, category=VTLCategory.BLUE, slug="actions-blue")
+    as_admin(api_client, db_session)
+
+    response = api_client.post(f"{ENTRIES_URL}/{entry.id}/retire", headers=csrf_headers(api_client))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == KBEntryStatus.RETIRED.value
+    assert "BLUE cases will show no baseline actions" in body["warning"]
+
+
+def test_the_entry_list_can_be_filtered_to_baseline_sets(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """W-08's kind filter: the five sets have to be findable among the entries."""
+    make_baseline_set(db_session, slug="actions-orange")
+    make_kb_entry(db_session, status=KBEntryStatus.ACTIVE, slug="fixture-clinical")
+    as_admin(api_client, db_session)
+
+    body = api_client.get(f"{ENTRIES_URL}?kind={KBEntryKind.URGENCY_ACTIONS.value}").json()
+
+    assert [item["slug"] for item in body["items"]] == ["actions-orange"]
+    assert body["counts"][KBEntryStatus.ACTIVE.value] == 2
 
 
 # --- Red-flag rule links (FR-49) -----------------------------------------

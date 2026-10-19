@@ -22,11 +22,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.jobs.queue import KB_INDEX_APPROVER_KEY, KB_INDEX_ENTRY_KEY, JobQueue
 from app.jobs.worker import MISSING_ENTRY_ID, run_pending_jobs_once
 from app.models import (
+    AuditEntry,
     JobStatus,
     JobType,
+    KBEntryKind,
     KBEntryStatus,
     KBVersion,
     UserRole,
+    VTLCategory,
     kb_version_entries,
 )
 from app.services.kb_indexing import (
@@ -36,6 +39,7 @@ from app.services.kb_indexing import (
 )
 from tests.conftest import (
     audit_actions,
+    baseline_actions_content,
     kb_entry_content,
     make_job,
     make_kb_entry,
@@ -86,6 +90,23 @@ def _pending_entry(session: Session, **kwargs: object):
         content=kb_entry_content(),
         with_source=True,
         **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def _pending_baseline_set(
+    session: Session, *, category: VTLCategory = VTLCategory.ORANGE, slug: str = "actions-orange"
+):
+    """An `URGENCY_ACTIONS` entry awaiting review (ADR-18)."""
+    return make_kb_entry(
+        session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=category,
+        status=KBEntryStatus.PENDING_REVIEW,
+        slug=slug,
+        title=f"Suggested staff actions - {category.value}",
+        content=baseline_actions_content(),
+        with_source=True,
     )
 
 
@@ -243,6 +264,118 @@ def test_an_entry_that_is_not_awaiting_review_is_not_indexed_again(
     assert result.failure_reason is KBIndexFailureReason.ENTRY_NOT_PENDING_REVIEW
     assert indexer.indexed == []
     assert _version_count(db_session) == before
+
+
+# --- Urgency-action entries (P08 §8.2b, ADR-18) ---------------------------
+# A baseline action set is activated and published like any other entry, and
+# indexed like none: it is read by category and must never be retrievable.
+
+
+def test_a_baseline_action_set_is_activated_without_being_indexed(
+    db_session: Session,
+) -> None:
+    """P08 §8.2b task 3: not chunked, not embedded, chunk count 0."""
+    approver = _approver(db_session)
+    entry = _pending_baseline_set(db_session)
+    indexer = _CountingIndexer(chunks=4)
+
+    result = run_kb_index(db_session, indexer, entry_id=entry.id, approver_id=approver.id)
+
+    assert result.succeeded
+    assert result.chunk_count == 0
+    assert indexer.indexed == [], "a baseline action set must never reach the indexer"
+    db_session.refresh(entry)
+    assert entry.status is KBEntryStatus.ACTIVE
+    assert entry.approved_by == approver.id
+
+
+def test_the_activation_audit_entry_says_it_was_not_indexed(db_session: Session) -> None:
+    """0 on its own would read as an indexer that found nothing to chunk."""
+    approver = _approver(db_session)
+    entry = _pending_baseline_set(db_session)
+
+    run_kb_index(db_session, _CountingIndexer(), entry_id=entry.id, approver_id=approver.id)
+
+    recorded = db_session.scalars(
+        select(AuditEntry).where(AuditEntry.action == "KB_ENTRY_ACTIVATED")
+    ).one()
+    assert recorded.after["indexed"] is False
+    assert recorded.after["chunk_count"] == 0
+    assert recorded.after["kind"] == "URGENCY_ACTIONS"
+
+
+def test_a_baseline_set_that_cannot_be_indexed_still_publishes(db_session: Session) -> None:
+    """The indexer is not called, so an indexer that fails cannot stop this."""
+    approver = _approver(db_session)
+    entry = _pending_baseline_set(db_session)
+
+    result = run_kb_index(db_session, _FailingIndexer(), entry_id=entry.id, approver_id=approver.id)
+
+    assert result.succeeded
+    assert result.version_no == 1
+
+
+def test_a_published_version_lists_baseline_sets_like_any_other_entry(
+    db_session: Session,
+) -> None:
+    """P08 §8.2b task 4."""
+    live_set = make_kb_entry(
+        db_session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=VTLCategory.RED,
+        status=KBEntryStatus.ACTIVE,
+        content=baseline_actions_content(),
+    )
+    approver = _approver(db_session)
+    entry = _pending_entry(db_session, slug="fixture-with-a-baseline-set")
+
+    result = run_kb_index(
+        db_session, _CountingIndexer(), entry_id=entry.id, approver_id=approver.id
+    )
+
+    version_id = db_session.scalars(
+        select(KBVersion.id).where(KBVersion.version_no == result.version_no)
+    ).one()
+    members = set(
+        db_session.scalars(
+            select(kb_version_entries.c.entry_id).where(
+                kb_version_entries.c.kb_version_id == version_id
+            )
+        )
+    )
+
+    assert members == {live_set.id, entry.id}
+
+
+def test_a_category_taken_while_the_job_waited_publishes_nothing(db_session: Session) -> None:
+    """The race `KBService.approve_entry` cannot close (FR-72, 8.2b).
+
+    Two approvals for one category, the second approved before the first job ran:
+    `uq_kb_entries_active_urgency_actions` would raise inside the worker, so the
+    job refuses with a reason code instead.
+    """
+    approver = _approver(db_session)
+    entry = _pending_baseline_set(db_session)
+    make_kb_entry(
+        db_session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=VTLCategory.ORANGE,
+        status=KBEntryStatus.ACTIVE,
+        slug="actions-orange-live",
+        content=baseline_actions_content(),
+    )
+
+    result = run_kb_index(
+        db_session, _CountingIndexer(), entry_id=entry.id, approver_id=approver.id
+    )
+
+    assert result.failure_reason is KBIndexFailureReason.URGENCY_ACTIONS_CATEGORY_TAKEN
+    assert _version_count(db_session) == 0
+    db_session.refresh(entry)
+    assert entry.status is KBEntryStatus.PENDING_REVIEW
+    assert "KB_INDEX_FAILED" in audit_actions(db_session, approver.id)
 
 
 # --- The payload the job carries -----------------------------------------

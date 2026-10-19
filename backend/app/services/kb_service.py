@@ -16,6 +16,10 @@ around:
 * **An entry cannot be submitted without its source.** FR-50 is checked again
   here on submit, not only in `KBEntryCreate`, because the importer writes
   drafts straight to the table (8.2).
+* **One ACTIVE baseline action set per category.** `uq_kb_entries_active_urgency_actions`
+  states it in the database; `approve_entry` refuses before the job gets there,
+  naming the set that holds the category, because `baseline_actions` looks a
+  category up and must never find two answers (FR-72, ADR-18, 8.2b).
 
 The audit payloads carry ids, slugs, codes, statuses, kinds and counts. Never an
 entry's content and never an approver's rejection comments: the log cannot be
@@ -36,7 +40,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.core.config import AppEnv, get_settings
-from app.core.errors import InvalidKBEntry, KBNotFound
+from app.core.errors import InvalidKBEntry, InvalidKBTransition, KBNotFound
 from app.jobs.queue import KB_INDEX_APPROVER_KEY, KB_INDEX_ENTRY_KEY, JobQueue
 from app.models import (
     Job,
@@ -47,12 +51,11 @@ from app.models import (
     KBVersion,
     RedFlagRule,
     User,
+    VTLCategory,
 )
 from app.pipeline.stages import KBIndexer
 from app.repositories.kb_repository import KBRepository
 from app.schemas.kb import (
-    CONTENT_MAX_WORDS,
-    CONTENT_MIN_WORDS,
     IndexingState,
     KBEntryActionResult,
     KBEntryCreate,
@@ -69,6 +72,7 @@ from app.schemas.kb import (
     RedFlagRuleOut,
     RedFlagRuleUpdate,
     SourceCitation,
+    content_problem,
     word_count,
 )
 from app.services.audit_service import (
@@ -100,6 +104,21 @@ REQUIRED_SOURCE_FIELDS: tuple[tuple[str, str], ...] = (
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _category_value(category: VTLCategory | None) -> str | None:
+    """A category for an audit payload, which has to be JSON."""
+    return None if category is None else category.value
+
+
+def _is_indexable(entry: KBEntry) -> bool:
+    """Whether this entry has chunks at all (ADR-18 §2, P08 §8.2b task 3).
+
+    An `URGENCY_ACTIONS` entry is never chunked or embedded: it is looked up by
+    category and must never come back from a similarity search, so there is
+    nothing to index on approval and nothing to delete on retirement.
+    """
+    return entry.kind is not KBEntryKind.URGENCY_ACTIONS
 
 
 def _reject_cleared_fields(
@@ -184,19 +203,32 @@ class KBService:
     # --- Authoring (FR-49, FR-50) -----------------------------------------
 
     def create_entry(self, payload: KBEntryCreate, user: User) -> KBEntryDetail:
-        """Write a new draft. One transaction.
+        """Write a new draft of either kind. One transaction (FR-49, ADR-18).
 
-        `COMPLAINT` only in this subphase: the five `URGENCY_ACTIONS` sets are
-        seeded, and authoring one through the API arrives with the importer's
-        support for them (8.2b, ADR-18).
+        A draft, whichever kind it is, and a baseline action set is no exception:
+        the five categories' actions are curated clinical content and pass the
+        same approval gate as everything else (BR-04, BR-10).
+
+        Nothing here looks at whether the category already has an ACTIVE set.
+        Two drafts for one category are allowed — a replacement is written while
+        the current one is still live — and approval is where that becomes a
+        conflict (`approve_entry`).
         """
+        self._require_kind_fields(
+            payload.kind,
+            complaint_code=payload.complaint_code,
+            urgency_category=payload.urgency_category,
+            red_flag_codes=payload.red_flag_codes,
+        )
         self._require_complaint(payload.complaint_code)
         self._require_free_slug(payload.slug)
+        self._require_content(payload.content, payload.kind)
 
         entry = self._kb.insert_entry(
-            kind=KBEntryKind.COMPLAINT,
+            kind=payload.kind,
             slug=payload.slug,
             complaint_code=payload.complaint_code,
+            urgency_category=payload.urgency_category,
             title=payload.title,
             content=payload.content,
             species=list(payload.species),
@@ -217,6 +249,7 @@ class KBService:
                 "kind": str(entry.kind),
                 "slug": entry.slug,
                 "complaint_code": entry.complaint_code,
+                "urgency_category": _category_value(entry.urgency_category),
                 "word_count": word_count(entry.content),
             },
         )
@@ -232,8 +265,19 @@ class KBService:
 
         changes = payload.model_dump(exclude_unset=True, exclude={"red_flag_codes"})
         _reject_cleared_fields(changes)
+        # Checked against the *stored* kind, which an edit cannot change: an entry
+        # does not turn from clinical content into a baseline action set, so a
+        # payload naming the other kind's field is a mistake, not a conversion.
+        self._require_kind_fields(
+            entry.kind,
+            complaint_code=changes.get("complaint_code", entry.complaint_code),
+            urgency_category=changes.get("urgency_category", entry.urgency_category),
+            red_flag_codes=payload.red_flag_codes,
+        )
         if "complaint_code" in changes:
             self._require_complaint(changes["complaint_code"])
+        if "content" in changes:
+            self._require_content(changes["content"], entry.kind)
         if "species" in changes:
             changes["species"] = list(changes["species"])
 
@@ -249,6 +293,7 @@ class KBService:
             user,
             after={
                 "status": entry.status.value,
+                "kind": str(entry.kind),
                 "fields": sorted(changes),
                 "red_flag_codes_changed": payload.red_flag_codes is not None,
                 "word_count": word_count(entry.content),
@@ -292,9 +337,14 @@ class KBService:
 
         The approver travels with the job, because by the time it runs they are
         gone and both `approved_by` and the version's `published_by` are theirs.
+
+        A baseline action set is refused here when its category already has an
+        ACTIVE set (8.2b). Checked again inside the job, because another approval
+        can be committed while this one waits in the queue.
         """
         entry = self._require_entry(entry_id)
         require_entry_action_allowed(entry.status, KBEntryAction.APPROVE)
+        self._require_category_free(entry)
 
         job = self._jobs.enqueue(
             JobType.KB_INDEX,
@@ -352,30 +402,46 @@ class KBService:
         The entry and its history stay: a recommendation that cited it must
         remain explainable, and the version it belonged to still lists it
         (ADR-14, DR-05).
+
+        A baseline action set has no chunks to drop, so the indexer is not called
+        for one. It is answered with a warning instead: retiring it leaves its
+        category with no baseline actions until a replacement is approved, and
+        every case in that category shows an empty baseline list meanwhile
+        (FR-72, 8.2b).
         """
         entry = self._require_entry(entry_id)
         next_status = require_entry_action_allowed(entry.status, KBEntryAction.RETIRE)
 
-        if self._indexer is None:
-            # A programming error, not a user error: retiring without dropping
-            # the chunks would leave withdrawn content retrievable, which is the
-            # one outcome this endpoint exists to prevent (FR-53).
-            raise RuntimeError(
-                "retire_entry needs a KBIndexer. Build the service with "
-                "KBService(session, indexer=...); the router injects it from the pipeline."
-            )
-        # TODO(manual:M5): with `MockKBIndexer` this does nothing. The real
-        # indexer deletes the entry's rows from `kb_chunks` so retrieval can no
-        # longer return them.
-        self._indexer.remove_entry(entry.id)
+        if _is_indexable(entry):
+            if self._indexer is None:
+                # A programming error, not a user error: retiring without dropping
+                # the chunks would leave withdrawn content retrievable, which is the
+                # one outcome this endpoint exists to prevent (FR-53).
+                raise RuntimeError(
+                    "retire_entry needs a KBIndexer. Build the service with "
+                    "KBService(session, indexer=...); the router injects it from the pipeline."
+                )
+            # TODO(manual:M5): with `MockKBIndexer` this does nothing. The real
+            # indexer deletes the entry's rows from `kb_chunks` so retrieval can no
+            # longer return them.
+            self._indexer.remove_entry(entry.id)
 
+        warning = self._retirement_warning(entry)
         self._kb.set_entry_status(entry, next_status or KBEntryStatus.RETIRED)
         self._record(
             AuditAction.KB_ENTRY_RETIRED,
             entry,
             user,
             before={"status": KBEntryStatus.ACTIVE.value},
-            after={"status": entry.status.value, "slug": entry.slug, "kind": str(entry.kind)},
+            after={
+                "status": entry.status.value,
+                "slug": entry.slug,
+                "kind": str(entry.kind),
+                "urgency_category": _category_value(entry.urgency_category),
+                # Recorded, because a category left without a baseline set is a
+                # state of the knowledge base that somebody chose (FR-43).
+                "left_category_without_baseline": warning is not None,
+            },
         )
         published = publish_version(
             self._session,
@@ -387,7 +453,10 @@ class KBService:
         )
         self._session.commit()
         return KBEntryActionResult(
-            id=entry.id, status=entry.status, version_no=published.version_no
+            id=entry.id,
+            status=entry.status,
+            version_no=published.version_no,
+            warning=warning,
         )
 
     # --- Red-flag rules (FR-12, FR-23, NFR-08) ----------------------------
@@ -546,6 +615,95 @@ class KBService:
             raise KBNotFound("That red-flag rule could not be found.")
         return rule
 
+    def _require_kind_fields(
+        self,
+        kind: KBEntryKind,
+        *,
+        complaint_code: str | None,
+        urgency_category: VTLCategory | None,
+        red_flag_codes: list[str] | None,
+    ) -> None:
+        """Refuse the field combinations the two kinds forbid (ADR-18).
+
+        The same exclusivity `ck_kb_entries_complaint_code_iff_complaint` and
+        `ck_kb_entries_urgency_category_iff_urgency_actions` state. Here as well,
+        because a check constraint answers with an integrity error — a 500 that
+        names no field — and the editor needs to be pointed at one (IR-05).
+        """
+        if kind is KBEntryKind.URGENCY_ACTIONS:
+            if urgency_category is None:
+                raise InvalidKBEntry(
+                    "Choose the urgency category this baseline action set is for.",
+                    field="urgency_category",
+                )
+            if complaint_code is not None:
+                raise InvalidKBEntry(
+                    "A baseline action set belongs to an urgency category, not to a "
+                    "presenting complaint.",
+                    field="complaint_code",
+                )
+            if red_flag_codes:
+                # `red_flag_rules.entry_id` points at the entry that *explains* a
+                # rule. A baseline action set explains nothing: it is not
+                # retrievable and is never cited in a rationale (FR-49).
+                raise InvalidKBEntry(
+                    "A baseline action set explains no red-flag rule. Leave the list empty.",
+                    field="red_flag_codes",
+                )
+            return
+
+        if complaint_code is None:
+            raise InvalidKBEntry(
+                "Choose the presenting complaint from the list.", field="complaint_code"
+            )
+        if urgency_category is not None:
+            raise InvalidKBEntry(
+                "An urgency category belongs to a baseline action set, not to a clinical entry.",
+                field="urgency_category",
+            )
+
+    def _require_content(self, content: str, kind: KBEntryKind) -> None:
+        """The content rule for this kind (FR-50, 8.2b).
+
+        One rule, shared with the importer, so a file that imports is an entry
+        this service would also accept (`schemas.kb.content_problem`).
+        """
+        problem = content_problem(content, kind)
+        if problem is not None:
+            raise InvalidKBEntry(problem, field="content")
+
+    def _require_category_free(self, entry: KBEntry) -> None:
+        """Refuse a second ACTIVE baseline set for one category (8.2b, FR-72).
+
+        409, not 422: nothing about the entry is wrong, the category is simply
+        taken, and retiring the set that holds it is the way through. Raised at
+        approval rather than at creation, so a replacement can be written and
+        reviewed while the current set is still live.
+        """
+        if entry.kind is not KBEntryKind.URGENCY_ACTIONS or entry.urgency_category is None:
+            return
+        live = self._kb.active_urgency_actions_entry(entry.urgency_category, exclude_id=entry.id)
+        if live is not None:
+            raise InvalidKBTransition(
+                f"{entry.urgency_category.value} already has an active baseline action set "
+                f"({live.title}). Retire that one first; a category can have only one."
+            )
+
+    def _retirement_warning(self, entry: KBEntry) -> str | None:
+        """What retiring this entry costs, if anything, in a sentence (FR-72).
+
+        Only a baseline action set costs anything that is not visible on the
+        screen: every case in its category then shows no baseline actions at all
+        until a replacement is approved, and the tailored list is the AI's, which
+        may be empty too (ADR-18 §3).
+        """
+        if entry.kind is not KBEntryKind.URGENCY_ACTIONS or entry.urgency_category is None:
+            return None
+        return (
+            f"{entry.urgency_category.value} cases will show no baseline actions until a "
+            f"replacement set is approved."
+        )
+
     def _require_complaint(self, code: str | None) -> None:
         if code is not None and not self._kb.complaint_exists(code):
             raise InvalidKBEntry(
@@ -559,22 +717,24 @@ class KBService:
             )
 
     def _require_complete(self, entry: KBEntry) -> None:
-        """Everything FR-49 and FR-50 require before an entry may be reviewed."""
+        """Everything FR-49 and FR-50 require before an entry may be reviewed.
+
+        Against the stored row and in terms of its stored `kind`, because a draft
+        can have arrived from the YAML importer, which never passed through
+        `KBEntryCreate` (8.2). The source citation is required of both kinds: a
+        baseline action set is curated content and FR-50 makes no exception.
+        """
         if not entry.title:
             raise InvalidKBEntry("Enter a title for this entry.", field="title")
-        if entry.kind is KBEntryKind.COMPLAINT and not entry.complaint_code:
-            raise InvalidKBEntry(
-                "Choose the presenting complaint from the list.", field="complaint_code"
-            )
+        self._require_kind_fields(
+            entry.kind,
+            complaint_code=entry.complaint_code,
+            urgency_category=entry.urgency_category,
+            red_flag_codes=[rule.code for rule in self._kb.rules_for_entry(entry.id)],
+        )
         if not entry.species:
             raise InvalidKBEntry("Choose at least one species: dog, cat, or both.", field="species")
-        words = word_count(entry.content or "")
-        if not CONTENT_MIN_WORDS <= words <= CONTENT_MAX_WORDS:
-            raise InvalidKBEntry(
-                f"The content must be between {CONTENT_MIN_WORDS} and "
-                f"{CONTENT_MAX_WORDS:,} words; this entry has {words:,}.",
-                field="content",
-            )
+        self._require_content(entry.content or "", entry.kind)
         for field, message in REQUIRED_SOURCE_FIELDS:
             if getattr(entry, field) is None:
                 raise InvalidKBEntry(message, field=field)

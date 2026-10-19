@@ -18,10 +18,12 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import KBEntry, KBEntryKind, KBEntryStatus, KBVersion, VTLCategory
+from app.models import KBEntry, KBEntryKind, KBEntryStatus, KBVersion, UserRole, VTLCategory
 from app.pipeline.action_validator import baseline_actions
+from app.services.kb_indexing import run_kb_index
+from app.services.kb_service import KBService
 from scripts.seed import SEED_KB_VERSION_NO, URGENCY_ACTIONS, seed
-from tests.conftest import make_kb_entry, make_kb_version
+from tests.conftest import baseline_actions_content, make_kb_entry, make_kb_version, make_user
 
 VALIDATOR_LOGGER = "app.pipeline.action_validator"
 
@@ -164,3 +166,54 @@ def test_only_the_asked_for_category_is_returned(db_session: Session) -> None:
     assert baseline_actions(db_session, VTLCategory.GREEN, version.id) == [
         "Seat the owner in the waiting area."
     ]
+
+
+# --- Through the approval workflow (P08 §8.2b) ----------------------------
+
+
+def test_an_approved_baseline_set_replaces_the_one_it_revises(
+    db_session: Session, pipeline
+) -> None:
+    """The replacement path M5 Part D walks, end to end (FR-72, ADR-18).
+
+    Retire the live set, approve the replacement, and the lookup pinned to the
+    new version reads the new actions. The warning on the retirement is the gap
+    in between: between those two steps the category has no baseline actions at
+    all, which is exactly what the warning says.
+    """
+    approver = make_user(db_session, role=UserRole.VETERINARY_REVIEWER, can_approve_kb=True)
+    admin = make_user(db_session, role=UserRole.ADMINISTRATOR, email="curator@triageai.invalid")
+    version_zero = make_kb_version(db_session)
+    live = make_baseline_entry(
+        db_session,
+        category=VTLCategory.ORANGE,
+        content="Tell the veterinarian the patient is waiting.",
+        kb_version=version_zero,
+    )
+    replacement = make_kb_entry(
+        db_session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=VTLCategory.ORANGE,
+        status=KBEntryStatus.PENDING_REVIEW,
+        slug="actions-orange",
+        title="Suggested staff actions - Orange",
+        content=baseline_actions_content(3),
+        with_source=True,
+    )
+    service = KBService(db_session, indexer=pipeline.kb_indexer)
+
+    retirement = service.retire_entry(live.id, admin)
+    assert retirement.warning is not None
+
+    result = run_kb_index(
+        db_session, pipeline.kb_indexer, entry_id=replacement.id, approver_id=approver.id
+    )
+
+    assert result.succeeded
+    new_version_id = db_session.execute(
+        select(KBVersion.id).where(KBVersion.version_no == result.version_no)
+    ).scalar_one()
+    assert baseline_actions(db_session, VTLCategory.ORANGE, new_version_id) == (
+        baseline_actions_content(3).splitlines()
+    )

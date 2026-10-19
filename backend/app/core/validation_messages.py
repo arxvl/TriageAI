@@ -167,6 +167,12 @@ MESSAGES: dict[str, dict[str, str]] = {
     "kind": {
         ANY_ERROR: "Choose the entry kind: a clinical entry, or a baseline action set.",
     },
+    "urgency_category": {
+        ANY_ERROR: (
+            "Choose the urgency category this baseline action set is for: "
+            "RED, ORANGE, YELLOW, GREEN or BLUE."
+        ),
+    },
     "red_flag_codes": {
         "too_long": "An entry can cite at most 50 red-flag rules.",
         ANY_ERROR: "Choose the red-flag rules this entry explains, or leave the list empty.",

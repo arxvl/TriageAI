@@ -11,7 +11,7 @@ All content is **English only** (FR-18).
 
 | File | What it holds | Maintained by |
 |---|---|---|
-| `entries/<slug>.yaml` | One clinical entry per file | the curator, imported |
+| `entries/<slug>.yaml` | One entry per file: a clinical entry, or a baseline action set | the curator, imported |
 | `red_flags.yaml` | Every red-flag rule: code, label, minimum category, species | the curator, imported |
 | `red_flag_phrases.yaml` | The phrases each rule matches on | by hand (M1); **not** imported |
 | `APPROVALS.md` | The source and the second-reader verification for every item | by hand |
@@ -41,7 +41,7 @@ docker compose exec backend python -m scripts.import_kb --entries   # entries on
 - Every error is reported with its file and field, and the run reports **all** of
   them rather than stopping at the first.
 
-## `entries/<slug>.yaml`
+## `entries/<slug>.yaml` — a clinical entry
 
 ```yaml
 slug: urinary-straining-cat
@@ -62,6 +62,7 @@ red_flag_codes: [MALE_CAT_NO_URINE]
 | Field | Rules |
 |---|---|
 | `slug` | Required. Lower-case letters, numbers and hyphens; at most 120 characters. **Must equal the filename** without `.yaml`. |
+| `kind` | Optional, defaults to `COMPLAINT`. The other kind is `URGENCY_ACTIONS`, below. |
 | `title` | Required, at most 300 characters. |
 | `complaint_code` | Required. One of the 21 presenting complaints `scripts/seed.py` writes. |
 | `species` | Required, at least one of `DOG`, `CAT`. |
@@ -69,10 +70,66 @@ red_flag_codes: [MALE_CAT_NO_URINE]
 | `source` | Required, and all four of `title`, `publisher`, `url`, `access_date` with it (FR-50). An entry nobody can trace to a published source must not be approvable. |
 | `red_flag_codes` | Optional. Codes from `red_flags.yaml`; each names the rule this entry explains. An unknown code is an error. |
 
+`urgency_category` is rejected on a clinical entry: it belongs to a baseline
+action set, and the two kinds are exclusive.
+
 Unknown keys are rejected by name. That is deliberate: a misspelled
-`red_flag_code:` would otherwise import an entry citing no rule at all. It also
-means `kind:` and `urgency_category:` are not accepted yet — urgency-action
-entries arrive in subphase 8.2b.
+`red_flag_code:` would otherwise import an entry citing no rule at all.
+
+## `entries/<slug>.yaml` — a baseline action set
+
+One per VTL category, holding the **baseline suggested actions** every case in
+that category is shown (FR-71, FR-72, ADR-18). They are ordinary knowledge-base
+entries, so they carry a citation and are versioned like any other content — but
+they are looked up by category and **never similarity-searched**, so they are not
+chunked or embedded at all. M5 Part D writes the five real ones.
+
+```yaml
+slug: actions-orange
+kind: URGENCY_ACTIONS
+urgency_category: ORANGE
+title: Suggested staff actions - Orange (very urgent, within 15 minutes)
+species: [DOG, CAT]
+content: |
+  Alert the veterinarian now and move the patient to the treatment area.
+  Recheck breathing effort and alertness every few minutes.
+  Keep handling to a minimum.
+source:
+  title: ...
+  publisher: ...
+  url: ...
+  access_date: 2026-10-12
+```
+
+| Field | Rules |
+|---|---|
+| `kind` | Required, `URGENCY_ACTIONS`. |
+| `urgency_category` | Required. One of `RED`, `ORANGE`, `YELLOW`, `GREEN`, `BLUE`. |
+| `content` | Required. **One action per line, 3 to 6 lines**, each at most 25 words. Imperative, written for clinic staff. |
+| `complaint_code` | Rejected. A baseline set belongs to a category, not to a complaint. |
+| `red_flag_codes` | Rejected. A baseline set explains no red flag; it is never retrieved or cited. |
+| `slug`, `title`, `species`, `source` | As for a clinical entry. The citation is required here too (FR-50). |
+
+**Triage-level handling only** (FR-28, ADR-18 §1): escalate, prepare, monitor,
+what to ask the owner, transport precautions. The importer refuses a line that
+names a medication, a dose or a diagnosis, using the same block list that screens
+the AI-tailored actions — baseline text is shown to staff verbatim and never
+passes the action validator, so it is checked here instead. The error names the
+line number.
+
+### Replacing a seeded baseline set
+
+`scripts/seed.py` writes five placeholder sets, marked `SAMPLE`, straight to
+`ACTIVE` so the pipeline has something to show before any content exists. Only
+**one ACTIVE set may hold a category**, so replacing one is three steps:
+
+1. Import the file. It is reported as **revised**: a new `DRAFT` with
+   `revises_entry_id` pointing at the live set, which is not touched.
+2. Retire the live set in W-08. The response warns that the category will show
+   **no** baseline actions until a replacement is approved — a real gap, so do
+   step 3 straight away.
+3. Submit and approve the draft. Approving it while the category is still taken
+   answers 409 and names the set that holds it.
 
 ## `red_flags.yaml`
 
@@ -110,6 +167,8 @@ entry — so the command is safe to run repeatedly.
 | `ACTIVE` or `RETIRED` | no | **unchanged** |
 | `ACTIVE` or `RETIRED` | yes | **revised** — a new `DRAFT` with `revises_entry_id` set and the slug `<slug>-rev2`; the live entry is untouched |
 | `ACTIVE`/`RETIRED` with a draft revision already open | yes | **updated** — that revision, in place (so no `-rev3` piles up) |
+| baseline set, matched by category, base slug free | yes | **revised** — the new draft takes the file's own slug (the seeded sets have none) |
+| stored entry is of the other `kind` | either | **error** — an entry cannot change kind; rename the file or correct `kind` |
 | rule, unapproved | yes | **updated** in place, still unapproved |
 | rule, approved | yes | **skipped** — retire it in W-08 and import a replacement code |
 | rule, retired | yes | **skipped** |

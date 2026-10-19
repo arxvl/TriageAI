@@ -20,9 +20,19 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.jobs.worker import run_pending_jobs_once
-from app.models import KBEntryStatus, KBVersion, UserRole, kb_version_entries
+from app.models import (
+    JobStatus,
+    KBChunk,
+    KBEntryKind,
+    KBEntryStatus,
+    KBVersion,
+    UserRole,
+    VTLCategory,
+    kb_version_entries,
+)
 from app.repositories.pipeline_repository import PipelineRepository
 from tests.conftest import (
+    baseline_actions_content,
     csrf_headers,
     kb_entry_content,
     make_kb_entry,
@@ -69,6 +79,20 @@ def pending(session: Session, slug: str):
         session,
         status=KBEntryStatus.PENDING_REVIEW,
         content=kb_entry_content(),
+        with_source=True,
+        slug=slug,
+    )
+
+
+def pending_baseline_set(session: Session, slug: str, category: VTLCategory):
+    return make_kb_entry(
+        session,
+        kind=KBEntryKind.URGENCY_ACTIONS,
+        complaint_code=None,
+        urgency_category=category,
+        status=KBEntryStatus.PENDING_REVIEW,
+        title=f"Suggested staff actions - {category.value}",
+        content=baseline_actions_content(),
         with_source=True,
         slug=slug,
     )
@@ -322,3 +346,62 @@ def test_the_version_entries_table_is_only_ever_inserted_into(
     rows = db_session.execute(select(kb_version_entries)).all()
 
     assert len(rows) == 1
+
+
+# --- Urgency-action entries are versioned like any other (8.2b task 4) ----
+
+
+def test_approving_a_baseline_set_publishes_a_version_that_lists_it(
+    api_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """A baseline action set is versioned with the content it is shown beside.
+
+    Which is the whole reason ADR-18 put the baseline actions in the knowledge
+    base rather than in a configuration file (BR-10).
+    """
+    clinical = make_kb_entry(db_session, status=KBEntryStatus.ACTIVE, slug="fixture-clinical")
+    actions = pending_baseline_set(db_session, "actions-orange", VTLCategory.ORANGE)
+    as_approver(api_client, db_session)
+
+    assert approve(api_client, actions.id).status_code == 202
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    db_session.refresh(actions)
+    assert actions.status is KBEntryStatus.ACTIVE
+    versions = api_client.get(VERSIONS_URL).json()
+    detail = api_client.get(f"{VERSIONS_URL}/{versions[0]['id']}").json()
+    listed = {item["slug"]: item["kind"] for item in detail["entries"]}
+    assert listed == {
+        clinical.slug: KBEntryKind.COMPLAINT.value,
+        "actions-orange": KBEntryKind.URGENCY_ACTIONS.value,
+    }
+
+
+def test_an_approved_baseline_set_is_never_chunked(
+    api_client: TestClient,
+    db_session: Session,
+    app_session_factory: sessionmaker,
+    pipeline,
+) -> None:
+    """P08 §8.2b task 3: retrieval can never return an urgency-action chunk.
+
+    Asserted on `kb_chunks`, which is what retrieval searches: with no row for
+    the entry there is nothing for a similarity search to find, whether the
+    retriever is the mock or the pgvector one M6 writes (ADR-18 §2).
+    """
+    actions = pending_baseline_set(db_session, "actions-red", VTLCategory.RED)
+    as_approver(api_client, db_session)
+
+    assert approve(api_client, actions.id).status_code == 202
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    db_session.refresh(actions)
+    assert actions.status is KBEntryStatus.ACTIVE
+    chunks = db_session.scalars(select(KBChunk).where(KBChunk.entry_id == actions.id)).all()
+    assert chunks == []
+    detail = api_client.get(f"{ENTRIES_URL}/{actions.id}").json()
+    assert detail["indexing"]["status"] == JobStatus.DONE.value
+    assert detail["indexing"]["error"] is None

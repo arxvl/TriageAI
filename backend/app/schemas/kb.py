@@ -8,10 +8,19 @@ puts approval behind an account that can check them. So `KBEntryCreate` makes
 all four mandatory, and `KBService.submit_entry` checks the *stored* row again —
 an entry imported from a YAML file (8.2) never passed through this schema.
 
-**The content bound is in words, not characters.** The 50–1,500 word rule comes
-from the P08 prompt and is what keeps an entry long enough to be a passage and
-short enough to chunk sensibly (M5). A word count has no Pydantic error type of
-its own, so the message for it is registered under `value_error`.
+**The content bound depends on the kind.** A `COMPLAINT` entry is 50–1,500
+words: long enough to be a passage and short enough to chunk sensibly (M5). An
+`URGENCY_ACTIONS` entry is not prose at all but 3–6 imperative lines, one action
+each, so the same floor would reject nearly every baseline set (P08 §8.2b, M5
+Part D). `content_problem` is the one place that knows which rule applies, and it
+is called from the service and from the importer rather than from a field
+validator: a Pydantic `value_error` on `content` is flattened to one registered
+sentence, which could not say *which* line was wrong.
+
+**Baseline lines meet the same FR-28 boundary as tailored actions.** Their text
+is shown to staff verbatim and never reaches the action validator, so
+`content_problem` screens each line with `baseline_line_failure` — the same block
+list, the same codes (ADR-18 §1).
 
 **No model here carries owner data.** The knowledge base holds curated clinical
 content and never a case, so nothing in this module touches a description, an
@@ -30,6 +39,15 @@ from app.models.enums import (
     Species,
     VTLCategory,
 )
+from app.pipeline.action_validator import (
+    CONTAINS_DIAGNOSIS,
+    CONTAINS_DOSE,
+    CONTAINS_DRUG,
+    MAX_WORDS,
+    TOO_LONG,
+    action_lines,
+    baseline_line_failure,
+)
 
 # The P08 §8.1 content bound, in words.
 CONTENT_MIN_WORDS = 50
@@ -44,40 +62,99 @@ SLUG_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
 RULE_CODE_PATTERN = r"^[A-Z][A-Z0-9_]*$"
 
 
+# The P08 §8.2b bound on a baseline action set, in lines. M5 Part D asks for
+# three to six actions per category, one per line, which is what the pipeline
+# splits the content on (`action_validator.baseline_actions`).
+ACTIONS_MIN_LINES = 3
+ACTIONS_MAX_LINES = 6
+
+# Why a baseline line was refused, by the code `baseline_line_failure` returns.
+# One sentence each, naming the boundary rather than the rule, because the person
+# reading it is a curator rewriting the line (IR-05).
+_LINE_PROBLEMS: dict[str, str] = {
+    TOO_LONG: (
+        f"is longer than {MAX_WORDS} words. Each action is one short instruction to a staff member."
+    ),
+    CONTAINS_DOSE: (
+        "names a dose. Baseline actions are triage-level handling only: escalate, "
+        "prepare, monitor, what to ask the owner, transport precautions."
+    ),
+    CONTAINS_DRUG: (
+        "names a medication. Baseline actions are triage-level handling only; "
+        "treatment is the veterinarian's decision."
+    ),
+    CONTAINS_DIAGNOSIS: (
+        "states a diagnosis. Describe what staff should do, not what the animal has."
+    ),
+}
+
+
 def word_count(text: str) -> int:
     """How many words an entry's content holds (FR-50, M5 chunking)."""
     return len(text.split())
 
 
-def require_word_count(value: str) -> str:
-    """Raise unless `value` is within the content bound (FR-50).
+def content_problem(content: str, kind: KBEntryKind) -> str | None:
+    """Why this content is not acceptable for an entry of this kind, or None.
 
-    Public because `schemas/kb_import.py` reuses it: a file the importer accepts
-    has to be an entry W-08 would also accept, and a second copy of the bound
-    would let an entry be imported that could never be submitted.
+    The single content rule, shared by `KBService` (which checks a request body
+    and again a stored row on submit) and by the YAML importer, which never
+    passes through a request schema at all (FR-50, P08 §8.2, §8.2b). A second
+    copy of it would let an entry be imported that could never be submitted.
+
+    The return value is the sentence to show, naming the problem precisely — the
+    line number for a baseline set, the actual word count for a clinical entry.
     """
-    if not CONTENT_MIN_WORDS <= word_count(value) <= CONTENT_MAX_WORDS:
-        raise ValueError(
-            f"content must be between {CONTENT_MIN_WORDS} and {CONTENT_MAX_WORDS} words"
+    if kind is KBEntryKind.URGENCY_ACTIONS:
+        return _actions_content_problem(content)
+    words = word_count(content)
+    if not CONTENT_MIN_WORDS <= words <= CONTENT_MAX_WORDS:
+        return (
+            f"The content must be between {CONTENT_MIN_WORDS} and "
+            f"{CONTENT_MAX_WORDS:,} words; this entry has {words:,}."
         )
-    return value
+    return None
+
+
+def _actions_content_problem(content: str) -> str | None:
+    """The P08 §8.2b rule for a baseline action set: the lines, then each line."""
+    lines = action_lines(content)
+    if not ACTIONS_MIN_LINES <= len(lines) <= ACTIONS_MAX_LINES:
+        return (
+            f"A baseline action set holds between {ACTIONS_MIN_LINES} and "
+            f"{ACTIONS_MAX_LINES} actions, one per line; this entry has {len(lines)}."
+        )
+    for number, line in enumerate(lines, start=1):
+        failure = baseline_line_failure(line)
+        if failure is not None:
+            return f"Line {number} {_LINE_PROBLEMS[failure]}"
+    return None
 
 
 # --- Requests -------------------------------------------------------------
 
 
 class KBEntryCreate(BaseModel):
-    """A new draft entry (FR-49, FR-50).
+    """A new draft entry of either kind (FR-49, FR-50, ADR-18).
 
-    `kind` is not a field: this subphase authors `COMPLAINT` entries only. The
-    five `URGENCY_ACTIONS` sets are seeded, and authoring them through the API
-    arrives with the importer's urgency-action support (8.2b, ADR-18).
+    `kind` defaults to `COMPLAINT`, so an existing caller is unaffected. Which of
+    `complaint_code` and `urgency_category` is required follows from it, and
+    `KBService` is what enforces that pairing: the check constraints on
+    `kb_entries` state it in the database, and a 422 naming the field is friendlier
+    than an integrity error (P08 §8.2b).
+
+    The content bound is not checked here either, for the same reason —
+    `content_problem` needs the kind and reports the line.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    kind: KBEntryKind = KBEntryKind.COMPLAINT
     title: str = Field(min_length=1, max_length=300)
-    complaint_code: str = Field(min_length=1, max_length=64)
+    # Required on a COMPLAINT entry and forbidden on a baseline set, and the
+    # other way round for `urgency_category` (`KBService.create_entry`).
+    complaint_code: str | None = Field(default=None, min_length=1, max_length=64)
+    urgency_category: VTLCategory | None = None
     species: list[Species] = Field(min_length=1)
     content: str = Field(min_length=1, max_length=CONTENT_MAX_LENGTH)
     source_title: str = Field(min_length=1, max_length=300)
@@ -94,11 +171,6 @@ class KBEntryCreate(BaseModel):
     def _trim(cls, value: object) -> object:
         """Trimmed before the length check, so blanks fail rather than pass."""
         return value.strip() if isinstance(value, str) else value
-
-    @field_validator("content")
-    @classmethod
-    def _bounded_words(cls, value: str) -> str:
-        return require_word_count(value)
 
     @field_validator("species")
     @classmethod
@@ -118,6 +190,10 @@ class KBEntryUpdate(BaseModel):
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
     complaint_code: str | None = Field(default=None, min_length=1, max_length=64)
+    # Editable on a baseline set whose category was chosen wrongly, and refused
+    # on a COMPLAINT entry. `kind` is deliberately absent: an entry does not
+    # change from clinical content into a baseline action set.
+    urgency_category: VTLCategory | None = None
     species: list[Species] | None = Field(default=None, min_length=1)
     content: str | None = Field(default=None, min_length=1, max_length=CONTENT_MAX_LENGTH)
     source_title: str | None = Field(default=None, min_length=1, max_length=300)
@@ -132,11 +208,6 @@ class KBEntryUpdate(BaseModel):
     @classmethod
     def _trim(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
-
-    @field_validator("content")
-    @classmethod
-    def _bounded_words(cls, value: str | None) -> str | None:
-        return None if value is None else require_word_count(value)
 
     @field_validator("species")
     @classmethod
@@ -315,12 +386,18 @@ class KBEntryActionResult(BaseModel):
     `version_no` is set when the action published a version, and `job_id` when it
     enqueued indexing instead — approval answers with a job, because the entry
     does not go live until the job succeeds (FR-53).
+
+    `warning` is a consequence the action had that nothing refused: retiring the
+    last baseline set for a category leaves that category with no baseline
+    actions until a replacement is approved, and the person who retired it is the
+    only one in a position to notice (FR-72, P08 §8.2b).
     """
 
     id: uuid.UUID
     status: KBEntryStatus
     version_no: int | None = None
     job_id: uuid.UUID | None = None
+    warning: str | None = None
 
 
 class KBVersionSummary(BaseModel):

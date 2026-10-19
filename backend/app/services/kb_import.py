@@ -23,6 +23,15 @@ what NFR-08 exists to prevent.
 entry. The comparison is field by field against the stored row, which is what
 makes the script safe to run from a Makefile or on every deploy (FR-56).
 
+**A baseline action set is matched by category as well as by slug.** An
+`URGENCY_ACTIONS` file names the category it is for, and only one ACTIVE set may
+hold a category (ADR-18). The five sets `scripts/seed.py` writes have no slug at
+all, so matching on the slug alone would import `actions-red.yaml` as an
+unrelated draft rather than as the revision of the set it replaces. The lookup
+falls back to the ACTIVE set for the category, and the file then follows the
+ordinary ACTIVE path: a new DRAFT revision, pointing back, with the live row
+untouched (8.2b).
+
 **Every problem is reported; none is raised.** The caller gets an `ImportReport`
 holding one row per file, so one run names every error in every file rather than
 stopping at the first.
@@ -84,6 +93,7 @@ Clock = Callable[[], datetime]
 ENTRY_FILE_FIELDS: tuple[str, ...] = (
     "title",
     "complaint_code",
+    "urgency_category",
     "species",
     "content",
     "source_title",
@@ -293,9 +303,22 @@ class KBImporter:
         if problem is not None:
             return ImportRow(parsed.slug, ImportOutcome.ERROR, problem)
 
-        existing = self._kb.get_entry_by_slug(parsed.slug)
+        existing = self._stored_entry(parsed)
         if existing is None:
             return self._create(parsed)
+
+        if existing.kind is not parsed.kind:
+            # The stored row and the file disagree about what this entry *is*.
+            # Not something to resolve by writing: `kb_entries` makes the two
+            # kinds exclusive, and whichever name is wrong, the fix is a rename
+            # or a new file (ADR-18).
+            return ImportRow(
+                parsed.slug,
+                ImportOutcome.ERROR,
+                f"is a {parsed.kind.value} entry in the file but "
+                f"{existing.kind.value} in the database. An entry cannot change kind: "
+                f"rename the file, or correct `kind`.",
+            )
 
         reason = _UNTOUCHABLE.get(existing.status)
         if reason is not None:
@@ -314,13 +337,31 @@ class KBImporter:
             return ImportRow(parsed.slug, ImportOutcome.UNCHANGED)
         return self._revise(existing, parsed)
 
+    def _stored_entry(self, parsed: KBEntryFile) -> KBEntry | None:
+        """The row this file upserts: by slug, then by category (8.2b).
+
+        The slug is the key (FR-56). The category is the fallback for a baseline
+        action set, and only for one, because a category can hold just one ACTIVE
+        set: a file for a category that already has one is a revision of it, even
+        when that set was seeded and has no slug at all.
+        """
+        by_slug = self._kb.get_entry_by_slug(parsed.slug)
+        if by_slug is not None or parsed.kind is not KBEntryKind.URGENCY_ACTIONS:
+            return by_slug
+        if parsed.urgency_category is None:
+            return None
+        return self._kb.active_urgency_actions_entry(parsed.urgency_category)
+
     def _unimportable(self, parsed: KBEntryFile) -> str | None:
         """Why this file cannot be imported at all, or None.
 
         Both checks need the database, which is why they are here and not in
-        `schemas/kb_import.py`.
+        `schemas/kb_import.py`. The complaint check does not apply to a baseline
+        action set, which belongs to a category and carries no complaint code.
         """
-        if not self._kb.complaint_exists(parsed.complaint_code):
+        if parsed.complaint_code is not None and not self._kb.complaint_exists(
+            parsed.complaint_code
+        ):
             return (
                 f"complaint_code {parsed.complaint_code!r} is not one of the presenting "
                 f"complaints. Run `python -m scripts.seed` first, or correct the code."
@@ -342,20 +383,31 @@ class KBImporter:
         return ImportRow(entry.slug or parsed.slug, ImportOutcome.CREATED)
 
     def _revise(self, active: KBEntry, parsed: KBEntryFile) -> ImportRow:
-        """Insert a new draft revision of a live entry (ADR-14)."""
-        slug = revision_slug(parsed.slug, self._kb.revision_slugs(parsed.slug))
+        """Insert a new draft revision of a live entry (ADR-14).
+
+        The revision takes the file's own slug when nothing holds it — which
+        happens when the entry being revised was matched by category and was
+        seeded without a slug — and the next free `-revN` otherwise. An entry
+        matched by slug always holds it, so a clinical entry is always `-revN`.
+        """
+        slug = (
+            parsed.slug
+            if self._kb.get_entry_by_slug(parsed.slug) is None
+            else revision_slug(parsed.slug, self._kb.revision_slugs(parsed.slug))
+        )
+        superseded = active.slug or active.title
         revision = self._insert(parsed, slug=slug, revises_entry_id=active.id)
         self._link_rules(revision, parsed.red_flag_codes)
         self._record_entry(
             AuditAction.KB_ENTRY_CREATED,
             revision,
             fields=ENTRY_FILE_FIELDS,
-            extra={"revises_entry_id": str(active.id), "revises_slug": parsed.slug},
+            extra={"revises_entry_id": str(active.id), "revises_slug": active.slug},
         )
         return ImportRow(
             slug,
             ImportOutcome.REVISED,
-            f"{parsed.slug} is {active.status.value.lower()} and was not changed; "
+            f"{superseded} is {active.status.value.lower()} and was not changed; "
             f"submit this draft for approval.",
         )
 
@@ -363,9 +415,10 @@ class KBImporter:
         self, parsed: KBEntryFile, *, slug: str, revises_entry_id: uuid.UUID | None
     ) -> KBEntry:
         return self._kb.insert_entry(
-            kind=KBEntryKind.COMPLAINT,
+            kind=parsed.kind,
             slug=slug,
             complaint_code=parsed.complaint_code,
+            urgency_category=parsed.urgency_category,
             title=parsed.title,
             content=parsed.content,
             species=list(parsed.species),
@@ -400,10 +453,16 @@ class KBImporter:
 
         `slug` is not compared: it is the lookup key for a first import and a
         derived name for a revision, never something the comparison may write.
+        `kind` is not compared either — the caller has already refused a file
+        whose kind differs from the stored row's.
+
+        Of `complaint_code` and `urgency_category`, only the one this kind owns
+        is compared. Including both would report the other as a change on every
+        single run, because it is `None` on either side by construction
+        (`ck_kb_entries_complaint_code_iff_complaint`).
         """
         wanted: dict[str, object] = {
             "title": parsed.title,
-            "complaint_code": parsed.complaint_code,
             "species": list(parsed.species),
             "content": parsed.content,
             "source_title": parsed.source.title,
@@ -411,6 +470,10 @@ class KBImporter:
             "source_url": parsed.source.url,
             "access_date": parsed.source.access_date,
         }
+        if parsed.kind is KBEntryKind.URGENCY_ACTIONS:
+            wanted["urgency_category"] = parsed.urgency_category
+        else:
+            wanted["complaint_code"] = parsed.complaint_code
         return {
             name: value
             for name, value in wanted.items()
@@ -461,6 +524,9 @@ class KBImporter:
                 "kind": str(entry.kind),
                 "slug": entry.slug,
                 "complaint_code": entry.complaint_code,
+                "urgency_category": (
+                    None if entry.urgency_category is None else entry.urgency_category.value
+                ),
                 "fields": sorted(fields),
                 "word_count": word_count(entry.content or ""),
                 **(extra or {}),
