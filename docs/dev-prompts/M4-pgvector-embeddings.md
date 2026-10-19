@@ -218,6 +218,6 @@ With very few rows, PostgreSQL may not use the index at all. That is normal; the
 ## Done when
 
 - [x] The migration is applied, `\d kb_chunks` shows the vector column and the HNSW index, and downgrade/upgrade works.
-- [ ] Checks 6 and 7 pass.
+- [x] Checks 6 and 7 pass.
 - [x] ADR-07 is updated with the provisional model, dimension, and max input.
-- [ ] Committed, with a PR into `develop`. `KB_INDEXER` and `PIPELINE_RETRIEVER` stay `mock` until M5 and M6.
+- [x] Committed, with a PR into `develop`. `KB_INDEXER` and `PIPELINE_RETRIEVER` stay `mock` until M5 and M6.
