@@ -173,6 +173,71 @@ class InvalidDecision(AppError):
         return error_body(self.code, self.message, self.field)
 
 
+class KBNotFound(AppError):
+    """404 for anything under `/kb`: an entry, a rule, or a version.
+
+    One class with a message per caller rather than three near-identical ones.
+    The code is the same `NOT_FOUND` the rest of the API answers, so a client
+    needs no new branch (IR-05).
+    """
+
+    code = "NOT_FOUND"
+    status_code = 404
+    message = "That knowledge-base record could not be found."
+
+
+class InvalidKBTransition(AppError):
+    """409: the entry or rule is not in a state where this action is allowed.
+
+    The same conflict as `InvalidCaseTransition` and for the same reason: the
+    request is well formed and would have been correct a moment ago — somebody
+    else approved, rejected or retired first — so the client should re-read the
+    entry rather than fix a field (FR-51, ADR-14).
+    """
+
+    code = "INVALID_TRANSITION"
+    status_code = 409
+    message = "This record is no longer in a state where that action is allowed."
+
+
+class InvalidKBEntry(AppError):
+    """422: the entry is well formed but incomplete or out of bounds.
+
+    Raised by `KBService` for the FR-50 completeness rules, which are checked
+    again on submit because an imported draft can be missing a citation that
+    `KBEntryCreate` would have required (8.2). Carries the field the editor
+    should point at, exactly as a Pydantic failure does (IR-05).
+    """
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+    message = "Some of the information in this entry is not valid."
+
+    def __init__(self, message: str | None = None, *, field: str | None = None) -> None:
+        self.field = field
+        super().__init__(message)
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, self.field)
+
+
+class VersionPublishConflict(AppError):
+    """409: another knowledge-base version was published at the same instant.
+
+    `kb_versions.version_no` is unique, which is what makes a version number
+    mean something. Two publications racing for the same number is rare — one
+    worker and a handful of administrators — and the honest answer is to say so
+    and let the caller retry, rather than renumber silently (FR-54, DR-05).
+    """
+
+    code = "VERSION_PUBLISH_CONFLICT"
+    status_code = 409
+    message = (
+        "Another knowledge-base version was published just now. "
+        "Reload the knowledge base and try again."
+    )
+
+
 class CSRFFailed(AppError):
     code = "CSRF_FAILED"
     status_code = 403

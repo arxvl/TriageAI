@@ -41,7 +41,14 @@ from app.models import Job, JobStatus, JobType
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_STALE_AFTER_MINUTES", "STAGE_KEY", "JobStage", "JobQueue"]
+__all__ = [
+    "DEFAULT_STALE_AFTER_MINUTES",
+    "KB_INDEX_APPROVER_KEY",
+    "KB_INDEX_ENTRY_KEY",
+    "STAGE_KEY",
+    "JobStage",
+    "JobQueue",
+]
 
 # How long a job may sit in `RUNNING` before the startup sweep assumes the worker
 # that held it is gone. Two minutes, per ADR-08: comfortably longer than the job
@@ -51,6 +58,15 @@ DEFAULT_STALE_AFTER_MINUTES = 2
 
 # Where `set_stage` keeps the progress marker inside `jobs.payload`.
 STAGE_KEY = "stage"
+
+# What a `KB_INDEX` job carries in its payload (P08 §8.1 task 3): the entry to
+# index and the approver whose decision it carries out. `jobs` has `case_id` and
+# `vignette_id` columns and no entry column, and the approver has to travel with
+# the job because the person is long gone by the time the worker runs it — the
+# entry's `approved_by` and the version's `published_by` are both theirs
+# (FR-52, FR-54).
+KB_INDEX_ENTRY_KEY = "entry_id"
+KB_INDEX_APPROVER_KEY = "approved_by"
 
 
 class JobStage(StrEnum):

@@ -11,7 +11,7 @@ All data here is fictitious (CLAUDE.md §9).
 
 import uuid
 from collections.abc import Generator, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -474,21 +474,34 @@ def make_red_flag_rule(
     code: str,
     min_category: VTLCategory = VTLCategory.RED,
     species: tuple[Species, ...] = (Species.DOG, Species.CAT),
+    is_placeholder: bool = True,
+    approved_by: User | None = None,
+    approved_at: datetime | None = None,
+    retired_at: datetime | None = None,
+    phrases_ref: str | None = None,
 ) -> RedFlagRule:
-    """Get or create a placeholder red-flag rule.
+    """Get or create a red-flag rule.
 
-    Nothing here has been seen by a veterinarian, so `is_placeholder` is True —
-    the same contract the seed script uses (P08 replaces both).
+    Placeholder and unapproved by default, which is the state `scripts/seed.py`
+    writes and the one `get_active_rules` treats differently in development and
+    in production (P08 §8.1). Pass `approved_by` for a rule a veterinarian has
+    signed off, which also clears `is_placeholder` — the two together are what
+    approval means (NFR-08).
     """
     existing = session.query(RedFlagRule).filter_by(code=code).one_or_none()
     if existing is not None:
         return existing
+    approver = approved_by
     rule = RedFlagRule(
         code=code,
         label=f"Fixture rule {code}",
         min_category=min_category,
         species=list(species),
-        is_placeholder=True,
+        is_placeholder=False if approver is not None else is_placeholder,
+        approved_by=None if approver is None else approver.id,
+        approved_at=(approved_at or datetime.now(UTC)) if approver is not None else None,
+        retired_at=retired_at,
+        phrases_ref=phrases_ref,
     )
     session.add(rule)
     session.flush()
@@ -551,6 +564,23 @@ def make_kb_version(session: Session, *, version_no: int = 0) -> KBVersion:
     return version
 
 
+# A fictitious entry body long enough to pass the 50-word floor the knowledge-base
+# workflow puts on content (P08 §8.1, FR-50). Invented wording, not clinical
+# guidance: no fixture in this repository carries veterinary advice
+# (CLAUDE.md §9).
+SAMPLE_ENTRY_SENTENCE = (
+    "SAMPLE - not source-verified. Fixture text describing what the clinic staff "
+    "would read in this entry, written only so the word count is realistic. "
+)
+
+
+def kb_entry_content(words: int = 60) -> str:
+    """Fictitious entry content of exactly `words` words."""
+    sentence = SAMPLE_ENTRY_SENTENCE.split()
+    repeats = words // len(sentence) + 1
+    return " ".join((sentence * repeats)[:words])
+
+
 def make_kb_entry(
     session: Session,
     *,
@@ -562,6 +592,8 @@ def make_kb_entry(
     content: str = "Fixture content.",
     created_by: User | None = None,
     kb_version: KBVersion | None = None,
+    slug: str | None = None,
+    with_source: bool = False,
 ) -> KBEntry:
     """Insert a knowledge-base entry of either kind (ADR-18).
 
@@ -578,6 +610,10 @@ def make_kb_entry(
     to a KB version — `baseline_actions` is the first — finds nothing without
     that link, so the caller has to say which version the entry belongs to
     (FR-54, ADR-14).
+
+    `with_source` fills the mandatory source citation and `kb_entry_content()`
+    gives a body over the 50-word floor, which together are what the P08
+    workflow needs before an entry can be submitted (FR-50).
     """
     author = created_by or make_user(session, role=UserRole.VETERINARY_REVIEWER)
     if complaint_code is not None:
@@ -588,6 +624,7 @@ def make_kb_entry(
 
     entry = KBEntry(
         kind=kind,
+        slug=slug,
         complaint_code=complaint_code,
         urgency_category=urgency_category,
         title=title,
@@ -595,6 +632,13 @@ def make_kb_entry(
         species=[Species.DOG, Species.CAT],
         status=status,
         created_by=author.id,
+        # `with_source` fills the four citation fields FR-50 requires, which is
+        # what an entry needs to be submittable. Left empty by default, so a
+        # test about the incomplete case does not have to undo them.
+        source_title="Fixture Source Title" if with_source else None,
+        source_publisher="Fixture Publisher" if with_source else None,
+        source_url="https://example.invalid/fixture" if with_source else None,
+        access_date=date(2026, 10, 12) if with_source else None,
     )
     session.add(entry)
     session.flush()

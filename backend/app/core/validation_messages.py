@@ -23,6 +23,9 @@ ANY_ERROR = "*"
 MESSAGES: dict[str, dict[str, str]] = {
     # --- Case intake, W-03 (FR-01, FR-04) --------------------------------
     "species": {
+        # Also the knowledge-base entry's species list, which is why
+        # `too_short` has its own wording (FR-49).
+        "too_short": "Choose at least one species: dog, cat, or both.",
         ANY_ERROR: "Choose the species.",
     },
     "description": {
@@ -81,8 +84,10 @@ MESSAGES: dict[str, dict[str, str]] = {
     "category": {
         ANY_ERROR: "Choose a category: red, orange, yellow, green, blue, or manual triage.",
     },
+    # Shared by the queue filter and the knowledge-base status tabs, so the
+    # wording names neither.
     "status": {
-        ANY_ERROR: "Choose a case status from the list.",
+        ANY_ERROR: "Choose a status from the list.",
     },
     "date_from": {
         ANY_ERROR: "Enter the start date as a calendar date, e.g. 2026-10-01.",
@@ -140,6 +145,82 @@ MESSAGES: dict[str, dict[str, str]] = {
         "string_too_short": "Enter the note.",
         "string_too_long": "The note must be 2,000 characters or fewer. Shorten it a little.",
         ANY_ERROR: "Enter the note, up to 2,000 characters.",
+    },
+    # --- Knowledge base, W-08 (FR-49, FR-50, NFR-08) ---------------------
+    # The source citation fields are all required, which is FR-50 and not a
+    # formatting preference: an entry nobody can trace to a published source
+    # must not be approvable.
+    "title": {
+        "string_too_long": "The title can be at most 300 characters.",
+        ANY_ERROR: "Enter a title for this entry.",
+    },
+    "slug": {
+        "string_pattern_mismatch": (
+            "Use lower-case letters, numbers and hyphens only, e.g. urinary-straining-cat."
+        ),
+        "string_too_long": "The slug can be at most 120 characters.",
+        ANY_ERROR: "Enter a short name for this entry, e.g. urinary-straining-cat.",
+    },
+    "complaint_code": {
+        ANY_ERROR: "Choose the presenting complaint from the list.",
+    },
+    "kind": {
+        ANY_ERROR: "Choose the entry kind: a clinical entry, or a baseline action set.",
+    },
+    "red_flag_codes": {
+        "too_long": "An entry can cite at most 50 red-flag rules.",
+        ANY_ERROR: "Choose the red-flag rules this entry explains, or leave the list empty.",
+    },
+    "content": {
+        "value_error": (
+            "The content must be between 50 and 1,500 words. "
+            "Write it in your own words from the cited source."
+        ),
+        ANY_ERROR: (
+            "Enter the entry content, between 50 and 1,500 words, "
+            "written in your own words from the cited source."
+        ),
+    },
+    "source_title": {
+        "string_too_long": "The source title can be at most 300 characters.",
+        ANY_ERROR: "Enter the title of the source this entry is written from.",
+    },
+    "source_publisher": {
+        "string_too_long": "The publisher can be at most 300 characters.",
+        ANY_ERROR: "Enter the publisher of the source.",
+    },
+    "source_url": {
+        "string_too_long": "The source link can be at most 1,000 characters.",
+        ANY_ERROR: "Enter the link to the source.",
+    },
+    "access_date": {
+        ANY_ERROR: "Enter the date you read the source, e.g. 2026-10-12.",
+    },
+    "comments": {
+        "string_too_short": "Enter the comments explaining what has to change.",
+        "string_too_long": "The comments must be 2,000 characters or fewer. Shorten them.",
+        ANY_ERROR: "Enter the comments explaining what has to change.",
+    },
+    # --- Red-flag rules, W-08 (FR-12, FR-23, NFR-08) ---------------------
+    "code": {
+        "string_pattern_mismatch": (
+            "Use capital letters, numbers and the underscore character only, with no spaces."
+        ),
+        ANY_ERROR: "Enter the rule code in capital letters, with no spaces.",
+    },
+    "label": {
+        "string_too_long": "The label can be at most 300 characters.",
+        ANY_ERROR: "Enter a short label describing what this rule detects.",
+    },
+    "min_category": {
+        ANY_ERROR: (
+            "Choose the lowest urgency category this rule may assign: "
+            "red, orange, yellow, green, or blue."
+        ),
+    },
+    "phrases_ref": {
+        "string_too_long": "The phrase key can be at most 100 characters.",
+        ANY_ERROR: "Enter the phrase key from the red-flag phrase file, or leave it blank.",
     },
 }
 

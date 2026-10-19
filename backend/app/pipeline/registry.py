@@ -33,7 +33,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import (
@@ -52,6 +51,7 @@ from app.models.knowledge_base import RedFlagRule
 from app.pipeline.config import PipelineConfig
 from app.pipeline.errors import PipelineError
 from app.pipeline.orchestrator import TriagePipeline
+from app.services.red_flag_rules import active_rules_provider
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.adapters.embeddings.base import EmbeddingProvider
@@ -159,26 +159,6 @@ class PipelineDeps:
     llm: "LLMProvider | None"
     embedder: "EmbeddingProvider | None"
     rules_provider: Callable[[], list[RedFlagRule]]
-
-
-def all_red_flag_rules(session_factory: sessionmaker) -> Callable[[], list[RedFlagRule]]:
-    """The default `rules_provider`: every row of `red_flag_rules`.
-
-    A fresh session per call, not a cached list: a rule approved while the worker
-    is running must take effect on the next case, and a red-flag rule is the one
-    thing that should never be stale (FR-12, FR-23).
-
-    TODO(P08): replace with `get_active_rules`, which will exclude placeholder
-    rules once a veterinarian has approved real ones. Until then the seeded
-    placeholders are all there is, and screening with them beats screening with
-    nothing.
-    """
-
-    def provider() -> list[RedFlagRule]:
-        with session_factory() as session:
-            return list(session.scalars(select(RedFlagRule).order_by(RedFlagRule.code)))
-
-    return provider
 
 
 def _guide_reference(spec: _StageSpec) -> str:
@@ -298,7 +278,9 @@ def build_pipeline(
         session_factory=session_factory,
         llm=None,
         embedder=None,
-        rules_provider=all_red_flag_rules(session_factory),
+        # Approved, non-retired rules — plus the seeded placeholders in
+        # development, where nothing has been approved yet (P08 §8.1, NFR-08).
+        rules_provider=active_rules_provider(session_factory, settings.app_env),
     )
 
     # The providers are built before the stages and shared by all of them, so one

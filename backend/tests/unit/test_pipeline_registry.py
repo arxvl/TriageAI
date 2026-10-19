@@ -18,7 +18,7 @@ from app.adapters.embeddings.sentence_transformer import SentenceTransformerEmbe
 from app.adapters.llm.hosted import HostedLLMProvider
 from app.adapters.llm.mock import MockLLMProvider
 from app.adapters.llm.ollama import OllamaLLMProvider
-from app.core.config import DeidentifierOption, LLMProviderOption, Settings
+from app.core.config import AppEnv, DeidentifierOption, LLMProviderOption, Settings
 from app.pipeline import mocks
 from app.pipeline.config import PipelineConfig
 from app.pipeline.deidentify_rules import RuleBasedDeidentifier
@@ -28,7 +28,6 @@ from app.pipeline.registry import (
     PipelineDeps,
     StageNotImplementedError,
     UnsafePipelineConfigError,
-    all_red_flag_rules,
     build_pipeline,
 )
 from app.pipeline.stages import (
@@ -41,6 +40,7 @@ from app.pipeline.stages import (
     RedFlagScreener,
     Retriever,
 )
+from app.services.red_flag_rules import active_rules_provider
 from tests.test_config import settings_from_base_env
 
 # The stage attribute on TriagePipeline, its expected mock class, and the
@@ -212,7 +212,7 @@ def test_rules_provider_reads_rules_on_each_call() -> None:
         def scalars(self, _statement: object) -> list[Any]:
             return []
 
-    provider = all_red_flag_rules(RecordingSession)  # type: ignore[arg-type]
+    provider = active_rules_provider(RecordingSession, AppEnv.DEV)  # type: ignore[arg-type]
 
     assert provider() == []
     assert provider() == []

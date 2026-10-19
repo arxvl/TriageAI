@@ -9,7 +9,7 @@ the `ROLE_GUARD_ATTR` marker.
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
@@ -23,11 +23,28 @@ from app.db.session import get_db
 from app.models import User, UserRole
 from app.repositories.user_repository import UserRepository
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from app.pipeline.stages import KBIndexer
+
 # Marks a dependency produced by `require_role`.
 ROLE_GUARD_ATTR = "_triageai_role_guard"
 
 DbSession = Annotated[Session, Depends(get_db)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
+
+
+def get_kb_indexer(request: Request) -> "KBIndexer":
+    """The configured knowledge-base indexer (P08, CLAUDE.md §8.3).
+
+    Read off the pipeline the lifespan built, so one process holds one indexer
+    and the `KB_INDEXER` setting is honoured in a request exactly as it is in the
+    worker. The only request that needs it is retiring an entry, which deletes
+    that entry's chunks; approval indexes in a background job instead (ADR-08).
+    """
+    return request.app.state.pipeline.kb_indexer
+
+
+KBIndexerDep = Annotated["KBIndexer", Depends(get_kb_indexer)]
 
 
 @dataclass(frozen=True)

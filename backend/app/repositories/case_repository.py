@@ -362,7 +362,7 @@ class CaseRepository:
         return list(self._session.execute(statement).all())
 
     def latest_kb_version_id(self) -> uuid.UUID | None:
-        """The newest knowledge-base version (FR-54).
+        """The knowledge-base version a lookup with nothing to pin it uses (FR-54).
 
         Needed here for the baseline action lookup on a case that has no
         recommendation to pin it — a case a reviewer triaged by hand still has a
@@ -370,7 +370,22 @@ class CaseRepository:
         `PipelineRepository.latest_kb_version_id` is the same read for the run
         path; a run pins the version it used onto the recommendation, so the two
         callers are asking different questions about the same table.
+
+        Prefers the newest **published** version — one an approval or a
+        retirement produced (FR-54, P08 §8.1 task 6) — and falls back to the
+        newest version of any kind. The fallback is what the seeded version 0 is
+        for: before the first entry has been approved it is the only version
+        there is, and a clean checkout has to keep triaging and keep showing
+        baseline actions rather than fail every case for want of a version.
         """
+        published = self._session.scalars(
+            select(KBVersion.id)
+            .where(KBVersion.published_at.is_not(None))
+            .order_by(KBVersion.version_no.desc())
+            .limit(1)
+        ).first()
+        if published is not None:
+            return published
         return self._session.scalars(
             select(KBVersion.id).order_by(KBVersion.version_no.desc()).limit(1)
         ).first()

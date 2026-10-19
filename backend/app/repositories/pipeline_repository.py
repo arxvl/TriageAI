@@ -235,12 +235,23 @@ class PipelineRepository:
         return row.owner_name, row.contact_number
 
     def latest_kb_version_id(self) -> uuid.UUID | None:
-        """The newest knowledge-base version, which a run is pinned to (FR-54).
+        """The knowledge-base version this run is pinned to (FR-54, IR-14).
 
-        Ordered by `version_no`, not by `published_at`: the seed version 0 has no
-        publication date, and an unpublished draft version must still be the one a
-        mock run points at.
+        Prefers the newest **published** version — one an approval or a
+        retirement produced (FR-54, P08 §8.1 task 6) — and falls back to the
+        newest version of any kind. The fallback is what the seeded version 0 is
+        for: before the first entry has been approved it is the only version
+        there is, and a clean checkout has to keep triaging and keep showing
+        baseline actions rather than fail every case for want of a version.
         """
+        published = self._session.scalars(
+            select(KBVersion.id)
+            .where(KBVersion.published_at.is_not(None))
+            .order_by(KBVersion.version_no.desc())
+            .limit(1)
+        ).first()
+        if published is not None:
+            return published
         return self._session.scalars(
             select(KBVersion.id).order_by(KBVersion.version_no.desc()).limit(1)
         ).first()

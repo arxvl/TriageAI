@@ -104,6 +104,37 @@ Two settings deserve attention:
 The application **refuses to start** if a real LLM provider is selected while de-identification is
 still mocked, so raw owner text cannot leave the server (ADR-10).
 
+## Knowledge base workflow
+
+Clinical content is curated, not fetched: nothing becomes retrievable until an account holding the
+knowledge-base approval permission has approved it (FR-51, FR-52, BR-04).
+
+```
+DRAFT --submit--> PENDING_REVIEW --approve--> (KB_INDEX job) --> ACTIVE --retire--> RETIRED
+                        |                                          |
+                        +----------- reject with comments ---------+--> publishes KB version N+1
+```
+
+| Endpoint | Who |
+|---|---|
+| `GET /kb/entries`, `GET /kb/entries/{id}`, `GET /kb/versions`, `GET /kb/red-flag-rules` | Administrator, Veterinary Reviewer |
+| `POST`/`PATCH /kb/entries`, `POST /kb/entries/{id}/submit`, `POST /kb/entries/{id}/retire` | Administrator |
+| `POST /kb/entries/{id}/approve`, `.../reject` | Veterinary Reviewer with `can_approve_kb` |
+| `POST`/`PATCH /kb/red-flag-rules` | Administrator |
+| `POST /kb/red-flag-rules/{id}/approve`, `.../retire` | Veterinary Reviewer with `can_approve_kb` |
+
+Three consequences worth knowing:
+
+- **Approval is asynchronous.** It answers `202` and enqueues a `KB_INDEX` job, which chunks and
+  embeds the entry (the mock until M5), sets it `ACTIVE` and publishes the next version. If
+  indexing fails, the entry stays `PENDING_REVIEW` and nothing is published; the reason code is
+  shown on the entry (FR-53).
+- **Every approval and retirement publishes an immutable version** listing all active entries,
+  red-flag rule changes included, so the safety floor is versioned with the content it floors.
+  A published version's entry list cannot be updated — the database rejects it (FR-54, DR-05).
+- **Red-flag rules screen cases only once approved.** The eight rules the seed writes are marked
+  as placeholders, which `APP_ENV=dev` includes and any other environment excludes (NFR-08).
+
 ## Running tests
 
 ```bash
@@ -144,8 +175,11 @@ deploy/             production compose, Nginx, backup
 ## Build progress
 
 Complete: P01 scaffold, P02 database, P03 auth and RBAC, P04 intake and queue, P05 pipeline
-framework, M1 de-identification and red-flag screening, M2 LLM provider adapter.
-Next: P05b suggested actions, then M3 extraction. See `docs/dev-prompts/00-START-HERE.md`.
+framework, P05b suggested actions, P06 clinical review, M1 de-identification and red-flag
+screening, M2 LLM provider adapter, M3 extraction, M4 embeddings, P08 §8.1 knowledge-base
+workflow and versioning.
+Next: P08 §8.2 YAML importer and §8.3 the knowledge-base screen. See
+`docs/dev-prompts/00-START-HERE.md`.
 
 ## Privacy and data handling
 

@@ -146,11 +146,15 @@ def test_an_empty_queue_runs_nothing(
     assert pipeline.calls == []
 
 
-@pytest.mark.parametrize("job_type", [JobType.REGENERATE, JobType.EVAL_RUN, JobType.KB_INDEX])
+@pytest.mark.parametrize("job_type", [JobType.REGENERATE, JobType.EVAL_RUN])
 def test_a_job_type_this_worker_does_not_handle_fails_loudly(
     db_session: Session, app_session_factory: sessionmaker, job_type: JobType
 ) -> None:
-    """P07, P08 and M7 add these. Until then, failing beats sitting `QUEUED`."""
+    """P07 and M7 add these. Until then, failing beats sitting `QUEUED`.
+
+    `KB_INDEX` has left this list: P08 §8.1 dispatches it, and
+    `tests/unit/test_kb_indexing.py` covers what it does.
+    """
     job = make_job(db_session, case=make_case(db_session), job_type=job_type)
     pipeline = _StubPipeline()
 

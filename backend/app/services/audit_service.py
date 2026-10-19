@@ -22,6 +22,13 @@ USER_ENTITY = "user"
 # The entity every case event is about.
 CASE_ENTITY = "case"
 
+# The three entities the knowledge-base workflow acts on (P08 §8.1). Separate
+# types rather than one "kb", so the W-08 history of an entry is not mixed with
+# the rule changes and the published versions.
+KB_ENTRY_ENTITY = "kb_entry"
+RED_FLAG_RULE_ENTITY = "red_flag_rule"
+KB_VERSION_ENTITY = "kb_version"
+
 # Used when a login is attempted for an address that has no account, so the
 # failure is still auditable (SR-12).
 UNKNOWN_ENTITY_ID = "unknown"
@@ -57,6 +64,28 @@ class AuditAction(StrEnum):
     # clinical content and the log cannot be corrected (FR-43).
     NOTE_ADDED = "NOTE_ADDED"
     CASE_CLOSED = "CASE_CLOSED"
+    # The knowledge-base workflow (P08 §8.1, FR-51, FR-52, FR-54, NFR-08,
+    # BR-04). Payloads carry ids, slugs, codes, statuses, version numbers and
+    # chunk counts — never an entry's content and never a rejection's comments,
+    # which are curated clinical text that the log cannot correct (FR-43).
+    #
+    # Approval is two entries, not one. `KB_ENTRY_APPROVED` records the person
+    # and the moment they approved; `KB_ENTRY_ACTIVATED` records that indexing
+    # then succeeded and the entry went live. Keeping them apart is what makes a
+    # failed indexing visible as an approval that did not take effect (FR-53).
+    KB_ENTRY_CREATED = "KB_ENTRY_CREATED"
+    KB_ENTRY_UPDATED = "KB_ENTRY_UPDATED"
+    KB_ENTRY_SUBMITTED = "KB_ENTRY_SUBMITTED"
+    KB_ENTRY_APPROVED = "KB_ENTRY_APPROVED"
+    KB_ENTRY_ACTIVATED = "KB_ENTRY_ACTIVATED"
+    KB_ENTRY_REJECTED = "KB_ENTRY_REJECTED"
+    KB_ENTRY_RETIRED = "KB_ENTRY_RETIRED"
+    KB_INDEX_FAILED = "KB_INDEX_FAILED"
+    KB_VERSION_PUBLISHED = "KB_VERSION_PUBLISHED"
+    RED_FLAG_RULE_CREATED = "RED_FLAG_RULE_CREATED"
+    RED_FLAG_RULE_UPDATED = "RED_FLAG_RULE_UPDATED"
+    RED_FLAG_RULE_APPROVED = "RED_FLAG_RULE_APPROVED"
+    RED_FLAG_RULE_RETIRED = "RED_FLAG_RULE_RETIRED"
 
 
 class AuditService:

@@ -19,13 +19,15 @@ with `UNEXPECTED_ERROR` and the loop continues. The alternative — a thread tha
 dies on the first unhandled exception — would leave every later case stuck in
 `SUBMITTED` with nothing in the log to say why.
 
-Two job types are dispatched. `PIPELINE_RUN` triages a case; `SUGGEST_ACTIONS`
-suggests actions for one stored recommendation, and its failure is recorded on
-that recommendation and never on the case (FR-77, ADR-18 §3). Anything else is
-refused rather than ignored, so a job enqueued by a later phase against a worker
-that predates it fails loudly instead of sitting `QUEUED` forever: `REGENERATE`
-arrives in P07, `KB_INDEX` in P08 and `EVAL_RUN` with the evaluation harness
-(M7).
+Three job types are dispatched. `PIPELINE_RUN` triages a case;
+`SUGGEST_ACTIONS` suggests actions for one stored recommendation, and its failure
+is recorded on that recommendation and never on the case (FR-77, ADR-18 §3);
+`KB_INDEX` indexes an approved knowledge-base entry and publishes the version
+that contains it, and its failure leaves the entry awaiting review with nothing
+published (FR-53, P08 §8.1). Anything else is refused rather than ignored, so a
+job enqueued by a later phase against a worker that predates it fails loudly
+instead of sitting `QUEUED` forever: `REGENERATE` arrives in P07 and `EVAL_RUN`
+with the evaluation harness (M7).
 """
 
 import logging
@@ -38,6 +40,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.jobs.queue import JobQueue
 from app.models import Job, JobType
 from app.pipeline.orchestrator import ACTIONS_JOB_RECOMMENDATION_KEY
+from app.services.kb_indexing import kb_index_job_target, run_kb_index
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.pipeline.orchestrator import TriagePipeline
@@ -47,6 +50,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "DEFAULT_POLL_INTERVAL_S",
     "MISSING_CASE_ID",
+    "MISSING_ENTRY_ID",
     "MISSING_RECOMMENDATION_ID",
     "UNEXPECTED_ERROR",
     "UNSUPPORTED_JOB_TYPE",
@@ -62,6 +66,7 @@ UNSUPPORTED_JOB_TYPE = "UNSUPPORTED_JOB_TYPE"
 UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
 MISSING_CASE_ID = "MISSING_CASE_ID"
 MISSING_RECOMMENDATION_ID = "MISSING_RECOMMENDATION_ID"
+MISSING_ENTRY_ID = "MISSING_ENTRY_ID"
 
 
 def _recommendation_id(job: Job) -> uuid.UUID | None:
@@ -98,6 +103,18 @@ def run_job(session: Session, pipeline: "TriagePipeline", job: Job) -> None:
                 queue.fail(job, MISSING_CASE_ID)
                 return
             result = pipeline.run(job.case_id, job_id=job.id)
+
+        elif job.type is JobType.KB_INDEX:
+            entry_id, approver_id = kb_index_job_target(job)
+            if entry_id is None:
+                logger.error("KB_INDEX job without an entry", extra=context)
+                queue.fail(job, MISSING_ENTRY_ID)
+                return
+            # The indexer the registry selected, shared with the pipeline: one
+            # process holds one indexer, mock or real (CLAUDE.md §8.3).
+            result = run_kb_index(
+                session, pipeline.kb_indexer, entry_id=entry_id, approver_id=approver_id
+            )
 
         elif job.type is JobType.SUGGEST_ACTIONS:
             recommendation_id = _recommendation_id(job)
