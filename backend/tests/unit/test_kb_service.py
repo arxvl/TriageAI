@@ -27,6 +27,7 @@ from app.models import (
     KBEntry,
     KBEntryKind,
     KBEntryStatus,
+    PresentingComplaint,
     Species,
     User,
     UserRole,
@@ -751,3 +752,37 @@ def test_citing_a_rule_that_does_not_exist_is_refused(db_session: Session) -> No
         service(db_session).create_entry(entry_payload(red_flag_codes=["NO_SUCH_RULE"]), user)
 
     assert error.value.field == "red_flag_codes"
+
+
+# --- Reference data for the W-08 editor (FR-10, P08 §8.3) ----------------
+
+
+def test_the_complaint_list_is_offered_in_sort_order(db_session: Session) -> None:
+    """The order the list is seeded in is clinical, so the editor keeps it."""
+    db_session.add_all(
+        [
+            PresentingComplaint(code="SECOND_SIGN", name="Second fixture sign", sort_order=2),
+            PresentingComplaint(code="FIRST_SIGN", name="First fixture sign", sort_order=1),
+        ]
+    )
+    db_session.flush()
+
+    options = service(db_session).list_complaints()
+
+    assert [option.code for option in options] == ["FIRST_SIGN", "SECOND_SIGN"]
+    assert options[0].name == "First fixture sign"
+
+
+def test_a_listed_entry_carries_its_source_title(db_session: Session) -> None:
+    """The W-08 Source column reads the citation, not the content (FR-50)."""
+    make_kb_entry(
+        db_session,
+        complaint_code=COMPLAINT,
+        status=KBEntryStatus.ACTIVE,
+        slug="fixture-sourced",
+        with_source=True,
+    )
+
+    listing = service(db_session).list_entries(KBEntryFilters(status=KBEntryStatus.ACTIVE))
+
+    assert [item.source_title for item in listing.items] == ["Fixture Source Title"]

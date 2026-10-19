@@ -56,6 +56,7 @@ from app.models import (
 from app.pipeline.stages import KBIndexer
 from app.repositories.kb_repository import KBRepository
 from app.schemas.kb import (
+    ComplaintOption,
     IndexingState,
     KBEntryActionResult,
     KBEntryCreate,
@@ -176,6 +177,13 @@ class KBService:
 
     def get_entry(self, entry_id: uuid.UUID) -> KBEntryDetail:
         return self._detail(self._require_entry(entry_id))
+
+    def list_complaints(self) -> list[ComplaintOption]:
+        """The fixed complaint list W-08's editor files an entry under (FR-10)."""
+        return [
+            ComplaintOption(code=complaint.code, name=complaint.name)
+            for complaint in self._kb.list_complaints()
+        ]
 
     def list_versions(self) -> list[KBVersionSummary]:
         versions = self._kb.list_versions()
@@ -793,6 +801,7 @@ class KBService:
             species=list(entry.species),
             status=entry.status,
             word_count=word_count(entry.content or ""),
+            source_title=entry.source_title,
         )
 
     def _detail(self, entry: KBEntry) -> KBEntryDetail:

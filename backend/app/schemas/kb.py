@@ -324,8 +324,25 @@ class IndexingState(BaseModel):
     queued_at: datetime
 
 
+class ComplaintOption(BaseModel):
+    """One choice in W-08's presenting-complaint select (FR-10, FR-49).
+
+    The list is fixed and lives in `presenting_complaints`, which `kb_entries`
+    references by code, so the editor offers exactly the codes an entry may be
+    filed under rather than a copy of them kept somewhere else.
+    """
+
+    code: str
+    name: str
+
+
 class KBEntrySummary(BaseModel):
-    """One row of the W-08 entry list."""
+    """One row of the W-08 entry list.
+
+    `source_title` is here and the rest of the citation is not: the list shows
+    which source an entry was written from, and the publisher, URL and access
+    date belong to the detail panel that a curator actually checks (FR-50).
+    """
 
     id: uuid.UUID
     slug: str | None
@@ -336,6 +353,7 @@ class KBEntrySummary(BaseModel):
     species: list[Species]
     status: KBEntryStatus
     word_count: int
+    source_title: str | None
 
 
 class KBEntryDetail(BaseModel):

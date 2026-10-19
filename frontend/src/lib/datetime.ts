@@ -99,6 +99,31 @@ export function formatDisplayDate(iso: string): string | null {
   }).format(instant);
 }
 
+/**
+ * "12 Oct 2026" from a plain calendar date, `YYYY-MM-DD`.
+ *
+ * Not the same as `formatDisplayDate`, which converts an instant into the
+ * clinic's day. A knowledge-base entry's access date is a date and nothing more
+ * (FR-50), so it is read in UTC and never shifted by a timezone — a source
+ * accessed on the 12th was accessed on the 12th wherever it is read.
+ */
+export function formatCalendarDate(date: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return null;
+  }
+  const instant = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(instant.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(instant);
+}
+
 /** Today's date in the clinic's timezone as `YYYY-MM-DD`, for a date filter. */
 export function clinicToday(now: Date = new Date()): string {
   // "en-CA" is the short way to an ISO calendar date in a given timezone.

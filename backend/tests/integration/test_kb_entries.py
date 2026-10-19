@@ -35,6 +35,7 @@ from tests.conftest import (
 
 PASSWORD = "Sampaguita2026"
 ENTRIES_URL = "/api/v1/kb/entries"
+COMPLAINTS_URL = "/api/v1/kb/complaints"
 COMPLAINT = "LETHARGY"
 
 
@@ -203,6 +204,19 @@ def test_the_list_carries_the_tab_counts_and_the_published_version(
     assert body["counts"]["ACTIVE"] >= 1
     assert "published_version_no" in body
     assert body["active_entry_count"] == body["counts"]["ACTIVE"]
+
+
+def test_the_list_carries_each_entrys_source_title(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """The W-08 Source column (FR-50, P08 §8.3)."""
+    make_kb_entry(db_session, status=KBEntryStatus.DRAFT, slug="fixture-sourced", with_source=True)
+    as_admin(api_client, db_session)
+
+    body = api_client.get(f"{ENTRIES_URL}?status=DRAFT").json()
+
+    rows = {item["slug"]: item["source_title"] for item in body["items"]}
+    assert rows["fixture-sourced"] == "Fixture Source Title"
 
 
 def test_the_list_can_be_filtered_by_status(api_client: TestClient, db_session: Session) -> None:
@@ -621,3 +635,46 @@ def test_an_entry_can_be_created_with_its_red_flag_rules(
 
     assert response.status_code == 201
     assert response.json()["red_flag_codes"] == ["FIXTURE_LINKED_RULE"]
+
+
+# --- The complaint list (FR-10, P08 §8.3) --------------------------------
+
+
+def test_an_administrator_reads_the_complaint_list(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """The fixed list W-08's editor files an entry under, in `sort_order`."""
+    db_session.add_all(
+        [
+            PresentingComplaint(code="SECOND_SIGN", name="Second fixture sign", sort_order=2),
+            PresentingComplaint(code="FIRST_SIGN", name="First fixture sign", sort_order=1),
+        ]
+    )
+    db_session.flush()
+    as_admin(api_client, db_session)
+
+    response = api_client.get(COMPLAINTS_URL)
+
+    assert response.status_code == 200
+    codes = [item["code"] for item in response.json()]
+    assert codes.index("FIRST_SIGN") < codes.index("SECOND_SIGN")
+    assert {"code": "FIRST_SIGN", "name": "First fixture sign"} in response.json()
+
+
+def test_an_approver_reads_the_complaint_list(api_client: TestClient, db_session: Session) -> None:
+    """An approver reads the catalogue, so the detail panel can name a complaint."""
+    ensure_complaint(db_session)
+    as_approver(api_client, db_session)
+
+    response = api_client.get(COMPLAINTS_URL)
+
+    assert response.status_code == 200
+    assert [item["code"] for item in response.json()] == [COMPLAINT]
+
+
+def test_intake_staff_cannot_read_the_complaint_list(
+    api_client: TestClient, db_session: Session
+) -> None:
+    signed_in(api_client, db_session, UserRole.INTAKE_STAFF)
+
+    assert api_client.get(COMPLAINTS_URL).status_code == 403

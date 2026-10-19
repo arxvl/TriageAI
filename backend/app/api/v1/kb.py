@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.api.deps import DbSession, KBIndexerDep, require_role
 from app.models import User, UserRole
 from app.schemas.kb import (
+    ComplaintOption,
     KBEntryActionResult,
     KBEntryCreate,
     KBEntryDetail,
@@ -130,6 +131,16 @@ def retire_entry(
     explainable.
     """
     return KBService(db, indexer=indexer).retire_entry(entry_id, user)
+
+
+@router.get("/complaints")
+def list_complaints(db: DbSession, user: KBReader) -> list[ComplaintOption]:
+    """The fixed presenting-complaint list, for W-08's editor and entry list (FR-10).
+
+    Read-only reference data, so both KB roles see it; Intake Staff, who see no
+    part of the knowledge base, get 403.
+    """
+    return KBService(db).list_complaints()
 
 
 @router.get("/entries/{entry_id}")

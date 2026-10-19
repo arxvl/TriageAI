@@ -28,6 +28,7 @@ import { CaseAudit } from "./pages/CaseAudit/CaseAudit";
 import { CaseIntake } from "./pages/CaseIntake/CaseIntake";
 import { CaseReview } from "./pages/CaseReview/CaseReview";
 import { ChangePassword } from "./pages/ChangePassword/ChangePassword";
+import { KnowledgeBase } from "./pages/KnowledgeBase/KnowledgeBase";
 import { Login } from "./pages/Login/Login";
 import { NotFound } from "./pages/NotFound/NotFound";
 import { Placeholder } from "./pages/Placeholder/Placeholder";
@@ -84,10 +85,7 @@ function App() {
                           <ProtectedRoute allowedRoles={KB_ROLES} requireKbApprovalForReviewers />
                         }
                       >
-                        <Route
-                          path="/kb"
-                          element={<Placeholder title={strings.nav.knowledgeBase} />}
-                        />
+                        <Route path="/kb" element={<KnowledgeBase />} />
                       </Route>
 
                       <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} />}>

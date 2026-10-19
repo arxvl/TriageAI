@@ -724,6 +724,250 @@ export const strings = {
     },
   },
 
+  // W-08 Knowledge Base (FR-49..FR-56, NFR-08, BR-04, ADR-14, ADR-18 · UC-13,
+  // UC-14). One screen for two jobs: an administrator curates entries, and a
+  // Veterinary Reviewer holding `can_approve_kb` approves them (BR-04). Both
+  // read the same catalogue, so the wording never assumes which one is looking.
+  knowledgeBase: {
+    title: "Knowledge Base",
+
+    // The W-08 header line. {version} is the published version number and
+    // {count} the number of ACTIVE entries in it.
+    publishedVersion: "Published version: v{version} · {count} active entries",
+    // Before the first approval there is no version to name, and saying so is
+    // more honest than "v0" (FR-54).
+    publishedVersionNone: "No published version yet · {count} active entries",
+
+    viewsLabel: "Knowledge base section",
+    viewEntries: "Entries",
+    viewRules: "Red-flag rules",
+
+    tabsLabel: "Entry status",
+    // {label} is one of `tabs`, {count} the server's count for that status. The
+    // counts describe the whole knowledge base, so a filter never moves them.
+    tabLabel: "{label} ({count})",
+    tabs: {
+      DRAFT: "Draft",
+      PENDING_REVIEW: "Pending review",
+      ACTIVE: "Active",
+      RETIRED: "Retired",
+    },
+
+    kindFilterLabel: "Entry kind",
+    kindAll: "All kinds",
+    // The two kinds of entry (ADR-18). A baseline action set is not clinical
+    // prose and is never retrieved by similarity, so the list marks it.
+    kinds: {
+      COMPLAINT: "Clinical entry",
+      URGENCY_ACTIONS: "Urgency actions",
+    },
+
+    columns: {
+      entry: "Entry",
+      filedUnder: "Filed under",
+      species: "Species",
+      source: "Source",
+      words: "Words",
+    },
+    // {count} is the entry's word count, or its number of baseline actions.
+    wordCount: "{count} words",
+    actionCount: "{count} actions",
+
+    species: {
+      DOG: "Dog",
+      CAT: "Cat",
+    },
+    notAvailable: "—",
+
+    loading: "Loading the knowledge base…",
+    empty: "No entries in the knowledge base yet.",
+    emptyFiltered: "No entries match this tab and filter.",
+    selectPrompt: "Select an entry to read it.",
+
+    // The detail panel.
+    detail: {
+      contentHeading: "Content",
+      citationHeading: "Source citation",
+      redFlagsHeading: "Red flags and minimum category",
+      noRedFlags: "No red-flag rules cite this entry.",
+      // {category} is the VTL code; the badge beside it carries the target time.
+      minimumSuffix: "minimum",
+      publisherLabel: "Publisher",
+      urlLabel: "URL",
+      accessDateLabel: "Accessed",
+      createdByLabel: "Written by",
+      approvedByLabel: "Approved by",
+      slugLabel: "Imported from",
+      // A draft written to replace an entry that is live (ADR-14).
+      revisesNote: "This draft replaces an entry that is currently active.",
+      rejectionHeading: "Returned for revision",
+      citationIncomplete: "The citation is incomplete. An entry cannot be submitted without it.",
+    },
+
+    // Indexing after an approval (FR-53). The entry is not active until it
+    // succeeds, so these states are about the job, not the entry.
+    indexing: {
+      heading: "Indexing",
+      QUEUED: "Indexing queued…",
+      RUNNING: "Indexing…",
+      DONE: "Indexed",
+      FAILED: "Indexing failed",
+      // {reason} is the job's reason code. Never a model response (CLAUDE.md §9).
+      reason: "Reason: {reason}",
+      stillPending:
+        "The entry is still awaiting review and no version was published. " +
+        "Approve it again once the problem is fixed.",
+    },
+
+    editor: {
+      headingNew: "New entry",
+      headingEdit: "Edit draft",
+      newEntry: "+ New entry",
+      newActionSet: "+ New urgency-action set",
+      kindLabel: "Entry kind",
+      titleLabel: "Title",
+      complaintLabel: "Presenting complaint",
+      complaintPlaceholder: "Choose a complaint",
+      urgencyCategoryLabel: "Urgency category",
+      urgencyCategoryPlaceholder: "Choose a category",
+      speciesLabel: "Species",
+      contentLabel: "Content",
+      // FR-49, word for word from W-08: the entry is written, not copied.
+      contentHelper: "Write in your own words from the cited source; do not copy text",
+      // {count} is the live count, {min} and {max} the bounds the server applies.
+      contentCounter: "{count} words (needs {min}–{max})",
+      actionsCounter: "{count} actions, one per line (needs {min}–{max})",
+      actionsHelper:
+        "One action per line: escalate, prepare, monitor, what to ask the owner, " +
+        "transport precautions. No medication, dose or diagnosis.",
+      redFlagsLabel: "Red-flag rules explained by this entry",
+      redFlagsHint: "A rule belongs to one entry; choosing it here moves it to this entry.",
+      redFlagsEmpty: "No red-flag rules exist yet.",
+      citationLegend: "Source citation (all fields required)",
+      sourceTitleLabel: "Source title",
+      sourcePublisherLabel: "Publisher",
+      sourceUrlLabel: "Source URL",
+      accessDateLabel: "Access date",
+      saveDraft: "Save draft",
+      submitForReview: "Submit for review",
+      cancel: "Cancel",
+      edit: "Edit draft",
+      // Shown instead of the editor for an entry that is not a draft (ADR-14).
+      notEditable: "Only a draft can be edited. Active content is replaced by a new draft.",
+    },
+
+    // The approver's controls (FR-52, BR-04).
+    approve: "Approve and publish (v{version})",
+    reject: "Reject with comments",
+    retire: "Retire entry",
+    approverOnlyNote: "Visible only to licensed veterinarians with approval permission.",
+
+    rejectDialog: {
+      title: "Reject with comments",
+      commentsLabel: "What needs to change",
+      commentsHint: "The author sees these comments on the draft. Comments are required.",
+      submit: "Send back to the author",
+      cancel: "Cancel",
+    },
+
+    retireDialog: {
+      title: "Retire this entry?",
+      body:
+        "Retiring removes the entry from retrieval and publishes a new knowledge-base " +
+        "version. The entry itself is kept, so past recommendations stay explainable.",
+      confirm: "Retire and publish",
+      cancel: "Cancel",
+    },
+
+    toasts: {
+      draftSaved: "Draft saved.",
+      submitted: "Submitted for review.",
+      // Approval enqueues indexing; the entry goes live when that finishes.
+      approved: "Approved. Indexing has started.",
+      rejected: "Sent back to the author.",
+      // {version} is the version the action published.
+      retired: "Entry retired. Knowledge-base version v{version} published.",
+      ruleApproved: "Rule approved. Knowledge-base version v{version} published.",
+      ruleRetired: "Rule retired. Knowledge-base version v{version} published.",
+    },
+
+    // The red-flag rules tab (FR-12, FR-23, NFR-08). Retiring a rule lowers the
+    // safety floor, so both actions here are the approver's.
+    rules: {
+      heading: "Red-flag rules",
+      note:
+        "A rule sets the minimum urgency category for a case its phrases match. " +
+        "Changes take effect only after veterinary approval.",
+      columns: {
+        rule: "Rule",
+        minCategory: "Minimum category",
+        species: "Species",
+        status: "Status",
+        approval: "Approval",
+        actions: "",
+      },
+      placeholderBadge: "Placeholder",
+      placeholderHint: "Seeded for development; screens cases only outside production.",
+      screening: "Screening cases",
+      notScreening: "Not screening",
+      retiredStatus: "Retired",
+      // {name} is the approver's full name.
+      approvedBy: "Approved by {name}",
+      notApproved: "Not approved",
+      approve: "Approve",
+      retire: "Retire",
+      empty: "No red-flag rules yet.",
+      loading: "Loading the red-flag rules…",
+    },
+
+    versions: {
+      open: "Version history",
+      close: "Close",
+      heading: "Published versions",
+      label: "v{version}",
+      // {count} is how many entries that version contains.
+      entryCount: "{count} entries",
+      publishedBy: "Published by {name}",
+      publishedBySystem: "Published by the system",
+      empty: "No versions have been published yet.",
+      loading: "Loading the version history…",
+    },
+
+    errors: {
+      // The editor's field-level messages (IR-05). They mirror the sentences
+      // `app/schemas/kb.py` and `app/core/validation_messages.py` return.
+      titleMissing: "Enter a title for this entry.",
+      titleTooLong: "The title is too long.",
+      complaintMissing: "Choose the presenting complaint this entry is filed under.",
+      urgencyCategoryMissing: "Choose the urgency category these actions are for.",
+      speciesMissing: "Choose at least one species.",
+      contentMissing: "Write the content of this entry.",
+      // {min}, {max} and {count} are word counts.
+      contentWordCount:
+        "The content must be between {min} and {max} words; this entry has {count}.",
+      // {min}, {max} and {count} are numbers of actions.
+      actionLineCount:
+        "A baseline action set holds between {min} and {max} actions, one per line; " +
+        "this entry has {count}.",
+      sourceTitleMissing: "Enter the title of the source.",
+      sourceTitleTooLong: "The source title is too long.",
+      sourcePublisherMissing: "Enter the publisher of the source.",
+      sourcePublisherTooLong: "The publisher is too long.",
+      sourceUrlMissing: "Enter the URL of the source.",
+      sourceUrlTooLong: "The URL is too long.",
+      accessDateMissing: "Enter the date the source was accessed.",
+      rejectCommentsMissing: "Write what needs to change before sending the draft back.",
+
+      // Request failures.
+      unexpected: "The knowledge base could not be loaded right now. Please try again.",
+      saveFailed: "That entry could not be saved. Please try again.",
+      actionFailed: "That action could not be completed. Please try again.",
+      conflict: "The entry has changed since this screen loaded. Reload and try again.",
+      notFound: "That entry could not be found. It may have been removed.",
+      forbidden: "You do not have permission to do that.",
+    },
+  },
+
   placeholder: {
     body: "Coming in a later phase.",
   },

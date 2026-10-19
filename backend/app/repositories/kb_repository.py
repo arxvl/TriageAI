@@ -112,6 +112,21 @@ class KBRepository:
     def complaint_exists(self, code: str) -> bool:
         return self._session.get(PresentingComplaint, code) is not None
 
+    def list_complaints(self) -> list[PresentingComplaint]:
+        """The fixed presenting-complaint list, in the order W-08 offers it (FR-10).
+
+        `sort_order` is the clinical ordering seeded with the table, which puts
+        the emergencies first and OTHER last; the name breaks a tie so the list
+        is stable whatever the seed did.
+        """
+        return list(
+            self._session.scalars(
+                select(PresentingComplaint).order_by(
+                    PresentingComplaint.sort_order, PresentingComplaint.name
+                )
+            )
+        )
+
     def list_entries(
         self,
         *,

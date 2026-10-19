@@ -1,0 +1,593 @@
+/* W-08 Knowledge Base (docs/prototype/TriageAI_Prototype.html #w08).
+   One module for the screen, its two panels, the rules table and the version
+   drawer, so the layout cannot drift apart across files. Colours, spacing and
+   type come from src/styles/tokens.css only. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* --- Header ------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.headerRight {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.versionLine {
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.historyButton {
+  padding: 6px 12px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* --- Entries / rules switch -------------------------------------------- */
+
+.views {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.viewTab {
+  padding: 6px 14px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/* The chosen section is marked by weight and border width as well as by fill,
+   so the state does not rest on colour (IR-03, NFR-21). */
+.viewTabActive {
+  font-weight: bold;
+  background: var(--color-surface);
+  border-width: var(--border-width-strong);
+  border-color: var(--color-ink);
+}
+
+/* --- The two columns ---------------------------------------------------- */
+
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.listCard {
+  flex: 1 1 460px;
+  max-width: 560px;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.panel {
+  flex: 1 1 420px;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.rulesCard {
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* --- Status tabs -------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.tab {
+  padding: var(--space-2) 10px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  border-bottom: var(--border-width-strong) solid transparent;
+  cursor: pointer;
+}
+
+.tabActive {
+  font-weight: bold;
+  color: var(--color-text);
+  border-bottom-color: var(--color-ink);
+}
+
+.listTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.createButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.createButton {
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* --- Table ------------------------------------------------------------- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--color-ink);
+}
+
+.table td {
+  padding: 9px var(--space-2);
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row:hover {
+  background: var(--color-surface);
+}
+
+/* The open entry. A left bar as well as a fill, so the selection is visible
+   without colour (NFR-21). */
+.rowSelected {
+  background: var(--color-surface);
+  box-shadow: inset 3px 0 0 0 var(--color-ink);
+}
+
+.entryButton {
+  padding: 0;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  font-weight: bold;
+  color: var(--color-text);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.kindTag {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ruleCode {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* An unapproved, seeded rule. Dashed, like every other provisional mark in the
+   interface, and it carries its own word (NFR-08). */
+.placeholderBadge {
+  display: inline-block;
+  margin-top: var(--space-1);
+  padding: 1px 6px;
+  font-size: var(--font-size-xs);
+  border: var(--border-width) dashed var(--color-line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.minimumSuffix {
+  margin-left: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* --- Detail panel ------------------------------------------------------- */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.detailHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.statusChip {
+  padding: 3px 10px;
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: 12px;
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.facts dt {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+}
+
+/* The entry's own text. Pre-wrapped: a baseline action set is one action per
+   line, and those lines are what the pipeline reads back (FR-72). */
+.content {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.url {
+  overflow-wrap: anywhere;
+}
+
+.redFlagList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.redFlagItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.redFlagCategory {
+  display: inline-flex;
+  align-items: center;
+}
+
+.rejection {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-warning-bg);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-md);
+}
+
+.rejectionText {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.indexing {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* --- Editor ------------------------------------------------------------- */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fieldLabel {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.input,
+.select,
+.textarea {
+  padding: var(--space-2) 10px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: 5px;
+}
+
+.textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.checkboxRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.checkboxColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.checkbox {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--font-size-md);
+}
+
+.helper {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.counter {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* Always rendered, so the message appears in place rather than shifting the
+   form when it arrives (IR-05). */
+.fieldError {
+  min-height: 1.1em;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+/* --- Actions ------------------------------------------------------------ */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.primary,
+.secondary,
+.danger {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.primary {
+  font-weight: bold;
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+  border: var(--border-width) solid var(--color-ink);
+}
+
+.secondary {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+}
+
+.danger {
+  color: var(--color-danger);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-danger);
+}
+
+.primary:disabled,
+.secondary:disabled,
+.danger:disabled,
+.link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.link {
+  padding: var(--space-2);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.approverNote {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* --- Notices ------------------------------------------------------------ */
+
+.notice {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.warning {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-md);
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border: var(--border-width) solid var(--color-danger);
+  border-radius: var(--radius-md);
+}
+
+.dialogEntry {
+  margin: 0 0 var(--space-2);
+  font-weight: bold;
+}
+
+/* --- Version history ---------------------------------------------------- */
+
+.drawer {
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.drawerHeader {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.versionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.versionItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* W-11's rule, applied to both tables here: below 900 px each row becomes a
+   card and every cell prints the column heading it belonged to. */
+@media (max-width: 900px) {
+  .table thead {
+    display: none;
+  }
+
+  .table tr {
+    display: block;
+    margin-bottom: var(--space-2);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+
+  .table td {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: space-between;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    font-size: var(--font-size-sm);
+    font-weight: bold;
+    color: var(--color-text-muted);
+  }
+}

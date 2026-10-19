@@ -12,9 +12,9 @@ You will:
 
 ## Prerequisites
 
-- [ ] M4 done: the vector column, the index, and the embedder work.
-- [ ] P08 merged: the workflow, versions, `import_kb`, and W-08 exist, with the mock indexer.
-- [ ] Each planned entry has an identified published source. **External veterinary sign-off is waived for this project**; entries must be traceable to a published, veterinarian-authored source and verified by a second team member.
+- [x] M4 done: the vector column, the index, and the embedder work.
+- [x] P08 merged: the workflow, versions, `import_kb`, and W-08 exist, with the mock indexer.
+- [x] Each planned entry has an identified published source. **External veterinary sign-off is waived for this project**; entries must be traceable to a published, veterinarian-authored source and verified by a second team member.
 
 ---
 
