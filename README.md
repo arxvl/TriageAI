@@ -135,6 +135,27 @@ Three consequences worth knowing:
 - **Red-flag rules screen cases only once approved.** The eight rules the seed writes are marked
   as placeholders, which `APP_ENV=dev` includes and any other environment excludes (NFR-08).
 
+### Importing curated files
+
+Entries and red-flag rules are curated as YAML under `knowledge_base/` and imported as drafts;
+nothing is fetched from an external source at run time (FR-55, FR-56).
+
+```bash
+docker compose exec backend python -m scripts.import_kb --dry-run   # report only, writes nothing
+docker compose exec backend python -m scripts.import_kb             # rules, then entries
+```
+
+Re-importing an unchanged file does nothing at all — no row write and no audit entry — and
+**an ACTIVE entry is never modified in place**: a changed file becomes a new `DRAFT` revision with
+`revises_entry_id` set and the slug `<slug>-rev2`, which goes through approval again (ADR-14). An
+entry waiting for review, and an already-approved red-flag rule, are skipped rather than edited.
+The formats, the fields and the full upsert table are in
+[`knowledge_base/README.md`](knowledge_base/README.md).
+
+The two entries in `knowledge_base/entries/` today are **SAMPLE** placeholders with a deliberately
+fake citation, there so the workflow can be walked end to end; M5 replaces them with sourced
+content.
+
 ## Running tests
 
 ```bash

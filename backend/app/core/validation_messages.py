@@ -181,6 +181,30 @@ MESSAGES: dict[str, dict[str, str]] = {
             "written in your own words from the cited source."
         ),
     },
+    # An imported entry file nests the citation under a `source:` block
+    # (P08 §8.2), so the same four sentences are registered under both the flat
+    # API field names and the dotted file paths. One wording, two shapes.
+    "source": {
+        ANY_ERROR: (
+            "Add the source block, with the title, publisher and link of the source "
+            "and the date you read it."
+        ),
+    },
+    "source.title": {
+        "string_too_long": "The source title can be at most 300 characters.",
+        ANY_ERROR: "Enter the title of the source this entry is written from.",
+    },
+    "source.publisher": {
+        "string_too_long": "The publisher can be at most 300 characters.",
+        ANY_ERROR: "Enter the publisher of the source.",
+    },
+    "source.url": {
+        "string_too_long": "The source link can be at most 1,000 characters.",
+        ANY_ERROR: "Enter the link to the source.",
+    },
+    "source.access_date": {
+        ANY_ERROR: "Enter the date you read the source, e.g. 2026-10-12.",
+    },
     "source_title": {
         "string_too_long": "The source title can be at most 300 characters.",
         ANY_ERROR: "Enter the title of the source this entry is written from.",

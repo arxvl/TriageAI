@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     app_env: AppEnv = AppEnv.DEV
     tz_display: str = "Asia/Manila"
 
+    # Where the curated knowledge-base files live: `entries/*.yaml`,
+    # `red_flags.yaml` and `red_flag_phrases.yaml` (P08 §8.2, FR-56). The default
+    # is the container mount path from docker-compose.yml, which is also what
+    # `app/pipeline/redflags_keywords.py` reads; `scripts.import_kb --dir` points
+    # it elsewhere when the importer is run on the host.
+    knowledge_base_dir: str = "/knowledge_base"
+
     EXTRACTION_PROMPT_VERSION: str = "v1.0"
 
     # ---- LLM provider (M2) ----

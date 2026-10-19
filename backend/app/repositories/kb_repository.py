@@ -55,6 +55,37 @@ class KBRepository:
     def get_entry_by_slug(self, slug: str) -> KBEntry | None:
         return self._session.scalars(select(KBEntry).where(KBEntry.slug == slug)).first()
 
+    def draft_revision_of(self, entry_id: uuid.UUID) -> KBEntry | None:
+        """The open DRAFT that supersedes this entry, if one exists (ADR-14).
+
+        An ACTIVE entry is never edited, so a changed file becomes a new draft
+        revision pointing back at it. This is how a *second* import of the same
+        changed file finds that revision instead of inserting another one — the
+        importer's idempotency rests on it (FR-56).
+
+        Only DRAFT: once the revision has been submitted or approved it is no
+        longer the row an import may touch.
+        """
+        return self._session.scalars(
+            select(KBEntry)
+            .where(
+                KBEntry.revises_entry_id == entry_id,
+                KBEntry.status == KBEntryStatus.DRAFT,
+            )
+            .order_by(KBEntry.id)
+        ).first()
+
+    def revision_slugs(self, slug: str) -> list[str]:
+        """Every slug already taken by a revision of `slug` — `<slug>-rev2`, ….
+
+        Used to pick the next revision number. `uq_kb_entries_slug` is unique, so
+        a revision cannot reuse the base slug; the suffix is what keeps the index
+        intact and the revision nameable in W-08.
+        """
+        return list(
+            self._session.scalars(select(KBEntry.slug).where(KBEntry.slug.like(f"{slug}-rev%")))
+        )
+
     def complaint_exists(self, code: str) -> bool:
         return self._session.get(PresentingComplaint, code) is not None
 

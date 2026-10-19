@@ -49,7 +49,13 @@ def word_count(text: str) -> int:
     return len(text.split())
 
 
-def _require_word_count(value: str) -> str:
+def require_word_count(value: str) -> str:
+    """Raise unless `value` is within the content bound (FR-50).
+
+    Public because `schemas/kb_import.py` reuses it: a file the importer accepts
+    has to be an entry W-08 would also accept, and a second copy of the bound
+    would let an entry be imported that could never be submitted.
+    """
     if not CONTENT_MIN_WORDS <= word_count(value) <= CONTENT_MAX_WORDS:
         raise ValueError(
             f"content must be between {CONTENT_MIN_WORDS} and {CONTENT_MAX_WORDS} words"
@@ -92,7 +98,7 @@ class KBEntryCreate(BaseModel):
     @field_validator("content")
     @classmethod
     def _bounded_words(cls, value: str) -> str:
-        return _require_word_count(value)
+        return require_word_count(value)
 
     @field_validator("species")
     @classmethod
@@ -130,7 +136,7 @@ class KBEntryUpdate(BaseModel):
     @field_validator("content")
     @classmethod
     def _bounded_words(cls, value: str | None) -> str | None:
-        return None if value is None else _require_word_count(value)
+        return None if value is None else require_word_count(value)
 
     @field_validator("species")
     @classmethod
