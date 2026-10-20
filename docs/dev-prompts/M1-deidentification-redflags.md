@@ -39,6 +39,7 @@ Name parts are matched **case-sensitive and capitalized** so common words surviv
 
 ```python
 """Rule-based de-identifier (M1). Fails closed: any error stops the pipeline."""
+
 from __future__ import annotations
 
 import re
@@ -69,7 +70,7 @@ def _digits_pattern(number: str) -> re.Pattern[str] | None:
 
 
 class RuleBasedDeidentifier:
-    model_id = "rules"            # stage attributes required by CLAUDE.md §8.2
+    model_id = "rules"  # stage attributes required by CLAUDE.md §8.2
     prompt_version = "deidentify-rules-v1"
     last_latency_ms = 0
 
@@ -77,7 +78,9 @@ class RuleBasedDeidentifier:
     def from_settings(cls, settings, deps) -> "RuleBasedDeidentifier":
         return cls()
 
-    def deidentify(self, text: str, owner_name: str | None, owner_contact: str | None) -> str:
+    def deidentify(
+        self, text: str, owner_name: str | None, owner_contact: str | None
+    ) -> str:
         try:
             out = text
             if owner_name and owner_name.strip():
@@ -178,6 +181,7 @@ PALE_OR_BLUE_GUMS:
 
 ```python
 """Keyword red-flag screener (M1). Deterministic; runs before any LLM call (NFR-05)."""
+
 from __future__ import annotations
 
 import re
@@ -189,7 +193,9 @@ import yaml
 from app.pipeline.types import RedFlagHit
 
 NEGATORS = {"no", "not", "never", "without", "none", "denies", "hasn't", "has not"}
-PHRASES_PATH = Path(__file__).resolve().parents[3] / "knowledge_base" / "red_flag_phrases.yaml"
+PHRASES_PATH = (
+    Path(__file__).resolve().parents[3] / "knowledge_base" / "red_flag_phrases.yaml"
+)
 
 
 def normalize(text: str) -> str:
@@ -200,7 +206,7 @@ def normalize(text: str) -> str:
 
 class KeywordRedFlagScreener:
     model_id = "keywords"
-    prompt_version = "redflag-phrases-v1"   # bump when red_flag_phrases.yaml changes
+    prompt_version = "redflag-phrases-v1"  # bump when red_flag_phrases.yaml changes
     last_latency_ms = 0
 
     def __init__(self, phrases: dict, rules_provider):
@@ -209,7 +215,10 @@ class KeywordRedFlagScreener:
             code: {
                 "negatable": spec.get("negatable", False),
                 "requires": spec.get("requires", {}),
-                "patterns": [re.compile(rf"\b{re.escape(normalize(p))}\b") for p in spec["phrases"]],
+                "patterns": [
+                    re.compile(rf"\b{re.escape(normalize(p))}\b")
+                    for p in spec["phrases"]
+                ],
             }
             for code, spec in phrases.items()
         }
@@ -229,7 +238,9 @@ class KeywordRedFlagScreener:
             if rule is None:  # rule not approved / retired → ignore
                 continue
             req = spec["requires"]
-            if req.get("species") and req["species"] != getattr(species, "value", species):
+            if req.get("species") and req["species"] != getattr(
+                species, "value", species
+            ):
                 continue
             if req.get("sex") and sex not in (None, "UNKNOWN", req["sex"]):
                 continue  # unknown sex still triggers (fail safe)
@@ -241,8 +252,13 @@ class KeywordRedFlagScreener:
                     preceding = norm[: m.start()].split(" ")[-4:-1] if m.start() else []
                     if NEGATORS.intersection(preceding):
                         continue
-                hits.append(RedFlagHit(rule_code=code, matched_text=m.group(0),
-                                       min_category=rule.min_category))
+                hits.append(
+                    RedFlagHit(
+                        rule_code=code,
+                        matched_text=m.group(0),
+                        min_category=rule.min_category,
+                    )
+                )
                 break
         return hits
 ```

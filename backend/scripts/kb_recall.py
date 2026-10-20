@@ -35,7 +35,6 @@ def main() -> int:
         )
         return 1
 
-    from app.core.config import get_settings
     from app.db.session import SessionLocal
     from scripts._kb import build_embedder, nearest_entries
 
@@ -55,11 +54,10 @@ def main() -> int:
             print(f"{q['id']:5s} {status}   top-5: {', '.join(ranked)}")
 
     out = summarize(pairs, k=5)
-    model = get_settings().EMBEDDING_MODEL
+    model = embedder.model_id
     print(
         f"\nmodel={model}  queries={out['queries']}  "
-        f"Recall@5={out['recall@5']:.2f}  "
-        f"MRR={out['mrr']:.2f}"
+        f"Recall@5={out['recall@5']:.2f}  MRR={out['mrr']:.2f}"
     )
     print(f"targets: Recall@5 >= {TARGET_RECALL}, MRR >= {TARGET_MRR}")
     print(f"\n| {model} | {out['queries']} | {out['recall@5']:.2f} | {out['mrr']:.2f} |")

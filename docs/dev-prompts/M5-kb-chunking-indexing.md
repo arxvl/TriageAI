@@ -72,6 +72,7 @@ Prefix every chunk with the entry title and species. This gives each chunk conte
 
 ```python
 """Sentence-packing chunker (M5)."""
+
 from __future__ import annotations
 
 import re
@@ -115,6 +116,7 @@ This design decision matters: **chunks are never deleted.** Retrieved references
 
 ```python
 """pgvector KB indexer (M5)."""
+
 from __future__ import annotations
 
 import uuid
@@ -134,9 +136,15 @@ class PgVectorKBIndexer:
     @classmethod
     def from_settings(cls, settings, deps) -> "PgVectorKBIndexer":
         if deps.embedder is None:
-            raise RuntimeError("KB_INDEXER=pgvector requires EMBEDDING_PROVIDER to be set (M4)")
-        return cls(deps.session_factory, deps.embedder,
-                   settings.KB_CHUNK_TARGET_WORDS, settings.KB_CHUNK_OVERLAP_SENTENCES)
+            raise RuntimeError(
+                "KB_INDEXER=pgvector requires EMBEDDING_PROVIDER to be set (M4)"
+            )
+        return cls(
+            deps.session_factory,
+            deps.embedder,
+            settings.KB_CHUNK_TARGET_WORDS,
+            settings.KB_CHUNK_OVERLAP_SENTENCES,
+        )
 
     def index_entry(self, entry_id: uuid.UUID) -> int:
         with self.sf() as s, s.begin():
@@ -145,17 +153,31 @@ class PgVectorKBIndexer:
                 # Baseline actions are looked up by category, never similarity-searched (ADR-18).
                 # Embedding them would let "alert the veterinarian" surface as a clinical passage.
                 return 0
-            existing = s.scalar(select(func.count()).select_from(KBChunk).where(KBChunk.entry_id == entry_id))
+            existing = s.scalar(
+                select(func.count())
+                .select_from(KBChunk)
+                .where(KBChunk.entry_id == entry_id)
+            )
             if existing:
-                missing = s.scalars(select(KBChunk).where(KBChunk.entry_id == entry_id,
-                                                          KBChunk.embedding.is_(None))).all()
+                missing = s.scalars(
+                    select(KBChunk).where(
+                        KBChunk.entry_id == entry_id, KBChunk.embedding.is_(None)
+                    )
+                ).all()
                 self._embed_rows(missing)
                 return existing
             species = [getattr(x, "value", x) for x in entry.species]
             pieces = chunk_text(entry.content, self.target_words, self.overlap)
-            rows = [KBChunk(id=uuid.uuid4(), entry_id=entry.id, chunk_index=i,
-                            text=with_header(entry.title, species, p), word_count=len(p.split()))
-                    for i, p in enumerate(pieces)]
+            rows = [
+                KBChunk(
+                    id=uuid.uuid4(),
+                    entry_id=entry.id,
+                    chunk_index=i,
+                    text=with_header(entry.title, species, p),
+                    word_count=len(p.split()),
+                )
+                for i, p in enumerate(pieces)
+            ]
             s.add_all(rows)
             s.flush()
             self._embed_rows(rows)
@@ -306,8 +328,8 @@ The comparison procedure:
 
 ## Done when
 
-- [ ] All demo entries, and as many of the others as possible, are source-verified and Active. `APPROVALS.md` is filled in.
-- [ ] All five `URGENCY_ACTIONS` entries are written, sourced and Active (Part D).
-- [ ] Checks C4 and C5 pass, and the chunking and indexer tests pass.
-- [ ] ADR-07 is updated with the final model and its Recall@5.
-- [ ] `KB_INDEXER=pgvector` is committed in `.env.example` as the documented real value.
+- [x] All demo entries, and as many of the others as possible, are source-verified and Active. `APPROVALS.md` is filled in.
+- [x] All five `URGENCY_ACTIONS` entries are written, sourced and Active (Part D).
+- [x] Checks C4 and C5 pass, and the chunking and indexer tests pass.
+- [x] ADR-07 is updated with the final model and its Recall@5.
+- [x] `KB_INDEXER=pgvector` is committed in `.env.example` as the documented real value.

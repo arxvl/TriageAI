@@ -154,33 +154,32 @@ git grep -n -E "AIza[0-9A-Za-z_-]{20,}|gsk_[0-9A-Za-z]{20,}" || echo "no keys in
 ### 3a. `backend/app/core/config.py`: add only what is missing
 
 ```python
-    # ---- M2: LLM provider ----
-    LLM_PROVIDER: Literal["mock", "hosted", "ollama"] = "mock"
-    LLM_BASE_URL: str = ""
-    LLM_API_KEY: str = ""
-    LLM_MODEL: str = ""
-    LLM_TEMPERATURE: str = ""            # blank = send nothing (required for the Gemini 3 family)
-    LLM_SEED: str = ""
-    LLM_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
-    LLM_SCHEMA_IN_PROMPT: bool = True
-    LLM_SCHEMA_SIMPLIFY: bool = True
-    LLM_REASONING_EFFORT: str = ""
-    LLM_MAX_RPM: int = 0
-    LLM_HTTP_RETRIES: int = 2
-    LLM_RATE_LIMIT_WAIT_S: float = 20.0
-    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434/v1"
-    OLLAMA_MODEL: str = ""
-    OLLAMA_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
-    # ---- M2: spike candidates (dev scripts only) ----
-    GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = ""
-    GEMINI_RPM: int = 0
-    GEMINI_REASONING_EFFORT: str = ""
-    GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = ""
-    GROQ_RPM: int = 0
-    GROQ_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_object"
-
+# ---- M2: LLM provider ----
+LLM_PROVIDER: Literal["mock", "hosted", "ollama"] = "mock"
+LLM_BASE_URL: str = ""
+LLM_API_KEY: str = ""
+LLM_MODEL: str = ""
+LLM_TEMPERATURE: str = ""  # blank = send nothing (required for the Gemini 3 family)
+LLM_SEED: str = ""
+LLM_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
+LLM_SCHEMA_IN_PROMPT: bool = True
+LLM_SCHEMA_SIMPLIFY: bool = True
+LLM_REASONING_EFFORT: str = ""
+LLM_MAX_RPM: int = 0
+LLM_HTTP_RETRIES: int = 2
+LLM_RATE_LIMIT_WAIT_S: float = 20.0
+OLLAMA_BASE_URL: str = "http://host.docker.internal:11434/v1"
+OLLAMA_MODEL: str = ""
+OLLAMA_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_schema"
+# ---- M2: spike candidates (dev scripts only) ----
+GEMINI_API_KEY: str = ""
+GEMINI_MODEL: str = ""
+GEMINI_RPM: int = 0
+GEMINI_REASONING_EFFORT: str = ""
+GROQ_API_KEY: str = ""
+GROQ_MODEL: str = ""
+GROQ_RPM: int = 0
+GROQ_JSON_MODE: Literal["json_schema", "json_object", "prompt_only"] = "json_object"
 ```
 
 These fields go **inside the existing `Settings` class**. Add `from typing import Literal` if it is not already imported.
@@ -287,6 +286,7 @@ Create these three files exactly. They are **tested** (29 unit tests pass); read
 Keeps a free-tier requests-per-minute limit from turning into a stream of 429s.
 `max_per_minute <= 0` disables it.
 """
+
 from __future__ import annotations
 
 import threading
@@ -315,7 +315,7 @@ class RateLimiter:
                     self._stamps.append(now)
                     return waited
                 wait = 60.0 - (now - self._stamps[0])
-            self._sleep(wait)          # sleep outside the lock
+            self._sleep(wait)  # sleep outside the lock
             waited += wait
 ```
 
@@ -331,6 +331,7 @@ settings, not by code: JSON mode, temperature, seed, reasoning effort, rate limi
 Privacy rule (CLAUDE.md section 9): this class never logs the prompt, the response
 text, or the provider's error message. It logs status codes, timings and token counts.
 """
+
 from __future__ import annotations
 
 import copy
@@ -374,8 +375,11 @@ def simplify_schema(schema: dict) -> dict:
             if "$ref" in node:
                 target = defs.get(node["$ref"].split("/")[-1], {})
                 return walk(copy.deepcopy(target), depth + 1)
-            return {k: walk(v, depth + 1) for k, v in node.items()
-                    if k not in ("$defs", "title")}
+            return {
+                k: walk(v, depth + 1)
+                for k, v in node.items()
+                if k not in ("$defs", "title")
+            }
         if isinstance(node, list):
             return [walk(v, depth + 1) for v in node]
         return node
@@ -386,16 +390,32 @@ def simplify_schema(schema: dict) -> dict:
 class HostedLLMProvider:
     name = "hosted"
 
-    def __init__(self, base_url: str, api_key: str | None, model_id: str, *,
-                 temperature: float | None = None, seed: int | None = None,
-                 json_mode: str = "json_schema", schema_in_prompt: bool = True,
-                 simplify: bool = True, reasoning_effort: str | None = None,
-                 max_rpm: int = 0, http_retries: int = 2, rate_limit_wait_s: float = 20.0,
-                 transport: httpx.BaseTransport | None = None, sleep=time.sleep):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None,
+        model_id: str,
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        json_mode: str = "json_schema",
+        schema_in_prompt: bool = True,
+        simplify: bool = True,
+        reasoning_effort: str | None = None,
+        max_rpm: int = 0,
+        http_retries: int = 2,
+        rate_limit_wait_s: float = 20.0,
+        transport: httpx.BaseTransport | None = None,
+        sleep=time.sleep,
+    ):
         self.base_url = base_url.rstrip("/")
         self.model_id = model_id
         self.temperature, self.seed = temperature, seed
-        self.json_mode, self.schema_in_prompt, self.simplify = json_mode, schema_in_prompt, simplify
+        self.json_mode, self.schema_in_prompt, self.simplify = (
+            json_mode,
+            schema_in_prompt,
+            simplify,
+        )
         self.reasoning_effort = reasoning_effort or None
         self.http_retries, self.rate_limit_wait_s = http_retries, rate_limit_wait_s
         self._sleep = sleep
@@ -407,20 +427,29 @@ class HostedLLMProvider:
         # Filled after each call. The app reads none of these except usage and latency.
         self.last_usage: dict | None = None
         self.last_latency_ms: int | None = None
-        self.last_error_kind: str | None = None     # rate_limited | server_error | bad_request | auth
-        self.last_error_detail: str | None = None   # DEV SCRIPTS ONLY. The app must never log this.
+        self.last_error_kind: str | None = (
+            None  # rate_limited | server_error | bad_request | auth
+        )
+        self.last_error_detail: str | None = (
+            None  # DEV SCRIPTS ONLY. The app must never log this.
+        )
 
     @classmethod
     def from_settings(cls, settings, deps=None) -> "HostedLLMProvider":
         return cls(
-            settings.LLM_BASE_URL, settings.LLM_API_KEY or None, settings.LLM_MODEL,
-            temperature=opt_float(settings.LLM_TEMPERATURE), seed=opt_int(settings.LLM_SEED),
+            settings.LLM_BASE_URL,
+            settings.LLM_API_KEY or None,
+            settings.LLM_MODEL,
+            temperature=opt_float(settings.LLM_TEMPERATURE),
+            seed=opt_int(settings.LLM_SEED),
             json_mode=settings.LLM_JSON_MODE,
             schema_in_prompt=settings.LLM_SCHEMA_IN_PROMPT,
             simplify=settings.LLM_SCHEMA_SIMPLIFY,
             reasoning_effort=settings.LLM_REASONING_EFFORT or None,
-            max_rpm=settings.LLM_MAX_RPM, http_retries=settings.LLM_HTTP_RETRIES,
-            rate_limit_wait_s=settings.LLM_RATE_LIMIT_WAIT_S)
+            max_rpm=settings.LLM_MAX_RPM,
+            http_retries=settings.LLM_HTTP_RETRIES,
+            rate_limit_wait_s=settings.LLM_RATE_LIMIT_WAIT_S,
+        )
 
     # ---- request building -------------------------------------------------
     def _schema(self, json_schema: dict) -> dict:
@@ -428,11 +457,16 @@ class HostedLLMProvider:
 
     def _response_format(self, json_schema: dict) -> dict | None:
         if self.json_mode == "json_schema":
-            return {"type": "json_schema",
-                    "json_schema": {"name": "triageai_output", "schema": self._schema(json_schema)}}
+            return {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "triageai_output",
+                    "schema": self._schema(json_schema),
+                },
+            }
         if self.json_mode == "json_object":
             return {"type": "json_object"}
-        return None                                   # prompt_only
+        return None  # prompt_only
 
     def _system_with_hint(self, system: str, json_schema: dict) -> str:
         # Ollama's docs advise repeating the schema in the prompt even when it is enforced,
@@ -440,13 +474,22 @@ class HostedLLMProvider:
         if not self.schema_in_prompt and self.json_mode == "json_schema":
             return system
         hint = json.dumps(self._schema(json_schema), separators=(",", ":"))
-        return (f"{system}\n\nReturn ONLY one JSON object that validates against this JSON "
-                f"Schema. No prose, no markdown fences.\n{hint}")
+        return (
+            f"{system}\n\nReturn ONLY one JSON object that validates against this JSON "
+            f"Schema. No prose, no markdown fences.\n{hint}"
+        )
 
     def _body(self, system: str, user: str, json_schema: dict) -> dict:
-        body: dict = {"model": self.model_id,
-                      "messages": [{"role": "system", "content": self._system_with_hint(system, json_schema)},
-                                   {"role": "user", "content": user}]}
+        body: dict = {
+            "model": self.model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": self._system_with_hint(system, json_schema),
+                },
+                {"role": "user", "content": user},
+            ],
+        }
         if self.temperature is not None:
             body["temperature"] = self.temperature
         if self.seed is not None:
@@ -472,7 +515,7 @@ class HostedLLMProvider:
         try:
             err = resp.json().get("error", resp.json())
             msg = err.get("message") if isinstance(err, dict) else str(err)
-        except Exception:                                   # noqa: BLE001
+        except Exception:  # noqa: BLE001
             msg = resp.text
         return (msg or "")[:300]
 
@@ -485,13 +528,15 @@ class HostedLLMProvider:
             start, end = text.find("{"), text.rfind("}")
             if start == -1 or end <= start:
                 raise
-            out = json.loads(text[start:end + 1])           # tolerate a short preamble
+            out = json.loads(text[start : end + 1])  # tolerate a short preamble
         if not isinstance(out, dict):
             raise ValueError("top-level JSON is not an object")
         return out
 
     # ---- the one public method (LLMProvider protocol) ---------------------
-    def complete_json(self, *, system: str, user: str, json_schema: dict, timeout_s: float) -> dict:
+    def complete_json(
+        self, *, system: str, user: str, json_schema: dict, timeout_s: float
+    ) -> dict:
         body = self._body(system, user, json_schema)
         url = f"{self.base_url}/chat/completions"
         self.last_error_kind = self.last_error_detail = None
@@ -512,10 +557,18 @@ class HostedLLMProvider:
                 attempt += 1
                 wait = self._retry_after(resp)
                 if wait is None:
-                    wait = min(2 ** attempt, 8) + random.random()
-                if attempt > self.http_retries or waited + wait > self.rate_limit_wait_s:
+                    wait = min(2**attempt, 8) + random.random()
+                if (
+                    attempt > self.http_retries
+                    or waited + wait > self.rate_limit_wait_s
+                ):
                     self.last_error_kind = kind
-                    log.warning("llm call failed status=%s kind=%s attempts=%s", status, kind, attempt)
+                    log.warning(
+                        "llm call failed status=%s kind=%s attempts=%s",
+                        status,
+                        kind,
+                        attempt,
+                    )
                     raise LLMUnavailable(f"HTTP {status}")
                 self._sleep(wait)
                 waited += wait
@@ -523,7 +576,9 @@ class HostedLLMProvider:
             if status >= 400:
                 self.last_error_kind = "auth" if status in (401, 403) else "bad_request"
                 self.last_error_detail = self._error_message(resp)
-                log.warning("llm call rejected status=%s kind=%s", status, self.last_error_kind)
+                log.warning(
+                    "llm call rejected status=%s kind=%s", status, self.last_error_kind
+                )
                 raise LLMUnavailable(f"HTTP {status}")
             break
 
@@ -535,7 +590,12 @@ class HostedLLMProvider:
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("empty content")
             return self._parse(content)
-        except (KeyError, IndexError, TypeError, ValueError) as exc:   # JSONDecodeError is a ValueError
+        except (
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+        ) as exc:  # JSONDecodeError is a ValueError
             raise LLMInvalidOutput("model did not return a JSON object") from exc
 ```
 
@@ -543,6 +603,7 @@ class HostedLLMProvider:
 
 ```python
 """Local Ollama adapter (M2). Same wire format as the hosted adapter."""
+
 from __future__ import annotations
 
 from app.adapters.llm.hosted import HostedLLMProvider, opt_float, opt_int
@@ -555,14 +616,19 @@ class OllamaLLMProvider(HostedLLMProvider):
     def from_settings(cls, settings, deps=None) -> "OllamaLLMProvider":
         temperature = opt_float(settings.LLM_TEMPERATURE)
         return cls(
-            settings.OLLAMA_BASE_URL, None, settings.OLLAMA_MODEL,
+            settings.OLLAMA_BASE_URL,
+            None,
+            settings.OLLAMA_MODEL,
             # A local model honours temperature, so default to 0 for reproducibility (NFR-23).
             temperature=0.0 if temperature is None else temperature,
             seed=opt_int(settings.LLM_SEED),
             json_mode=settings.OLLAMA_JSON_MODE,
             schema_in_prompt=settings.LLM_SCHEMA_IN_PROMPT,
             simplify=settings.LLM_SCHEMA_SIMPLIFY,
-            max_rpm=0, http_retries=1, rate_limit_wait_s=5.0)
+            max_rpm=0,
+            http_retries=1,
+            rate_limit_wait_s=5.0,
+        )
 ```
 
 ---
@@ -578,9 +644,11 @@ P05 already builds the LLM provider from `LLM_PROVIDER`. Open `backend/app/pipel
 ```python
 if settings.LLM_PROVIDER == "hosted":
     from app.adapters.llm.hosted import HostedLLMProvider
+
     return HostedLLMProvider.from_settings(settings)
 if settings.LLM_PROVIDER == "ollama":
     from app.adapters.llm.ollama import OllamaLLMProvider
+
     return OllamaLLMProvider.from_settings(settings)
 ```
 
@@ -594,6 +662,7 @@ Leave the safety guard (real LLM + mock de-identifier = refuse to start) exactly
 
 ```python
 """Unit tests for the hosted/Ollama adapter. No network: httpx.MockTransport only."""
+
 import json
 import logging
 
@@ -603,19 +672,35 @@ import pytest
 from app.adapters.llm.hosted import HostedLLMProvider, opt_float, simplify_schema
 from app.pipeline.errors import LLMInvalidOutput, LLMTimeout, LLMUnavailable
 
-SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+SCHEMA = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+}
 SECRET = "OWNER-TEXT-THAT-MUST-NEVER-BE-LOGGED"
 
 
 def ok(content, **extra):
-    return httpx.Response(200, json={"choices": [{"message": {"content": content}}],
-                                     "usage": {"prompt_tokens": 10, "completion_tokens": 3}}, **extra)
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": content}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+        },
+        **extra,
+    )
 
 
 def make(handler, **kw):
     sleeps: list[float] = []
-    provider = HostedLLMProvider("https://x.test/v1", "KEY", "m1",
-                                 transport=httpx.MockTransport(handler), sleep=sleeps.append, **kw)
+    provider = HostedLLMProvider(
+        "https://x.test/v1",
+        "KEY",
+        "m1",
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+        **kw,
+    )
     return provider, sleeps
 
 
@@ -664,9 +749,11 @@ def test_429_with_retry_after_then_success():
 
 def test_429_beyond_http_retries_raises_unavailable():
     calls = []
+
     def handler(r):
         calls.append(1)
         return httpx.Response(429, headers={"retry-after": "1"})
+
     p, sleeps = make(handler, http_retries=2)
     with pytest.raises(LLMUnavailable):
         call(p)
@@ -674,10 +761,13 @@ def test_429_beyond_http_retries_raises_unavailable():
 
 
 def test_retry_after_longer_than_budget_fails_fast():
-    p, sleeps = make(lambda r: httpx.Response(429, headers={"retry-after": "120"}), rate_limit_wait_s=20)
+    p, sleeps = make(
+        lambda r: httpx.Response(429, headers={"retry-after": "120"}),
+        rate_limit_wait_s=20,
+    )
     with pytest.raises(LLMUnavailable):
         call(p)
-    assert sleeps == []                      # did not sit and wait for a daily-quota reset
+    assert sleeps == []  # did not sit and wait for a daily-quota reset
 
 
 def test_500_then_success():
@@ -688,9 +778,11 @@ def test_500_then_success():
 
 def test_400_is_not_retried_and_detail_is_kept_for_dev_scripts():
     calls = []
+
     def handler(r):
         calls.append(1)
         return httpx.Response(400, json={"error": {"message": "Invalid JSON schema"}})
+
     p, _ = make(handler)
     with pytest.raises(LLMUnavailable):
         call(p)
@@ -708,6 +800,7 @@ def test_401_is_auth():
 def test_timeout_is_mapped():
     def handler(r):
         raise httpx.ReadTimeout("slow")
+
     p, _ = make(handler)
     with pytest.raises(LLMTimeout):
         call(p)
@@ -716,6 +809,7 @@ def test_timeout_is_mapped():
 def test_connection_error_is_unavailable():
     def handler(r):
         raise httpx.ConnectError("refused")
+
     p, _ = make(handler)
     with pytest.raises(LLMUnavailable):
         call(p)
@@ -728,9 +822,11 @@ def sent(handler_store):
 
 def capture(**kw):
     store = []
+
     def handler(r):
         store.append(r)
         return ok('{"ok": true}')
+
     p, _ = make(handler, **kw)
     call(p)
     return store[0], json.loads(store[0].content)
@@ -741,7 +837,7 @@ def test_default_request_is_json_schema_with_bearer_and_no_temperature():
     assert req.headers["authorization"] == "Bearer KEY"
     assert req.url.path.endswith("/chat/completions")
     assert body["response_format"]["type"] == "json_schema"
-    assert "temperature" not in body            # blank means "provider default" (Gemini 3 family)
+    assert "temperature" not in body  # blank means "provider default" (Gemini 3 family)
     assert "JSON Schema" in body["messages"][0]["content"]
 
 
@@ -769,14 +865,21 @@ def test_json_object_mode():
 
 
 def test_no_authorization_header_without_key():
-    p = HostedLLMProvider("https://x.test/v1", None, "m", transport=httpx.MockTransport(lambda r: ok("{}")))
+    p = HostedLLMProvider(
+        "https://x.test/v1",
+        None,
+        "m",
+        transport=httpx.MockTransport(lambda r: ok("{}")),
+    )
     assert "authorization" not in p._client.headers
 
 
 # ---- privacy ---------------------------------------------------------------
 def test_content_never_appears_in_logs(caplog):
     caplog.set_level(logging.DEBUG)
-    p, _ = make(lambda r: httpx.Response(400, json={"error": {"message": f"echo {SECRET}"}}))
+    p, _ = make(
+        lambda r: httpx.Response(400, json={"error": {"message": f"echo {SECRET}"}})
+    )
     with pytest.raises(LLMUnavailable):
         p.complete_json(system="sys", user=SECRET, json_schema=SCHEMA, timeout_s=5)
     assert SECRET not in caplog.text
@@ -788,10 +891,21 @@ def test_opt_float():
 
 
 def test_simplify_schema_inlines_refs_and_drops_titles():
-    raw = {"title": "Root", "type": "object", "$defs": {"Item": {"title": "Item", "type": "string"}},
-           "properties": {"a": {"$ref": "#/$defs/Item"}, "b": {"type": "array", "items": {"$ref": "#/$defs/Item"}}}}
+    raw = {
+        "title": "Root",
+        "type": "object",
+        "$defs": {"Item": {"title": "Item", "type": "string"}},
+        "properties": {
+            "a": {"$ref": "#/$defs/Item"},
+            "b": {"type": "array", "items": {"$ref": "#/$defs/Item"}},
+        },
+    }
     out = simplify_schema(raw)
-    assert "$defs" not in json.dumps(out) and "$ref" not in json.dumps(out) and "title" not in json.dumps(out)
+    assert (
+        "$defs" not in json.dumps(out)
+        and "$ref" not in json.dumps(out)
+        and "title" not in json.dumps(out)
+    )
     assert out["properties"]["a"] == {"type": "string"}
     assert out["properties"]["b"]["items"] == {"type": "string"}
 
@@ -800,9 +914,16 @@ def test_simplify_schema_inlines_refs_and_drops_titles():
 def test_ollama_defaults_to_temperature_zero_and_no_key():
     from types import SimpleNamespace
     from app.adapters.llm.ollama import OllamaLLMProvider
-    cfg = SimpleNamespace(OLLAMA_BASE_URL="http://host.docker.internal:11434/v1", OLLAMA_MODEL="m",
-                          LLM_TEMPERATURE="", LLM_SEED="", OLLAMA_JSON_MODE="json_schema",
-                          LLM_SCHEMA_IN_PROMPT=True, LLM_SCHEMA_SIMPLIFY=True)
+
+    cfg = SimpleNamespace(
+        OLLAMA_BASE_URL="http://host.docker.internal:11434/v1",
+        OLLAMA_MODEL="m",
+        LLM_TEMPERATURE="",
+        LLM_SEED="",
+        OLLAMA_JSON_MODE="json_schema",
+        LLM_SCHEMA_IN_PROMPT=True,
+        LLM_SCHEMA_SIMPLIFY=True,
+    )
     p = OllamaLLMProvider.from_settings(cfg)
     assert p.name == "ollama" and p.temperature == 0.0 and p.json_mode == "json_schema"
     assert "authorization" not in p._client.headers
@@ -820,8 +941,10 @@ class FakeTime:
     def __init__(self):
         self.t = 0.0
         self.slept = []
+
     def clock(self):
         return self.t
+
     def sleep(self, s):
         self.slept.append(s)
         self.t += s
@@ -838,15 +961,17 @@ def test_allows_up_to_max_then_waits_for_the_window():
     rl = RateLimiter(3, clock=ft.clock, sleep=ft.sleep)
     for _ in range(3):
         assert rl.acquire() == 0.0
-    waited = rl.acquire()                      # fourth call inside the same minute
+    waited = rl.acquire()  # fourth call inside the same minute
     assert 59.9 <= waited <= 60.1 and len(ft.slept) == 1
 
 
 def test_window_slides():
     ft = FakeTime()
     rl = RateLimiter(2, clock=ft.clock, sleep=ft.sleep)
-    rl.acquire(); ft.t = 30; rl.acquire()
-    ft.t = 61                                   # the first stamp has expired
+    rl.acquire()
+    ft.t = 30
+    rl.acquire()
+    ft.t = 61  # the first stamp has expired
     assert rl.acquire() == 0.0
 ```
 
@@ -869,6 +994,7 @@ Create the four scripts, then switch on the real provider.
 
 ```python
 """Shared helper for the M2 dev scripts (not imported by the application)."""
+
 from app.adapters.llm.hosted import HostedLLMProvider
 from app.adapters.llm.ollama import OllamaLLMProvider
 
@@ -878,33 +1004,46 @@ def provider_from_settings(settings):
         return HostedLLMProvider.from_settings(settings)
     if settings.LLM_PROVIDER == "ollama":
         return OllamaLLMProvider.from_settings(settings)
-    raise SystemExit("LLM_PROVIDER is 'mock'. Set it to 'hosted' or 'ollama' in .env, "
-                     "then restart: docker compose up -d backend")
+    raise SystemExit(
+        "LLM_PROVIDER is 'mock'. Set it to 'hosted' or 'ollama' in .env, "
+        "then restart: docker compose up -d backend"
+    )
 ```
 
 ### `backend/scripts/llm_ping.py`
 
 ```python
 """M2 step 6a: one tiny call. Proves URL, key, model name and JSON mode work."""
+
 import sys
 
 from app.core.config import get_settings
 from scripts._llm import provider_from_settings
 
-SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+SCHEMA = {
+    "type": "object",
+    "properties": {"ok": {"type": "boolean"}},
+    "required": ["ok"],
+}
 
 
 def main() -> int:
     llm = provider_from_settings(get_settings())
     try:
-        out = llm.complete_json(system="You output only JSON.", user='Return {"ok": true}.',
-                                json_schema=SCHEMA, timeout_s=60)
-    except Exception as exc:                                    # noqa: BLE001
+        out = llm.complete_json(
+            system="You output only JSON.",
+            user='Return {"ok": true}.',
+            json_schema=SCHEMA,
+            timeout_s=60,
+        )
+    except Exception as exc:  # noqa: BLE001
         print("FAIL:", type(exc).__name__, exc)
         print("kind:", llm.last_error_kind, "| provider said:", llm.last_error_detail)
         return 1
-    print(f"OK  provider={llm.name} model={llm.model_id} reply={out} "
-          f"latency={llm.last_latency_ms} ms usage={llm.last_usage}")
+    print(
+        f"OK  provider={llm.name} model={llm.model_id} reply={out} "
+        f"latency={llm.last_latency_ms} ms usage={llm.last_usage}"
+    )
     return 0 if out.get("ok") is True else 1
 
 
@@ -916,14 +1055,17 @@ if __name__ == "__main__":
 
 ```python
 """M2 step 6b: does the provider accept our REAL extraction schema (nested, nullable fields)?"""
+
 import sys
 
 from app.core.config import get_settings
 from app.pipeline.types import ExtractionOutput
 from scripts._llm import provider_from_settings
 
-TEXT = ("Male cat, 3 years old. Since this morning he keeps going to the litter box and cries, "
-        "but nothing comes out. He vomited twice. No blood seen.")
+TEXT = (
+    "Male cat, 3 years old. Since this morning he keeps going to the litter box and cries, "
+    "but nothing comes out. He vomited twice. No blood seen."
+)
 
 
 def main() -> int:
@@ -931,15 +1073,19 @@ def main() -> int:
     try:
         raw = llm.complete_json(
             system="You extract clinical facts from a pet owner's description for a veterinary "
-                   "clinic. Output JSON only. Do not diagnose.",
+            "clinic. Output JSON only. Do not diagnose.",
             user=f"Species: CAT\n\n<owner_description>\n{TEXT}\n</owner_description>",
-            json_schema=ExtractionOutput.model_json_schema(), timeout_s=90)
+            json_schema=ExtractionOutput.model_json_schema(),
+            timeout_s=90,
+        )
         out = ExtractionOutput.model_validate(raw)
-    except Exception as exc:                                    # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         print("FAIL:", type(exc).__name__, str(exc)[:300])
         print("kind:", llm.last_error_kind, "| provider said:", llm.last_error_detail)
-        print("Try, in this order: LLM_SCHEMA_SIMPLIFY=true -> LLM_JSON_MODE=json_object "
-              "-> LLM_JSON_MODE=prompt_only")
+        print(
+            "Try, in this order: LLM_SCHEMA_SIMPLIFY=true -> LLM_JSON_MODE=json_object "
+            "-> LLM_JSON_MODE=prompt_only"
+        )
         return 1
     print("OK  schema accepted and the answer validates as ExtractionOutput")
     print("complaints:", [(c.code, c.is_primary) for c in out.presenting_complaints])
@@ -1016,6 +1162,7 @@ Local Ollama enforces `json_schema` by grammar. **Ollama Cloud does not**, so if
 Runs the same extraction N times. Exact-text differences are normal; what matters for
 reproducibility is that the KEY FIELDS (primary complaint, red flags present) never change.
 """
+
 import argparse
 import collections
 import json
@@ -1044,16 +1191,20 @@ def main() -> int:
             raw = llm.complete_json(
                 system="You extract clinical facts from a pet owner's description. JSON only.",
                 user=f"Species: CAT\n\n<owner_description>\n{TEXT}\n</owner_description>",
-                json_schema=ExtractionOutput.model_json_schema(), timeout_s=90)
+                json_schema=ExtractionOutput.model_json_schema(),
+                timeout_s=90,
+            )
             out = ExtractionOutput.model_validate(raw)
-        except Exception as exc:                                # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             print(f"run {i + 1}: {type(exc).__name__} ({llm.last_error_kind})")
             continue
         exact[json.dumps(raw, sort_keys=True)] += 1
         keys[key_fields(out)] += 1
         print(f"run {i + 1}: key fields = {key_fields(out)}")
     done = sum(keys.values())
-    print(f"\ntemperature sent: {s.LLM_TEMPERATURE or '(none - provider default)'} | seed: {s.LLM_SEED or '-'}")
+    print(
+        f"\ntemperature sent: {s.LLM_TEMPERATURE or '(none - provider default)'} | seed: {s.LLM_SEED or '-'}"
+    )
     print(f"successful runs: {done}/{runs}")
     print(f"distinct exact outputs: {len(exact)}   (several is normal)")
     print(f"distinct KEY-FIELD results: {len(keys)}")
@@ -1062,7 +1213,9 @@ def main() -> int:
     if len(keys) == 1:
         print("VERDICT: key fields are stable.")
         return 0
-    print("VERDICT: key fields CHANGE between identical calls. See the guide, step 8, for what to do.")
+    print(
+        "VERDICT: key fields CHANGE between identical calls. See the guide, step 8, for what to do."
+    )
     return 2
 
 
@@ -1156,6 +1309,7 @@ Uncomment and complete S04 to S10. The script refuses to run while any entry sti
 
 Uses a TEMPORARY prompt (not the real extraction prompt from M3). Fictitious text only.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -1174,8 +1328,19 @@ from app.pipeline.errors import LLMInvalidOutput, LLMTimeout, LLMUnavailable
 
 DESCRIPTIONS = Path("/evaluation/spike/descriptions.yaml")
 RESULTS_DIR = Path("/evaluation/results")
-FIELDS = ["candidate", "model", "id", "run", "valid", "correct", "redflag_ok",
-          "latency_ms", "in_tokens", "out_tokens", "error"]
+FIELDS = [
+    "candidate",
+    "model",
+    "id",
+    "run",
+    "valid",
+    "correct",
+    "redflag_ok",
+    "latency_ms",
+    "in_tokens",
+    "out_tokens",
+    "error",
+]
 
 SYSTEM = (
     "You read a pet owner's description for a veterinary clinic's triage desk. "
@@ -1191,26 +1356,42 @@ SYSTEM = (
 def load_codes() -> list[str]:
     from sqlalchemy import text
     from app.db.session import SessionLocal
+
     with SessionLocal() as s:
-        return [r[0] for r in s.execute(text("select code from presenting_complaints order by sort_order"))]
+        return [
+            r[0]
+            for r in s.execute(
+                text("select code from presenting_complaints order by sort_order")
+            )
+        ]
 
 
 def build(candidate: str):
     s = get_settings()
     if candidate == "gemini":
         return HostedLLMProvider(
-            "https://generativelanguage.googleapis.com/v1beta/openai/", s.GEMINI_API_KEY, s.GEMINI_MODEL,
-            temperature=None,                                   # Gemini 3 family: leave at the default
-            reasoning_effort=s.GEMINI_REASONING_EFFORT or None, json_mode="json_schema",
-            max_rpm=s.GEMINI_RPM)
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            s.GEMINI_API_KEY,
+            s.GEMINI_MODEL,
+            temperature=None,  # Gemini 3 family: leave at the default
+            reasoning_effort=s.GEMINI_REASONING_EFFORT or None,
+            json_mode="json_schema",
+            max_rpm=s.GEMINI_RPM,
+        )
     if candidate == "groq":
         return HostedLLMProvider(
-            "https://api.groq.com/openai/v1", s.GROQ_API_KEY, s.GROQ_MODEL,
-            temperature=0.0, json_mode=s.GROQ_JSON_MODE, max_rpm=s.GROQ_RPM)
+            "https://api.groq.com/openai/v1",
+            s.GROQ_API_KEY,
+            s.GROQ_MODEL,
+            temperature=0.0,
+            json_mode=s.GROQ_JSON_MODE,
+            max_rpm=s.GROQ_RPM,
+        )
     if candidate == "ollama":
         return OllamaLLMProvider.from_settings(s)
     if candidate == "current":
         from scripts._llm import provider_from_settings
+
         return provider_from_settings(s)
     raise SystemExit(f"unknown candidate {candidate!r}")
 
@@ -1233,42 +1414,79 @@ def main() -> int:
     args = ap.parse_args()
 
     codes = args.codes.split(",") if args.codes else load_codes()
-    cases = [c for c in yaml.safe_load(Path(args.descriptions).read_text(encoding="utf-8")) if c.get("text")]
+    cases = [
+        c
+        for c in yaml.safe_load(Path(args.descriptions).read_text(encoding="utf-8"))
+        if c.get("text")
+    ]
     if any(str(c["text"]).strip().upper().startswith("TODO") for c in cases):
         print("descriptions.yaml still has TODO entries. Fill them in first.")
         return 1
     if len(cases) < args.min_cases:
-        print(f"descriptions.yaml has {len(cases)} entries; the selection rule assumes {args.min_cases}. "
-              "Uncomment and complete S04-S10 (or pass --min-cases to override).")
+        print(
+            f"descriptions.yaml has {len(cases)} entries; the selection rule assumes {args.min_cases}. "
+            "Uncomment and complete S04-S10 (or pass --min-cases to override)."
+        )
         return 1
     llm = build(args.candidate)
-    schema = {"type": "object", "additionalProperties": False,
-              "properties": {"primary_complaint": {"type": "string", "enum": codes},
-                             "duration": {"type": ["string", "null"]},
-                             "red_flags": {"type": "array", "items": {"type": "string"}}},
-              "required": ["primary_complaint", "duration", "red_flags"]}
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "primary_complaint": {"type": "string", "enum": codes},
+            "duration": {"type": ["string", "null"]},
+            "red_flags": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["primary_complaint", "duration", "red_flags"],
+    }
 
-    out_path = Path(args.out_dir) / f"spike_{datetime.date.today()}_{args.candidate}.csv"
+    out_path = (
+        Path(args.out_dir) / f"spike_{datetime.date.today()}_{args.candidate}.csv"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     rows, per_case = [], {}
     for case in cases:
         for run in range(1, args.runs + 1):
-            row = dict(candidate=args.candidate, model=llm.model_id, id=case["id"], run=run, valid=0,
-                       correct="", redflag_ok="", latency_ms="", in_tokens="", out_tokens="", error="")
+            row = dict(
+                candidate=args.candidate,
+                model=llm.model_id,
+                id=case["id"],
+                run=run,
+                valid=0,
+                correct="",
+                redflag_ok="",
+                latency_ms="",
+                in_tokens="",
+                out_tokens="",
+                error="",
+            )
             try:
                 raw = llm.complete_json(
                     system=SYSTEM.format(codes=", ".join(codes)),
                     user=f"Species: {case['species']}\n\n<owner_description>\n{case['text'].strip()}\n</owner_description>",
-                    json_schema=schema, timeout_s=90)
-                ok = (raw.get("primary_complaint") in codes and isinstance(raw.get("red_flags"), list))
+                    json_schema=schema,
+                    timeout_s=90,
+                )
+                ok = raw.get("primary_complaint") in codes and isinstance(
+                    raw.get("red_flags"), list
+                )
                 row["valid"] = int(ok)
                 if ok:
-                    row["correct"] = int(raw["primary_complaint"] == case.get("expected_primary"))
-                    row["redflag_ok"] = int(bool(raw["red_flags"]) == bool(case.get("expected_red_flag")))
-                    per_case.setdefault(case["id"], []).append((raw["primary_complaint"], bool(raw["red_flags"])))
+                    row["correct"] = int(
+                        raw["primary_complaint"] == case.get("expected_primary")
+                    )
+                    row["redflag_ok"] = int(
+                        bool(raw["red_flags"]) == bool(case.get("expected_red_flag"))
+                    )
+                    per_case.setdefault(case["id"], []).append(
+                        (raw["primary_complaint"], bool(raw["red_flags"]))
+                    )
                 row["latency_ms"] = llm.last_latency_ms
                 usage = llm.last_usage or {}
-                row["in_tokens"], row["out_tokens"] = usage.get("prompt_tokens", ""), usage.get("completion_tokens", "")
+                row["in_tokens"], row["out_tokens"] = (
+                    usage.get("prompt_tokens", ""),
+                    usage.get("completion_tokens", ""),
+                )
             except LLMInvalidOutput:
                 row["error"] = "invalid_output"
             except LLMTimeout:
@@ -1276,8 +1494,10 @@ def main() -> int:
             except LLMUnavailable:
                 row["error"] = llm.last_error_kind or "unavailable"
             rows.append(row)
-            print(f"{case['id']} run {run}: valid={row['valid']} correct={row['correct']} "
-                  f"{row['latency_ms']} ms {row['error']}")
+            print(
+                f"{case['id']} run {run}: valid={row['valid']} correct={row['correct']} "
+                f"{row['latency_ms']} ms {row['error']}"
+            )
 
     with open(out_path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=FIELDS)
@@ -1287,7 +1507,9 @@ def main() -> int:
     n = len(rows)
     valid = [r for r in rows if r["valid"]]
     lat = [float(r["latency_ms"]) for r in rows if r["latency_ms"] != ""]
-    stable = [i for i, res in per_case.items() if len(res) == args.runs and len(set(res)) == 1]
+    stable = [
+        i for i, res in per_case.items() if len(res) == args.runs and len(set(res)) == 1
+    ]
     errs = {}
     for r in rows:
         if r["error"]:
@@ -1296,12 +1518,20 @@ def main() -> int:
     rfa = sum(r["redflag_ok"] for r in valid) / len(valid) * 100 if valid else 0
     p50, p95 = pct(lat, 50), pct(lat, 95)
     print("\n=== SUMMARY ===")
-    print(f"candidate={args.candidate} model={llm.model_id} calls={n} errors={errs or 'none'}")
-    print(f"JSON valid: {len(valid) / n * 100:.0f}% | complaint correct: {acc:.0f}% | red-flag correct: {rfa:.0f}%")
-    print(f"latency p50={p50} ms p95={p95} ms | stable across {args.runs} runs: {len(stable)}/{len(cases)} descriptions")
+    print(
+        f"candidate={args.candidate} model={llm.model_id} calls={n} errors={errs or 'none'}"
+    )
+    print(
+        f"JSON valid: {len(valid) / n * 100:.0f}% | complaint correct: {acc:.0f}% | red-flag correct: {rfa:.0f}%"
+    )
+    print(
+        f"latency p50={p50} ms p95={p95} ms | stable across {args.runs} runs: {len(stable)}/{len(cases)} descriptions"
+    )
     print(f"csv: {out_path}")
-    print(f"\n| {args.candidate} ({llm.model_id}) | {len(valid) / n * 100:.0f}% | {acc:.0f}% | {rfa:.0f}% | "
-          f"{p50} | {p95} | {len(stable) / len(cases) * 100:.0f}% | free tier | |")
+    print(
+        f"\n| {args.candidate} ({llm.model_id}) | {len(valid) / n * 100:.0f}% | {acc:.0f}% | {rfa:.0f}% | "
+        f"{p50} | {p95} | {len(stable) / len(cases) * 100:.0f}% | free tier | |"
+    )
     return 0
 
 

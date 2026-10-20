@@ -23,6 +23,7 @@ Run the embedding model **locally, inside the backend container**, through the
 class EmbeddingProvider(Protocol):
     model_id: str
     dim: int
+
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 ```
 
@@ -65,10 +66,11 @@ Both candidates produce 384 dimensions, so the database column is unchanged if
 the choice changes. Measured on 15–20 English queries with known target entries
 (M5 Step 6):
 
-| Model | Max input (word-pieces) | Chunk target words | Recall@5 | MRR | Chosen |
-|---|---|---|---|---|---|
-| `sentence-transformers/all-MiniLM-L6-v2` | 256 | 150 | | | Provisional default |
-| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 128 | not measured | | | |
+| Model                                                         | Max input (word-pieces) | Chunk target words | Recall@5 | MRR  | Chosen              |
+| ------------------------------------------------------------- | ----------------------- | ------------------ | -------- | ---- | ------------------- |
+| `sentence-transformers/all-MiniLM-L6-v2`                      | 256                     | 150                |          |      | Provisional default |
+| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 128                     | not measured       |          |      |                     |
+| `sentence-transformers/all-MiniLM-L6-v2`                      | 18                      |                    | 1.00     | 1.00 | yes                 |
 
 Chunk target: 167 was measured on lay prose (1.20 word-pieces per word). 150 is
 used until it is re-measured on real knowledge-base entries in M5, because
@@ -76,6 +78,15 @@ clinical terms split into more word-pieces.
 
 Input is English only (ADR-16), so the multilingual model is chosen only if it
 scores better on English queries.
+
+`all-MiniLM-L6-v2` met both targets (Recall@5 ≥ 0.80, MRR ≥ 0.70) by a wide margin — every
+query's expected entry ranked first — so no second model was evaluated. The multilingual
+candidate was not tried, since input is English only (ADR-16). Final model: `all-MiniLM-L6-v2`.
+
+**Limitation:** this result was measured against only 3 clinical entries (the demo complaints).
+With so few distinct answers, near-perfect Recall@5 is expected even from a weak model. This
+should be re-measured once more entries are written in a later KB expansion, before relying on
+it as evidence of retrieval quality in the final evaluation.
 
 ## Measured in M4
 

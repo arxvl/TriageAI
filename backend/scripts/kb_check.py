@@ -66,7 +66,7 @@ def check_version(s) -> list[Result]:
     latest = s.execute(
         text("""
         select v.version_no, count(ve.entry_id) from kb_versions v
-        left join kb_version_entries ve on ve.version_id = v.id
+        left join kb_version_entries ve on ve.kb_version_id = v.id
         group by v.version_no order by v.version_no desc limit 1""")
     ).first()
     if latest is None:

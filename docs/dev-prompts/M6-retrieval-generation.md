@@ -39,19 +39,25 @@ Leave out empty parts.
 
 ```python
 """pgvector retriever (M6): cosine top-k over the active KB version, species-filtered."""
+
 from __future__ import annotations
 
 from sqlalchemy import select, text
 
 from app.models.enums import KBEntryKind
-from app.models.knowledge_base import KBChunk, KBEntry, PresentingComplaint, kb_version_entries
+from app.models.knowledge_base import (
+    KBChunk,
+    KBEntry,
+    PresentingComplaint,
+    kb_version_entries,
+)
 from app.pipeline.errors import RetrievalFailed
 from app.pipeline.types import Passage
 
 
 class PgVectorRetriever:
     MAX_CHUNKS_PER_ENTRY = 2
-    prompt_version = "retrieval-v1"   # stage attributes (CLAUDE.md §8.2)
+    prompt_version = "retrieval-v1"  # stage attributes (CLAUDE.md §8.2)
     last_latency_ms = 0
 
     @property
@@ -64,18 +70,34 @@ class PgVectorRetriever:
     @classmethod
     def from_settings(cls, settings, deps) -> "PgVectorRetriever":
         if deps.embedder is None:
-            raise RuntimeError("PIPELINE_RETRIEVER=pgvector requires EMBEDDING_PROVIDER (M4)")
+            raise RuntimeError(
+                "PIPELINE_RETRIEVER=pgvector requires EMBEDDING_PROVIDER (M4)"
+            )
         return cls(deps.session_factory, deps.embedder, settings.HNSW_EF_SEARCH)
 
     def build_query(self, extraction, names: dict[str, str]) -> str:
-        primary = next((c for c in extraction.presenting_complaints if c.is_primary), None)
-        others = [names.get(c.code, c.code) for c in extraction.presenting_complaints if not c.is_primary]
-        parts = [f"{extraction.species.value.title()}.",
-                 f"{names.get(primary.code, primary.code)}." if primary else "",
-                 f"Other complaints: {', '.join(others)}." if others else "",
-                 f"Signs: {', '.join(extraction.associated_signs)}." if extraction.associated_signs else "",
-                 f"Red flags: {', '.join(extraction.red_flags)}." if extraction.red_flags else "",
-                 f"Duration: {extraction.onset_duration}." if extraction.onset_duration else ""]
+        primary = next(
+            (c for c in extraction.presenting_complaints if c.is_primary), None
+        )
+        others = [
+            names.get(c.code, c.code)
+            for c in extraction.presenting_complaints
+            if not c.is_primary
+        ]
+        parts = [
+            f"{extraction.species.value.title()}.",
+            f"{names.get(primary.code, primary.code)}." if primary else "",
+            f"Other complaints: {', '.join(others)}." if others else "",
+            f"Signs: {', '.join(extraction.associated_signs)}."
+            if extraction.associated_signs
+            else "",
+            f"Red flags: {', '.join(extraction.red_flags)}."
+            if extraction.red_flags
+            else "",
+            f"Duration: {extraction.onset_duration}."
+            if extraction.onset_duration
+            else "",
+        ]
         return " ".join(p for p in parts if p)
 
     def retrieve(self, extraction, kb_version_id, k: int) -> list[Passage]:
@@ -83,16 +105,25 @@ class PgVectorRetriever:
             with self.sf() as s:
                 names = {c.code: c.name for c in s.scalars(select(PresentingComplaint))}
                 q = self.embedder.embed([self.build_query(extraction, names)])[0]
-                s.execute(text("SET LOCAL hnsw.ef_search = :ef"), {"ef": self.ef_search})
+                s.execute(
+                    text("SET LOCAL hnsw.ef_search = :ef"), {"ef": self.ef_search}
+                )
                 dist = KBChunk.embedding.cosine_distance(q).label("dist")
-                stmt = (select(KBChunk, KBEntry, dist)
-                        .join(KBEntry, KBEntry.id == KBChunk.entry_id)
-                        .join(kb_version_entries, kb_version_entries.c.entry_id == KBEntry.id)
-                        .where(kb_version_entries.c.version_id == kb_version_id)
-                        .where(KBEntry.species.any(extraction.species))
-                        .where(KBChunk.embedding.is_not(None))
-                        .where(KBEntry.kind == KBEntryKind.COMPLAINT)   # never return baseline-action text (ADR-18)
-                        .order_by(dist).limit(k * 4))
+                stmt = (
+                    select(KBChunk, KBEntry, dist)
+                    .join(KBEntry, KBEntry.id == KBChunk.entry_id)
+                    .join(
+                        kb_version_entries, kb_version_entries.c.entry_id == KBEntry.id
+                    )
+                    .where(kb_version_entries.c.version_id == kb_version_id)
+                    .where(KBEntry.species.any(extraction.species))
+                    .where(KBChunk.embedding.is_not(None))
+                    .where(
+                        KBEntry.kind == KBEntryKind.COMPLAINT
+                    )  # never return baseline-action text (ADR-18)
+                    .order_by(dist)
+                    .limit(k * 4)
+                )
                 rows = s.execute(stmt).all()
         except Exception as exc:
             raise RetrievalFailed("vector search failed") from exc
@@ -103,10 +134,18 @@ class PgVectorRetriever:
             if per_entry.get(entry.id, 0) >= self.MAX_CHUNKS_PER_ENTRY:
                 continue
             per_entry[entry.id] = per_entry.get(entry.id, 0) + 1
-            passages.append(Passage(rank=len(passages) + 1, chunk_id=chunk.id, entry_id=entry.id,
-                                    entry_title=entry.title, source_title=entry.source_title,
-                                    source_url=entry.source_url, text=chunk.text,
-                                    score=max(0.0, 1.0 - float(d))))
+            passages.append(
+                Passage(
+                    rank=len(passages) + 1,
+                    chunk_id=chunk.id,
+                    entry_id=entry.id,
+                    entry_title=entry.title,
+                    source_title=entry.source_title,
+                    source_url=entry.source_url,
+                    text=chunk.text,
+                    score=max(0.0, 1.0 - float(d)),
+                )
+            )
             if len(passages) == k:
                 break
         return passages
@@ -187,6 +226,7 @@ Return the JSON object now.
 
 ```python
 """LLM recommendation generator (M6)."""
+
 from __future__ import annotations
 
 import time
@@ -208,14 +248,23 @@ class _RawAnswer(BaseModel):
 
 class LLMRecommendationGenerator:
     def __init__(self, llm, prompt, timeout_s: float, max_retries: int):
-        self.llm, self.prompt, self.timeout_s, self.max_retries = llm, prompt, timeout_s, max_retries
+        self.llm, self.prompt, self.timeout_s, self.max_retries = (
+            llm,
+            prompt,
+            timeout_s,
+            max_retries,
+        )
         self.schema = _RawAnswer.model_json_schema()
         self.last_latency_ms = 0
 
     @classmethod
     def from_settings(cls, settings, deps) -> "LLMRecommendationGenerator":
-        return cls(deps.llm, load_prompt("generation", settings.GENERATION_PROMPT_VERSION),
-                   deps.config.timeout_s, deps.config.max_retries)
+        return cls(
+            deps.llm,
+            load_prompt("generation", settings.GENERATION_PROMPT_VERSION),
+            deps.config.timeout_s,
+            deps.config.max_retries,
+        )
 
     @property
     def model_id(self) -> str:
@@ -226,23 +275,39 @@ class LLMRecommendationGenerator:
         return f"generation/{self.prompt.version}"
 
     def generate(self, extraction, passages) -> DraftRecommendation:
-        blocks = "\n\n".join(f"[{p.rank}] {p.entry_title} — {p.source_title}\n{p.text}" for p in passages)
+        blocks = "\n\n".join(
+            f"[{p.rank}] {p.entry_title} — {p.source_title}\n{p.text}" for p in passages
+        )
         user = self.prompt.render_user(
             species=extraction.species.value,
-            extraction_json=extraction.model_dump_json(exclude={"evidence_spans"}, indent=1),
-            passages=blocks or "(no passages found)")
+            extraction_json=extraction.model_dump_json(
+                exclude={"evidence_spans"}, indent=1
+            ),
+            passages=blocks or "(no passages found)",
+        )
         feedback, start = "", time.perf_counter()
         for attempt in range(self.max_retries + 1):
             try:
-                raw = _RawAnswer.model_validate(self.llm.complete_json(
-                    system=self.prompt.system, user=user + feedback,
-                    json_schema=self.schema, timeout_s=self.timeout_s))
+                raw = _RawAnswer.model_validate(
+                    self.llm.complete_json(
+                        system=self.prompt.system,
+                        user=user + feedback,
+                        json_schema=self.schema,
+                        timeout_s=self.timeout_s,
+                    )
+                )
                 self.last_latency_ms = int((time.perf_counter() - start) * 1000)
-                return DraftRecommendation(category=raw.category, rationale=raw.rationale.strip(),
-                                           cited_ranks=sorted(set(raw.cited)), confidence=raw.confidence)
+                return DraftRecommendation(
+                    category=raw.category,
+                    rationale=raw.rationale.strip(),
+                    cited_ranks=sorted(set(raw.cited)),
+                    confidence=raw.confidence,
+                )
             except (ValidationError, LLMInvalidOutput) as exc:
                 if attempt >= self.max_retries:
-                    raise GenerationFailed("invalid generation output after retry") from exc
+                    raise GenerationFailed(
+                        "invalid generation output after retry"
+                    ) from exc
                 feedback = "\n\nYour previous answer was invalid. Return only the JSON object described."
         raise GenerationFailed("unreachable")
 ```

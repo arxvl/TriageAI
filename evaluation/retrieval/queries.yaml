@@ -1,0 +1,93 @@
+# Labelled retrieval queries for M6 evaluation
+# Expected values must match existing knowledge-base entry slugs.
+# Queries are fictitious test cases, not clinical advice.
+
+- id: Q01
+  species: CAT
+  query: "Cat. Straining or inability to urinate. Other complaints: vomiting. Signs: crying in the litter box, repeated attempts to pee. Red flags: nothing comes out. Duration: since this morning."
+  expected: [urinary-obstruction-cat]
+
+- id: Q02
+  species: DOG
+  query: "Dog. Respiratory distress. Signs: breathing very fast, mouth open. Red flags: bluish gums."
+  expected: [respiratory-distress-dog-cat]
+
+- id: Q03
+  species: DOG
+  query: "Dog. Skin itching. Signs: licking and scratching paws. Duration: two weeks."
+  expected: [skin-itch-dog]
+
+- id: Q04
+  species: CAT
+  query: "Cat. Straining or inability to urinate. Signs: keeps going to the litter tray but cannot pee. Red flags: no urine seen. Duration: several hours."
+  expected: [urinary-obstruction-cat]
+
+- id: Q05
+  species: CAT
+  query: "Cat. Straining or inability to urinate. Other complaints: weakness. Signs: crying when trying to pee, very little urine. Duration: started today."
+  expected: [urinary-obstruction-cat]
+
+- id: Q06
+  species: CAT
+  query: "Cat. Straining or inability to urinate. Signs: frequent litter-box visits, licking around the urinary opening. Red flags: unsure whether any urine is passing. Duration: since last night."
+  expected: [urinary-obstruction-cat]
+
+- id: Q07
+  species: DOG
+  query: "Dog. Respiratory distress. Signs: struggling to breathe, chest and belly moving noticeably with each breath. Duration: began suddenly."
+  expected: [respiratory-distress-dog-cat]
+
+- id: Q08
+  species: CAT
+  query: "Cat. Respiratory distress. Signs: noisy breathing and obvious effort with each breath. Red flags: breathing difficulty is getting worse. Duration: about an hour."
+  expected: [respiratory-distress-dog-cat]
+
+- id: Q09
+  species: DOG
+  query: "Dog. Respiratory distress. Other complaints: coughing. Signs: breathing hard and cannot seem to settle. Red flags: weakness and collapse. Duration: just now."
+  expected: [respiratory-distress-dog-cat]
+
+- id: Q10
+  species: DOG
+  query: "Dog. Respiratory distress. Signs: my dog looks like he cannot get enough air and his stomach pumps when he breathes. Duration: started a few minutes ago."
+  expected: [respiratory-distress-dog-cat]
+
+- id: Q11
+  species: DOG
+  query: "Dog. Skin itching. Signs: keeps chewing his feet and rubbing his face. Duration: about ten days."
+  expected: [skin-itch-dog]
+
+- id: Q12
+  species: DOG
+  query: "Dog. Skin itching. Other complaints: hair loss. Signs: flaky skin and a strange smell from the coat. Duration: getting worse over several days."
+  expected: [skin-itch-dog]
+
+- id: Q13
+  species: DOG
+  query: "Dog. Skin itching. Signs: scratches all over, bites at the skin, and licks repeatedly. Duration: on and off for months."
+  expected: [skin-itch-dog]
+
+- id: Q14
+  species: DOG
+  query: "Dog. Skin itching. Signs: seasonal scratching, especially around the face and paws. Other complaints: recurring skin irritation. Duration: returns each year."
+  expected: [skin-itch-dog]
+
+- id: Q15
+  species: DOG
+  query: "Dog. Skin itching. Signs: my dog won't stop scratching and chewing his paws. Other complaints: patches of missing fur. Duration: one week."
+  expected: [skin-itch-dog]
+
+- id: Q16
+  species: CAT
+  query: "Cat. Straining or inability to urinate. Signs: sits in the litter tray again and again, but I cannot find any wet spots. Red flags: no pee. Duration: since yesterday evening."
+  expected: [urinary-obstruction-cat]
+
+- id: Q17
+  species: DOG
+  query: "Dog. Respiratory distress. Signs: open-mouth breathing while resting, nostrils flaring, and a lot of effort to breathe. Duration: started suddenly."
+  expected: [respiratory-distress-dog-cat]
+
+- id: Q18
+  species: DOG
+  query: "Dog. Skin itching. Signs: scratching, licking, and rubbing the same areas repeatedly. Other complaints: skin scaling. Duration: several weeks."
+  expected: [skin-itch-dog]

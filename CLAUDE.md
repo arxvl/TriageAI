@@ -216,13 +216,16 @@ class RedFlagHit(BaseModel):
     matched_text: str
     min_category: VTLCategory
 
+
 class ExtractedComplaint(BaseModel):
-    code: str                  # presenting_complaints.code or "OTHER"
+    code: str  # presenting_complaints.code or "OTHER"
     is_primary: bool
 
+
 class EvidenceSpan(BaseModel):
-    field: str                 # e.g. "onset_duration"
-    text: str                  # exact substring of the de-identified text
+    field: str  # e.g. "onset_duration"
+    text: str  # exact substring of the de-identified text
+
 
 class ExtractionOutput(BaseModel):
     species: Species
@@ -234,25 +237,28 @@ class ExtractionOutput(BaseModel):
     negated_findings: list[str]
     exposure_history: str | None
     relevant_history: str | None
-    red_flags: list[str]       # free-text indicators from the model
+    red_flags: list[str]  # free-text indicators from the model
     missing_information: list[str]
     evidence_spans: list[EvidenceSpan]
 
+
 class Passage(BaseModel):
-    rank: int                  # 1..k
+    rank: int  # 1..k
     chunk_id: UUID
     entry_id: UUID
     entry_title: str
     source_title: str
     source_url: str | None
     text: str
-    score: float               # cosine similarity 0..1
+    score: float  # cosine similarity 0..1
+
 
 class DraftRecommendation(BaseModel):
     category: VTLCategory
     rationale: str
-    cited_ranks: list[int]     # ranks of Passage objects the model cited
+    cited_ranks: list[int]  # ranks of Passage objects the model cited
     confidence: ConfidenceLevel
+
 
 class FinalRecommendation(BaseModel):
     category: VTLCategory
@@ -263,16 +269,18 @@ class FinalRecommendation(BaseModel):
     safety_floor_rule_codes: list[str]
     low_confidence_reasons: list[str]
 
+
 class SuggestedAction(BaseModel):
-    text: str                  # <= 25 words, imperative, no drug/dose/diagnosis
-    cited_ranks: list[int]     # ranks of Passage objects supporting this action
+    text: str  # <= 25 words, imperative, no drug/dose/diagnosis
+    cited_ranks: list[int]  # ranks of Passage objects supporting this action
     source: ActionSource
 
+
 class ActionPlan(BaseModel):
-    category: VTLCategory      # the category the actions were generated for
-    baseline: list[str]        # from the URGENCY_ACTIONS KB entry, verbatim
+    category: VTLCategory  # the category the actions were generated for
+    baseline: list[str]  # from the URGENCY_ACTIONS KB entry, verbatim
     tailored: list[SuggestedAction]
-    rejected_count: int        # dropped by the action validator
+    rejected_count: int  # dropped by the action validator
     rejection_reasons: list[str]
 ```
 
@@ -281,53 +289,79 @@ class ActionPlan(BaseModel):
 ```python
 # backend/app/adapters/llm/base.py
 class LLMProvider(Protocol):
-    name: str                  # e.g. "mock", "hosted", "ollama"
+    name: str  # e.g. "mock", "hosted", "ollama"
     model_id: str
-    def complete_json(self, *, system: str, user: str,
-                      json_schema: dict, timeout_s: float) -> dict: ...
+
+    def complete_json(
+        self, *, system: str, user: str, json_schema: dict, timeout_s: float
+    ) -> dict:
+        ...
         # raises LLMTimeout, LLMUnavailable, LLMInvalidOutput
+
 
 # backend/app/adapters/embeddings/base.py
 class EmbeddingProvider(Protocol):
     model_id: str
     dim: int
+
     def embed(self, texts: list[str]) -> list[list[float]]: ...
+
 
 # backend/app/pipeline/stages.py
 class Deidentifier(Protocol):
-    def deidentify(self, text: str, owner_name: str | None,
-                   owner_contact: str | None) -> str: ...
+    def deidentify(
+        self, text: str, owner_name: str | None, owner_contact: str | None
+    ) -> str: ...
+
 
 class RedFlagScreener(Protocol):
-    def screen(self, text: str, species: Species,
-               sex: str | None) -> list[RedFlagHit]: ...   # sex: MALE|FEMALE|UNKNOWN|None
+    def screen(
+        self, text: str, species: Species, sex: str | None
+    ) -> list[RedFlagHit]: ...  # sex: MALE|FEMALE|UNKNOWN|None
+
 
 class EntityExtractor(Protocol):
-    def extract(self, text: str, species: Species,
-                signalment: dict | None = None) -> ExtractionOutput: ...
+    def extract(
+        self, text: str, species: Species, signalment: dict | None = None
+    ) -> ExtractionOutput:
+        ...
         # raises ExtractionFailed
 
+
 class Retriever(Protocol):
-    def retrieve(self, extraction: ExtractionOutput, kb_version_id: UUID,
-                 k: int) -> list[Passage]: ...
+    def retrieve(
+        self, extraction: ExtractionOutput, kb_version_id: UUID, k: int
+    ) -> list[Passage]: ...
+
 
 class RecommendationGenerator(Protocol):
-    def generate(self, extraction: ExtractionOutput,
-                 passages: list[Passage]) -> DraftRecommendation: ...
+    def generate(
+        self, extraction: ExtractionOutput, passages: list[Passage]
+    ) -> DraftRecommendation:
+        ...
         # raises GenerationFailed
+
 
 # Every stage (mock or real) also exposes, for storage and reproducibility (FR-26, NFR-23):
 #   model_id: str          ("mock" for mocks and non-model stages)
 #   prompt_version: str    ("mock-0"; real LLM stages e.g. "extraction/v1.0")
 #   last_latency_ms: int   (set after each call)
 
+
 class ActionSuggester(Protocol):
-    def suggest(self, extraction: ExtractionOutput, category: VTLCategory,
-                passages: list[Passage], max_items: int) -> list[SuggestedAction]: ...
+    def suggest(
+        self,
+        extraction: ExtractionOutput,
+        category: VTLCategory,
+        passages: list[Passage],
+        max_items: int,
+    ) -> list[SuggestedAction]:
+        ...
         # raises ActionsFailed
 
-class KBIndexer(Protocol):   # used by the KB approval workflow
-    def index_entry(self, entry_id: UUID) -> int: ...   # returns chunk count
+
+class KBIndexer(Protocol):  # used by the KB approval workflow
+    def index_entry(self, entry_id: UUID) -> int: ...  # returns chunk count
     def remove_entry(self, entry_id: UUID) -> None: ...
 ```
 

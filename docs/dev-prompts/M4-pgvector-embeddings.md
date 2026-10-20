@@ -93,6 +93,7 @@ Update the model in `backend/app/models/knowledge_base.py`:
 ```python
 from pgvector.sqlalchemy import Vector
 
+
 class KBChunk(Base):
     ...
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
@@ -118,6 +119,7 @@ docker compose exec db psql -U triageai -d triageai -c "\d kb_chunks"
 
 ```python
 """Local sentence-embedding provider (M4). CPU, normalized vectors (cosine)."""
+
 from __future__ import annotations
 
 import threading
@@ -127,22 +129,38 @@ class SentenceTransformerEmbedder:
     _lock = threading.Lock()
     _model = None
 
-    def __init__(self, model_id: str, dim: int, device: str = "cpu", batch_size: int = 32):
-        self.model_id, self.dim, self.device, self.batch_size = model_id, dim, device, batch_size
+    def __init__(
+        self, model_id: str, dim: int, device: str = "cpu", batch_size: int = 32
+    ):
+        self.model_id, self.dim, self.device, self.batch_size = (
+            model_id,
+            dim,
+            device,
+            batch_size,
+        )
 
     @classmethod
     def from_settings(cls, settings, deps=None) -> "SentenceTransformerEmbedder":
-        return cls(settings.EMBEDDING_MODEL, settings.EMBEDDING_DIM,
-                   settings.EMBEDDING_DEVICE, settings.EMBEDDING_BATCH_SIZE)
+        return cls(
+            settings.EMBEDDING_MODEL,
+            settings.EMBEDDING_DIM,
+            settings.EMBEDDING_DEVICE,
+            settings.EMBEDDING_BATCH_SIZE,
+        )
 
     def _load(self):
         with self._lock:
             if SentenceTransformerEmbedder._model is None:
-                from sentence_transformers import SentenceTransformer  # lazy import (slow)
+                from sentence_transformers import (
+                    SentenceTransformer,
+                )  # lazy import (slow)
+
                 model = SentenceTransformer(self.model_id, device=self.device)
                 actual = model.get_sentence_embedding_dimension()
                 if actual != self.dim:
-                    raise RuntimeError(f"EMBEDDING_DIM={self.dim} but model produces {actual}")
+                    raise RuntimeError(
+                        f"EMBEDDING_DIM={self.dim} but model produces {actual}"
+                    )
                 SentenceTransformerEmbedder._model = model
         return SentenceTransformerEmbedder._model
 
@@ -153,8 +171,13 @@ class SentenceTransformerEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        vecs = self._load().encode(texts, batch_size=self.batch_size, normalize_embeddings=True,
-                                   convert_to_numpy=True, show_progress_bar=False)
+        vecs = self._load().encode(
+            texts,
+            batch_size=self.batch_size,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+        )
         return vecs.tolist()
 ```
 

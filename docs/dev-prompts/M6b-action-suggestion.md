@@ -72,6 +72,7 @@ Return the JSON object now.
 
 ```python
 """LLM action suggester (M6b). Output is validated by action_validator (P05b)."""
+
 from __future__ import annotations
 
 import time
@@ -84,9 +85,11 @@ from app.pipeline.prompts import load_prompt
 from app.pipeline.types import SuggestedAction
 
 CATEGORY_MEANING = {
-    "RED": "Immediate", "ORANGE": "Very urgent, within 15 minutes",
+    "RED": "Immediate",
+    "ORANGE": "Very urgent, within 15 minutes",
     "YELLOW": "Urgent, within 30 to 60 minutes",
-    "GREEN": "Standard, within 120 minutes", "BLUE": "Non-urgent, within 240 minutes",
+    "GREEN": "Standard, within 120 minutes",
+    "BLUE": "Non-urgent, within 240 minutes",
 }
 
 
@@ -108,8 +111,12 @@ class LLMActionSuggester:
 
     @classmethod
     def from_settings(cls, settings, deps) -> "LLMActionSuggester":
-        return cls(deps.llm, load_prompt("actions", settings.ACTIONS_PROMPT_VERSION),
-                   deps.config.timeout_s, deps.config.max_retries)
+        return cls(
+            deps.llm,
+            load_prompt("actions", settings.ACTIONS_PROMPT_VERSION),
+            deps.config.timeout_s,
+            deps.config.max_retries,
+        )
 
     @property
     def model_id(self) -> str:
@@ -119,29 +126,49 @@ class LLMActionSuggester:
     def prompt_version(self) -> str:
         return f"actions/{self.prompt.version}"
 
-    def suggest(self, extraction, category, passages, max_items,
-                baseline: list[str] | None = None) -> list[SuggestedAction]:
-        blocks = "\n\n".join(f"[{p.rank}] {p.entry_title} — {p.source_title}\n{p.text}"
-                             for p in passages)
+    def suggest(
+        self,
+        extraction,
+        category,
+        passages,
+        max_items,
+        baseline: list[str] | None = None,
+    ) -> list[SuggestedAction]:
+        blocks = "\n\n".join(
+            f"[{p.rank}] {p.entry_title} — {p.source_title}\n{p.text}" for p in passages
+        )
         cat = getattr(category, "value", category)
         user = self.prompt.render_user(
-            category=cat, category_meaning=CATEGORY_MEANING.get(cat, cat),
+            category=cat,
+            category_meaning=CATEGORY_MEANING.get(cat, cat),
             baseline="\n".join(f"- {b}" for b in (baseline or [])) or "(none)",
-            extraction_json=extraction.model_dump_json(exclude={"evidence_spans"}, indent=1),
+            extraction_json=extraction.model_dump_json(
+                exclude={"evidence_spans"}, indent=1
+            ),
             passages=blocks or "(no passages found)",
-            max_items=str(max_items))
+            max_items=str(max_items),
+        )
         system = self.prompt.system.replace("$max_items", str(max_items))
         start = time.perf_counter()
         for attempt in range(self.max_retries + 1):
             try:
-                raw = _RawAnswer.model_validate(self.llm.complete_json(
-                    system=system, user=user, json_schema=self.schema,
-                    timeout_s=self.timeout_s))
+                raw = _RawAnswer.model_validate(
+                    self.llm.complete_json(
+                        system=system,
+                        user=user,
+                        json_schema=self.schema,
+                        timeout_s=self.timeout_s,
+                    )
+                )
                 self.last_latency_ms = int((time.perf_counter() - start) * 1000)
-                return [SuggestedAction(text=a.text.strip(),
-                                        cited_ranks=sorted(set(a.cited)),
-                                        source=ActionSource.AI)
-                        for a in raw.actions]
+                return [
+                    SuggestedAction(
+                        text=a.text.strip(),
+                        cited_ranks=sorted(set(a.cited)),
+                        source=ActionSource.AI,
+                    )
+                    for a in raw.actions
+                ]
             except (ValidationError, LLMInvalidOutput) as exc:
                 if attempt >= self.max_retries:
                     raise ActionsFailed("invalid action output after retry") from exc

@@ -23,8 +23,11 @@ All model access goes through one narrow port:
 class LLMProvider(Protocol):
     name: str
     model_id: str
-    def complete_json(self, *, system: str, user: str,
-                      json_schema: dict, timeout_s: float) -> dict: ...
+
+    def complete_json(
+        self, *, system: str, user: str, json_schema: dict, timeout_s: float
+    ) -> dict:
+        ...
         # raises LLMTimeout, LLMUnavailable, LLMInvalidOutput
 ```
 
