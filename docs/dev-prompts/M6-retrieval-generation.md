@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from sqlalchemy import select, text
 
+from app.models.enums import KBEntryKind
 from app.models.knowledge_base import KBChunk, KBEntry, PresentingComplaint, kb_version_entries
 from app.pipeline.errors import RetrievalFailed
 from app.pipeline.types import Passage
@@ -90,6 +91,7 @@ class PgVectorRetriever:
                         .where(kb_version_entries.c.version_id == kb_version_id)
                         .where(KBEntry.species.any(extraction.species))
                         .where(KBChunk.embedding.is_not(None))
+                        .where(KBEntry.kind == KBEntryKind.COMPLAINT)   # never return baseline-action text (ADR-18)
                         .order_by(dist).limit(k * 4))
                 rows = s.execute(stmt).all()
         except Exception as exc:
@@ -124,7 +126,8 @@ Add `HNSW_EF_SEARCH=40` to the settings.
   - only version-1 chunks are returned for version 1;
   - dog-only entries never appear for a cat query;
   - there are at most 2 chunks per entry;
-  - ranks are 1..k in score order.
+  - ranks are 1..k in score order;
+  - **an `URGENCY_ACTIONS` entry is never returned**, even if it somehow has chunks.
 - **Manual retrieval check.** For each demo case, print the top 5 titles and scores. The relevant entry must appear in the top 3.
 
 ---

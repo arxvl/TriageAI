@@ -140,6 +140,9 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 32
     EMBEDDING_WARMUP: bool = True
 
+    KB_CHUNK_TARGET_WORDS: int = 150
+    KB_CHUNK_OVERLAP_SENTENCES: int = 1
+
     pipeline_deidentifier: DeidentifierOption = DeidentifierOption.MOCK
     pipeline_redflags: RedFlagsOption = RedFlagsOption.MOCK
     llm_provider: LLMProviderOption = LLMProviderOption.MOCK

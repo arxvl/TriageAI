@@ -1,6 +1,6 @@
 # M5 — Knowledge Base Authoring, Chunking, and Indexing (Manual)
 
-**Owner:** Lane B, with every member writing entries · **Branch:** `feat/m5-kb-indexing` (+ `content/m5-kb-entries`)
+**Branch:** `feat/m5-kb-indexing` (+ `content/m5-kb-entries`)
 **Do after:** M4, P08 · **Requirements:** FR-49–FR-55, BR-04, NFR-02, NFR-18, DR-05
 
 You will:
@@ -49,12 +49,9 @@ Create one YAML file per entry in `knowledge_base/entries/`, using the P08 forma
 ### Step A4. Source verification (BR-04, project variant)
 
 1. Collect the entries together with `red_flags.yaml` and `red_flag_phrases.yaml` from M1. For each, confirm the cited source is published and veterinarian-authored, and that the content matches what that source says.
-2. Record each decision in `knowledge_base/APPROVALS.md`:
+2. Record each decision in `knowledge_base/APPROVALS.md`, using its columns (Source, Written by, Verified by, Decision). The person who verifies must not be the person who wrote the entry.
 
-   | Date | Item | Reviewer | Decision | Comment |
-   |---|---|---|---|---|
-
-3. Apply the requested changes, then import (`python -m scripts.import_kb`). Entries arrive as drafts. The administrator submits them in W-08. The **approver account of the licensed veterinarian** (or a team member acting on the vet's written approval, as stated in APPROVALS.md) approves them. **This happens after Part B**, so approval triggers real indexing.
+3. Apply any corrections, then import (`python -m scripts.import_kb`). Entries arrive as drafts. The administrator account submits them in W-08, and the team's `can_approve_kb` account approves them. External veterinary sign-off is waived for this project, so approval here means "traceable to a published source and verified by a second member". **This happens after Part B**, so approval triggers real indexing.
 
 ---
 
@@ -125,6 +122,7 @@ import uuid
 from sqlalchemy import func, select
 
 from app.kb.chunking import chunk_text, with_header
+from app.models.enums import KBEntryKind
 from app.models.knowledge_base import KBChunk, KBEntry
 
 
@@ -142,13 +140,17 @@ class PgVectorKBIndexer:
 
     def index_entry(self, entry_id: uuid.UUID) -> int:
         with self.sf() as s, s.begin():
+            entry = s.get(KBEntry, entry_id)
+            if entry.kind == KBEntryKind.URGENCY_ACTIONS:
+                # Baseline actions are looked up by category, never similarity-searched (ADR-18).
+                # Embedding them would let "alert the veterinarian" surface as a clinical passage.
+                return 0
             existing = s.scalar(select(func.count()).select_from(KBChunk).where(KBChunk.entry_id == entry_id))
             if existing:
                 missing = s.scalars(select(KBChunk).where(KBChunk.entry_id == entry_id,
                                                           KBChunk.embedding.is_(None))).all()
                 self._embed_rows(missing)
                 return existing
-            entry = s.get(KBEntry, entry_id)
             species = [getattr(x, "value", x) for x in entry.species]
             pieces = chunk_text(entry.content, self.target_words, self.overlap)
             rows = [KBChunk(id=uuid.uuid4(), entry_id=entry.id, chunk_index=i,
@@ -186,6 +188,7 @@ class PgVectorKBIndexer:
   - creates the expected number of rows, with the model recorded
   - is idempotent: a second call creates no duplicates
   - fills missing embeddings
+  - **an `URGENCY_ACTIONS` entry produces 0 chunks** and writes no rows
 
 ---
 
@@ -282,7 +285,16 @@ from kb_entries where kind = 'URGENCY_ACTIONS' order by urgency_category;
 **Check D2.** Five rows, all ACTIVE, none still marked SAMPLE, each with a real
 source. Submit one case per category and confirm baseline actions appear.
 
-## Step 6. Compare the embedding models (closes TBD-2)
+## Step 6. Measure retrieval, and compare models only if needed (closes TBD-2)
+
+Input is English only (ADR-16), so the multilingual candidate has no advantage. **Default to `all-MiniLM-L6-v2` and measure it first.** Chunks only exist after entries are approved, so the measurement happens after Part C, not before.
+
+- If **Recall@5 is at least 0.80** on your queries, keep the default, record the number in ADR-07, and stop.
+- If it is lower, first fix the queries and entry wording (the cheapest levers), then try the other model.
+
+If you do switch models, `reindex --all` re-embeds the **existing** chunks, which is enough when the new model accepts the same chunk size. If the new model has a shorter input limit (the multilingual one, 128 word-pieces), set `KB_CHUNK_TARGET_WORDS=75` and rebuild the chunks. Because chunks are never deleted, the simplest way is to reset the development database (`python -m scripts.seed --reset`), re-import, and re-approve. This is a development database, so that is acceptable.
+
+The comparison procedure:
 
 1. Write 15–20 short queries in the format produced by the M6 query builder, each with its expected entry slug. Write them in English (FR-18), and include 3–5 that use lay wording rather than clinical terms.
 2. For each candidate model:
@@ -291,7 +303,6 @@ source. Submit one case per category and confirm baseline actions appear.
    3. Run `python -m app.kb.reindex --all`.
    4. Compute Recall@5 and MRR over the queries, using a small script and the query code from C5.
 3. Choose the model with the higher Recall@5, and record it in ADR-07 with the numbers. If you switch to the multilingual model, set `KB_CHUNK_TARGET_WORDS=75` and re-create the chunks.
-   - Chunks are never deleted, so re-chunking means publishing new revisions of the entries. Alternatively, run this comparison **before** approving the entries for the first time. That order is simpler.
 
 ## Done when
 
