@@ -1,0 +1,16 @@
+slug: actions-yellow
+kind: URGENCY_ACTIONS
+urgency_category: YELLOW
+title: "Suggested staff actions - Yellow (urgent)"
+species: [DOG, CAT]
+content: |
+  Record the patient's arrival and identify the case as YELLOW priority.
+  Arrange assessment according to the clinic's approved urgent-triage workflow.
+  Ask the owner when the concern began and whether it has changed.
+  Observe the patient while waiting and report any deterioration to the veterinarian.
+  Reassess the assigned priority if new concerning information becomes available.
+source:
+  title: "Evaluation of a veterinary triage list modified from a human five-point triage system in 485 dogs and cats"
+  publisher: "Journal of Veterinary Emergency and Critical Care"
+  url: "https://doi.org/10.1111/j.1476-4431.2012.00736.x"
+  access_date: 2026-10-20

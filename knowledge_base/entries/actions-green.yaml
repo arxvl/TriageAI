@@ -1,0 +1,16 @@
+slug: actions-green
+kind: URGENCY_ACTIONS
+urgency_category: GREEN
+title: "Suggested staff actions - Green (standard)"
+species: [DOG, CAT]
+content: |
+  Register the patient and place the case in the standard-priority queue.
+  Ask the owner to describe the concern and when it first appeared.
+  Record any reported changes in the patient's condition.
+  Ask the owner to notify staff if the patient's condition worsens while waiting.
+  Inform the veterinarian if new concerning signs are observed or reported.
+source:
+  title: "Evaluation of a veterinary triage list modified from a human five-point triage system in 485 dogs and cats"
+  publisher: "Journal of Veterinary Emergency and Critical Care"
+  url: "https://doi.org/10.1111/j.1476-4431.2012.00736.x"
+  access_date: 2026-10-20

@@ -1,0 +1,58 @@
+# knowledge_base/entries/skin-itch-dog.yaml
+slug: skin-itch-dog
+complaint_code: SKIN_ITCH
+title: "Itching (Pruritus) in Dogs"
+species: [DOG]
+content: |
+  1. WHAT IT IS.
+  Pruritus, commonly called itching, is an uncomfortable skin sensation that
+  causes a dog to scratch, bite, lick, or rub its skin. It is a clinical sign
+  rather than a specific disease. Itching may affect one area or multiple
+  parts of the body. Common contributing factors include external parasites,
+  skin infections, and allergic reactions. Some skin conditions may initially
+  occur without itching, which can develop later, including when secondary
+  bacterial or yeast infections arise. The original trigger may no longer be
+  present when itching becomes noticeable.
+
+  2. WARNING SIGNS THAT RAISE URGENCY.
+  Itching accompanied by additional skin changes warrants closer attention,
+  particularly when there is hair loss, scaling, an unusual odor, or fluid
+  discharge. Persistent or intense scratching, biting, licking, or rubbing
+  can indicate a problem that requires veterinary assessment. Repeated
+  licking or rubbing of the face and feet may occur alongside signs of skin
+  infection. Staff should establish whether the problem is worsening,
+  widespread, causing apparent discomfort, or associated with changes in the
+  dog's general condition. The source does not establish itching alone as an
+  emergency or provide a specific emergency threshold. Urgency should
+  therefore be based on the complete presentation and any additional
+  concerning signs, rather than itching alone.
+
+  3. SIGNS OF LOWER URGENCY.
+  Mild, localized, or long-standing itching without other concerning changes
+  may be less urgent than itching accompanied by marked skin abnormalities
+  or deterioration in the dog's general condition. However, chronic itching
+  should not automatically be considered harmless. Its duration, pattern,
+  severity, and effect on the dog's daily activities help determine the need
+  for assessment. Seasonal itching may follow a recurring pattern, while
+  year-round symptoms may suggest ongoing exposure to environmental or food
+  triggers. These patterns provide useful history but do not establish a
+  cause by themselves.
+
+  4. WHAT STAFF SHOULD ASK THE OWNER.
+  Ask when the itching began, whether it is worsening, and whether it occurs
+  continuously, seasonally, or throughout the year. Determine whether it
+  affects one area or the whole body, and whether the dog scratches, bites,
+  licks, or rubs its skin excessively. Ask about hair loss, scaling, unusual
+  odor, discharge, and affected areas such as the face and feet. Establish
+  whether the dog has had similar episodes, whether symptoms have changed
+  recently, and whether any prior veterinary assessment or interventions
+  occurred. Ask about possible flea or other parasite exposure, recent
+  environmental changes, and the dog's usual food and treats. Record any
+  additional changes in behavior or general condition and escalate concerns
+  according to the full presentation.
+source:
+  title: "Itching (Pruritus) in Dogs"
+  publisher: "Merck Veterinary Manual"
+  url: "https://www.merckvetmanual.com/dog-owners/skin-disorders-of-dogs/itching-pruritus-in-dogs"
+  access_date: 2026-10-20
+red_flag_codes: []

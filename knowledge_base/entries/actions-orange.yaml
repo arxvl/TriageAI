@@ -1,0 +1,16 @@
+slug: actions-orange
+kind: URGENCY_ACTIONS
+urgency_category: ORANGE
+title: "Suggested staff actions - Orange (very urgent)"
+species: [DOG, CAT]
+content: |
+  Notify the veterinarian promptly and identify the patient as ORANGE priority.
+  Arrange prompt assessment ahead of standard and non-urgent cases.
+  Prepare the designated assessment area and keep access clear.
+  Ask the owner for a brief account of symptom onset and recent changes without delaying assessment.
+  Observe the patient's visible condition while waiting and report any deterioration immediately.
+source:
+  title: "Evaluation of a veterinary triage list modified from a human five-point triage system in 485 dogs and cats"
+  publisher: "Journal of Veterinary Emergency and Critical Care"
+  url: "https://doi.org/10.1111/j.1476-4431.2012.00736.x"
+  access_date: 2026-10-20

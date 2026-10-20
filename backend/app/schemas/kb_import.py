@@ -16,7 +16,9 @@ be submitted.
 
 **`extra="forbid"` on every model.** A misspelled key in a curated file is a
 silent omission otherwise: `red_flag_code:` would import an entry citing no rule
-at all. Forbidding unknown keys turns that into a reported error naming the key.
+at all. Forbidding unknown keys turns that into a reported error naming the key,
+and the error lists the fields that *are* accepted at that point in the file —
+the misspelling is usually one of them.
 
 **The two kinds are one model, checked across fields.** A file is a `COMPLAINT`
 entry or an `URGENCY_ACTIONS` baseline set (ADR-18), and which of
@@ -38,9 +40,11 @@ Nothing in this module touches a session or the network: it parses text
 (CLAUDE.md §7).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -215,6 +219,39 @@ class RedFlagRulesFile(BaseModel):
 _EXTRA_FORBIDDEN = "extra_forbidden"
 
 
+def _model_in(annotation: object) -> type[BaseModel] | None:
+    """The model an annotation holds, looking through `| None` and `list[...]`."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for argument in get_args(annotation):
+        found = _model_in(argument)
+        if found is not None:
+            return found
+    return None
+
+
+def _owning_model(root: type[BaseModel], location: Sequence[object]) -> type[BaseModel]:
+    """The model the rejected key was offered to, for listing its fields.
+
+    A stray key under `source:` belongs to `SourceBlock` and a stray key on one
+    rule in `red_flags.yaml` to `RedFlagRuleFile`, so the location is walked
+    rather than assumed: listing the entry's fields under `source:` would send
+    the curator looking in the wrong place. A list index names no field and is
+    skipped, and a path that cannot be resolved falls back to `root` — a less
+    specific list of names, never none.
+    """
+    model = root
+    for part in location:
+        if isinstance(part, int):
+            continue
+        declared = model.model_fields.get(str(part))
+        nested = None if declared is None else _model_in(declared.annotation)
+        if nested is None:
+            return root
+        model = nested
+    return model
+
+
 def _load_mapping(path: Path) -> tuple[dict | None, FileError | None]:
     """The YAML document as a mapping, or the error to report instead."""
     try:
@@ -232,13 +269,21 @@ def _load_mapping(path: Path) -> tuple[dict | None, FileError | None]:
     return document, None
 
 
-def _errors_from(path: Path, error: ValidationError) -> list[FileError]:
-    """One `FileError` per problem, with the plain wording where there is one."""
+def _errors_from(path: Path, error: ValidationError, model: type[BaseModel]) -> list[FileError]:
+    """One `FileError` per problem, with the plain wording where there is one.
+
+    `model` is what was validated, so an unknown key can be answered with the
+    fields that format does accept, in the order they are declared.
+    """
     reported = []
     for detail in error.errors():
         field = field_from_location(detail["loc"])
         if detail["type"] == _EXTRA_FORBIDDEN:
-            message = "is not a field of this file format. Remove it."
+            allowed = ", ".join(_owning_model(model, detail["loc"][:-1]).model_fields)
+            message = (
+                "is not a field of this file format. Remove it. "
+                f"The fields allowed here are: {allowed}."
+            )
         else:
             message = plain_message(field, detail["type"]) or detail["msg"]
         reported.append(FileError(path, field, message))
@@ -351,7 +396,7 @@ def parse_entry_file(path: Path) -> tuple[KBEntryFile | None, list[FileError]]:
     try:
         entry = KBEntryFile.model_validate(document)
     except ValidationError as error:
-        reported = _errors_from(path, error)
+        reported = _errors_from(path, error, KBEntryFile)
         return None, reported + _content_error_from_document(path, document, reported)
 
     if entry.slug != path.stem:
@@ -377,5 +422,5 @@ def parse_rules_file(path: Path) -> tuple[list[RedFlagRuleFile], list[FileError]
     try:
         parsed = RedFlagRulesFile.model_validate(document)
     except ValidationError as error:
-        return [], _errors_from(path, error)
+        return [], _errors_from(path, error, RedFlagRulesFile)
     return parsed.rules, []

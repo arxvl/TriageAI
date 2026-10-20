@@ -1,0 +1,16 @@
+slug: actions-blue
+kind: URGENCY_ACTIONS
+urgency_category: BLUE
+title: "Suggested staff actions - Blue (non-urgent)"
+species: [DOG, CAT]
+content: |
+  Register the patient and place the case in the clinic's non-urgent queue.
+  Ask the owner to summarize the concern and how long it has been present.
+  Record relevant changes reported since the concern began.
+  Ask the owner to alert staff if the patient's condition changes while waiting.
+  Notify the veterinarian if new concerning signs emerge or the assigned priority needs review.
+source:
+  title: "Evaluation of a veterinary triage list modified from a human five-point triage system in 485 dogs and cats"
+  publisher: "Journal of Veterinary Emergency and Critical Care"
+  url: "https://doi.org/10.1111/j.1476-4431.2012.00736.x"
+  access_date: 2026-10-20
