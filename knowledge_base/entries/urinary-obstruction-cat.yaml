@@ -1,0 +1,23 @@
+# knowledge_base/entries/urinary-obstruction-cat.yaml
+slug: urinary-obstruction-cat
+kind: COMPLAINT
+complaint_code: URINARY_OBSTRUCTION
+title: "Urinary Obstruction in Cats"
+species: [CAT]
+content: |
+  Urethral obstruction occurs when a blockage prevents urine from leaving the bladder normally. Male cats are particularly susceptible to this emergency, which may be associated with lower urinary tract problems and material obstructing the urethra.
+
+  WARNING SIGNS THAT RAISE URGENCY:
+  Repeated attempts to urinate that produce little or no urine are a major warning sign. A cat may strain in the litter box, visit it repeatedly, or cry out while attempting to urinate. Owners may mistake these behaviors for constipation. A complete blockage can rapidly cause a serious buildup of waste products in the body. As the condition progresses, observable warning signs may include marked lethargy, vomiting, diarrhea, dehydration, weakness, or collapse. Severe cases can become life-threatening. A painful, firm, enlarged bladder may also be identified during veterinary examination. Signs of shock or an abnormal heart rhythm indicate a potentially critical condition.
+
+  SIGNS OF LOWER URGENCY:
+  Changes in litter-box behavior, frequent urination attempts, and discomfort during urination may occur with lower urinary tract problems, including presentations that do not involve a complete blockage. However, these signs alone cannot establish whether urine flow is completely obstructed. Passing small amounts of urine does not reliably exclude a developing or partial obstruction. Straining may also be mistaken for difficulty passing stool. Because these presentations can look similar, staff should not classify a cat as low urgency solely because the owner reports some urine production or suspects constipation.
+
+  WHAT STAFF SHOULD ASK THE OWNER:
+  Ask when the cat last passed a normal amount of urine and whether any urine has been produced during recent litter-box visits. Clarify whether the cat repeatedly strains, cries out, appears uncomfortable, or spends unusually long periods in the litter box. Ask whether the owner has observed vomiting, diarrhea, unusual tiredness, weakness, reduced responsiveness, or collapse. Establish when the signs began and whether they are worsening. Confirm the cat's sex and ask whether the owner has noticed blood in the urine or other unusual material. If urine production is absent or uncertain, particularly in a male cat making repeated attempts to urinate, treat the report as an emergency requiring immediate veterinary assessment.
+source:
+  title: "Urethral Obstruction in Small Animals"
+  publisher: "Merck Veterinary Manual"
+  url: "https://www.msdvetmanual.com/urinary-system/urolithiasis-in-small-animals/urethral-obstruction-in-small-animals"
+  access_date: 2026-10-20
+red_flag_codes: [MALE_CAT_NO_URINE]

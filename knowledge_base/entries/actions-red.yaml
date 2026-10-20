@@ -1,0 +1,16 @@
+slug: actions-red
+kind: URGENCY_ACTIONS
+urgency_category: RED
+title: "Suggested staff actions - Red (immediate)"
+species: [DOG, CAT]
+content: |
+  Notify the veterinarian immediately that a RED-category patient has arrived.
+  Prioritize immediate clinical assessment over routine registration and waiting.
+  Clear access to the designated assessment area for the incoming patient.
+  Minimize unnecessary handling and environmental stress while awaiting assessment.
+  Relay the owner's reported symptoms, onset, and any observed deterioration to the veterinarian.
+source:
+  title: "Evaluation of a veterinary triage list modified from a human five-point triage system in 485 dogs and cats"
+  publisher: "Journal of Veterinary Emergency and Critical Care"
+  url: "https://doi.org/10.1111/j.1476-4431.2012.00736.x"
+  access_date: 2026-10-20

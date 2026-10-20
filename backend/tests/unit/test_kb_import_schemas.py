@@ -191,12 +191,48 @@ def test_an_unknown_key_is_rejected_by_name(tmp_path: Path, key: str) -> None:
 
     `red_flag_code` left alone would import an entry citing no rule at all, and
     `category` is the near-miss for `urgency_category` now that subphase 8.2b has
-    added it (ADR-18).
+    added it (ADR-18). The message is asserted whole: it is what a curator reads
+    to find the field they meant, so the list of alternatives is part of it.
     """
     _, errors = parse_entry_file(write_entry(tmp_path, entry_document(**{key: "COMPLAINT"})))
 
     assert [error.field for error in errors] == [key]
-    assert errors[0].message == "is not a field of this file format. Remove it."
+    assert errors[0].message == (
+        "is not a field of this file format. Remove it. The fields allowed here are: "
+        "slug, kind, title, complaint_code, urgency_category, species, content, source, "
+        "red_flag_codes."
+    )
+
+
+def test_an_unknown_key_in_the_source_block_lists_the_source_fields(tmp_path: Path) -> None:
+    """The alternatives offered are the ones that belong where the key is.
+
+    `source_note:` under `source:` is a `SourceBlock` key, and answering it with
+    the entry's own field names would send the curator looking in the wrong half
+    of the file. Extra provenance belongs in `knowledge_base/SOURCES.md`.
+    """
+    source = dict(entry_document()["source"], note="a caveat about the source")
+
+    _, errors = parse_entry_file(write_entry(tmp_path, entry_document(source=source)))
+
+    assert [error.field for error in errors] == ["source.note"]
+    assert errors[0].message == (
+        "is not a field of this file format. Remove it. The fields allowed here are: "
+        "title, publisher, url, access_date."
+    )
+
+
+def test_an_unknown_key_on_a_rule_lists_the_rule_fields(tmp_path: Path) -> None:
+    """The same, through a list: `rules.0.phrase_ref` is a `RedFlagRuleFile` key."""
+    document = {"rules": [rule_document(phrase_ref="MALE_CAT_NO_URINE")]}
+
+    _, errors = parse_rules_file(write_rules(tmp_path, document))
+
+    assert [error.field for error in errors] == ["rules.0.phrase_ref"]
+    assert errors[0].message == (
+        "is not a field of this file format. Remove it. The fields allowed here are: "
+        "code, label, min_category, species, phrases_ref, is_placeholder."
+    )
 
 
 def test_an_empty_species_list_is_rejected(tmp_path: Path) -> None:
@@ -491,18 +527,34 @@ def test_the_shipped_rules_file_parses() -> None:
     )
 
 
-def test_the_shipped_sample_entries_parse_and_are_marked_as_samples() -> None:
-    """The two entries in `entries/` are placeholders replaced in M5.
+def test_every_shipped_entry_parses_and_none_is_still_a_sample() -> None:
+    """The files in `entries/` are the sourced content M5 Part A wrote.
 
-    Asserted so an unreplaced sample cannot quietly become the content the
-    evaluation runs against (CLAUDE.md §9).
+    The SAMPLE placeholders subphase 8.2 shipped have been replaced, so the
+    assertion is now the other way round: an unreplaced sample must not quietly
+    become the content the evaluation runs against (CLAUDE.md §9). A file that
+    does not parse is a failing import, which is worth catching here rather than
+    in a container.
     """
     paths = sorted((KNOWLEDGE_BASE / "entries").glob("*.yaml"))
 
-    assert len(paths) == 2
+    assert paths, "knowledge_base/entries/ holds no files"
     for path in paths:
         entry, errors = parse_entry_file(path)
         assert errors == [], f"{path.name}: {[error.line() for error in errors]}"
         assert entry is not None
-        assert entry.content.startswith(SAMPLE_MARKER)
-        assert entry.source.title == SAMPLE_MARKER
+        assert SAMPLE_MARKER not in entry.content, f"{path.name} is still a placeholder"
+        assert entry.source.title != SAMPLE_MARKER, f"{path.name} has a placeholder citation"
+
+
+def test_the_shipped_baseline_action_sets_cover_every_category() -> None:
+    """One `URGENCY_ACTIONS` file per VTL category, and no category twice (ADR-18)."""
+    categories = []
+    for path in sorted((KNOWLEDGE_BASE / "entries").glob("*.yaml")):
+        entry, _ = parse_entry_file(path)
+        if entry is not None and entry.kind is KBEntryKind.URGENCY_ACTIONS:
+            categories.append(entry.urgency_category)
+
+    assert sorted(category.value for category in categories) == sorted(
+        category.value for category in VTLCategory
+    )

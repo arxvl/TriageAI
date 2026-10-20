@@ -14,11 +14,31 @@ All content is **English only** (FR-18).
 | `entries/<slug>.yaml` | One entry per file: a clinical entry, or a baseline action set | the curator, imported |
 | `red_flags.yaml` | Every red-flag rule: code, label, minimum category, species | the curator, imported |
 | `red_flag_phrases.yaml` | The phrases each rule matches on | by hand (M1); **not** imported |
+| `SOURCES.md` | Provenance an entry file has no field for | by hand; **not** imported |
 | `APPROVALS.md` | The source and the second-reader verification for every item | by hand |
 
 The phrases deliberately stay out of the database. The categories live in
 `red_flag_rules` so the safety floor has one source of truth; duplicating the
 phrase lists into rows would give it two.
+
+## What an entry file may contain
+
+The importer rejects any key it does not declare, by name — a misspelled
+`red_flag_code:` would otherwise import an entry citing no rule at all — and the
+error lists the fields accepted at that point in the file. These are all of them:
+
+| File | Accepted fields |
+|---|---|
+| `entries/<slug>.yaml` | `slug`, `kind`, `title`, `complaint_code`, `urgency_category`, `species`, `content`, `source`, `red_flag_codes` |
+| `entries/<slug>.yaml`, inside `source:` | `title`, `publisher`, `url`, `access_date` |
+| `red_flags.yaml`, per rule | `code`, `label`, `min_category`, `species`, `phrases_ref`, `is_placeholder` |
+
+**Everything else about a source goes in [`SOURCES.md`](SOURCES.md), not in the
+entry file.** A caveat about what the cited source does and does not support, a
+second reference consulted alongside it, a note on why a category was chosen —
+there is no `source_note:` or `supporting_sources:` field and adding one would
+mean a database column. `SOURCES.md` keeps one section per entry slug, is read by
+whoever verifies the entry before approving it, and is never imported.
 
 ## Importing
 
@@ -186,7 +206,9 @@ it.
 2. A second team member has verified that the content matches the source.
 3. Both are recorded as a row in [`APPROVALS.md`](APPROVALS.md).
 
-The two files in `entries/` today are **SAMPLE** placeholders: invented wording
-with a deliberately fake citation, there so the approval workflow can be walked
-end to end. M5 Part A replaces them with sourced content. Do not approve a file
-whose content still begins `SAMPLE - not source-verified`.
+The two **SAMPLE** placeholders subphase 8.2 shipped — invented wording with a
+deliberately fake citation, there so the approval workflow could be walked end to
+end — have been replaced by the sourced entries M5 Parts A and D wrote, and the
+files are gone. Nothing in `entries/` may begin `SAMPLE - not source-verified`
+again; `scripts/seed.py` still writes marked placeholders straight to the
+database, and those are what a replacement imported from a file supersedes.

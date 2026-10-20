@@ -1,0 +1,23 @@
+# knowledge_base/entries/respiratory-distress-dog-cat.yaml
+
+slug: respiratory-distress-dog-cat
+complaint_code: RESPIRATORY_DISTRESS
+title: "Respiratory Distress in Dogs and Cats"
+species: [DOG, CAT]
+content: |
+  Respiratory distress occurs when a dog or cat has difficulty breathing or must work harder than normal to breathe. It can become life-threatening, and an animal experiencing severe breathing difficulty may deteriorate suddenly, including during transportation.
+
+  WARNING SIGNS THAT RAISE URGENCY:
+  Warning signs include visibly increased breathing effort, open-mouth breathing, and abnormal breathing noises such as loud, harsh, or high-pitched sounds. Blue or otherwise abnormal coloration of the visible mucous membranes may indicate a serious lack of oxygen. Marked anxiety associated with difficult breathing is also concerning. Some animals show exaggerated abdominal movements or unusual chest movements while breathing. Breathing difficulty accompanied by collapse, severe weakness, or rapidly worsening signs should be treated as an emergency. Dogs and cats with severe respiratory distress can deteriorate suddenly, so urgent veterinary assessment is necessary. Noisy breathing may indicate an upper airway problem, while increased breathing effort with quieter-than-expected chest sounds can also indicate a serious problem.
+
+  SIGNS OF LOWER URGENCY AND LOOK-ALIKES:
+  Panting or open-mouth breathing may occur when an animal is overheated, stressed, or unable to cool itself effectively. These circumstances can resemble respiratory distress, but they do not rule out a serious breathing problem. Upper airway problems can interfere with normal cooling, making overheating an additional concern. Dogs with lower airway disease may cough occasionally, whereas cats may have breathing difficulty without an obvious cough. Cats may also have a history of coughing that owners mistake for retching or attempts to bring up a hairball. Sneezing and nasal or eye discharge may accompany upper respiratory signs in cats, but their presence does not exclude more serious breathing difficulty.
+
+  WHAT STAFF SHOULD ASK THE OWNER:
+  Ask when the breathing changes began, whether they appeared suddenly, and whether they are worsening. Clarify whether breathing is noisy, unusually rapid, open-mouthed, or visibly effortful. Ask whether the abdomen moves excessively with each breath and whether the animal has collapsed, become weak, or shown unusual gum or tongue coloration. Establish whether coughing, retching, sneezing, nasal discharge, or eye discharge has occurred. Ask about recent overheating, strenuous activity, stressful events, chest injuries, possible smoke or toxin exposure, vomiting, or regurgitation. Determine whether similar episodes have occurred before and whether the animal has recently been around other dogs or stayed in a boarding environment. Severe or worsening breathing difficulty warrants immediate emergency assessment rather than routine scheduling.
+source:
+  title: "Emergency Care"
+  publisher: "Canadian Veterinary Journal"
+  url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/"
+  access_date: 2026-10-20
+red_flag_codes: []
