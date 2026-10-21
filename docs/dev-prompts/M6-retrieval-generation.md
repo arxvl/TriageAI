@@ -387,7 +387,7 @@ For each demo case, run the full real pipeline 3 times, through the orchestrator
 
 ## Done when
 
-- [ ] The retriever and generator unit tests and the golden tests pass.
-- [ ] All stages are real, and the 12 demo runs (4 × 3) pass.
-- [ ] The failure demo works, and the latency meets NFR-01.
-- [ ] The prompt versions and their CHANGELOG are committed. ADR-05 and ADR-09 need no change, since the implementation follows them.
+- [x] The retriever and generator unit tests and the golden tests pass.
+- [x] All stages are real, and the 12 demo runs (4 × 3) pass.
+- [x] The failure demo works, and the latency meets NFR-01.
+- [x] The prompt versions and their CHANGELOG are committed. ADR-05 and ADR-09 need no change, since the implementation follows them.

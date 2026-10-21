@@ -1,1 +1,1 @@
-M6 - Retrieval Generation
+M6b LLM action suggestion

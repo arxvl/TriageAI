@@ -129,6 +129,7 @@ baseline suggested-action text written in M5 Part D) are excluded from similarit
 search -- they are looked up directly by category in the SUGGEST_ACTIONS stage
 (P05b, M6b), never surfaced here (ADR-18).
 """
+
 from __future__ import annotations
 
 import time
@@ -136,14 +137,19 @@ import time
 from sqlalchemy import select, text
 
 from app.models.enums import KBEntryKind
-from app.models.knowledge_base import KBChunk, KBEntry, PresentingComplaint, kb_version_entries
+from app.models.knowledge_base import (
+    KBChunk,
+    KBEntry,
+    PresentingComplaint,
+    kb_version_entries,
+)
 from app.pipeline.errors import RetrievalFailed
 from app.pipeline.types import Passage
 
 
 class PgVectorRetriever:
     MAX_CHUNKS_PER_ENTRY = 2
-    prompt_version = "retrieval-v1"   # stage attribute (CLAUDE.md section 8.2)
+    prompt_version = "retrieval-v1"  # stage attribute (CLAUDE.md section 8.2)
 
     def __init__(self, session_factory, embedder, ef_search: int = 40):
         self.sf, self.embedder, self.ef_search = session_factory, embedder, ef_search
@@ -152,7 +158,9 @@ class PgVectorRetriever:
     @classmethod
     def from_settings(cls, settings, deps) -> "PgVectorRetriever":
         if deps.embedder is None:
-            raise RuntimeError("PIPELINE_RETRIEVER=pgvector requires EMBEDDING_PROVIDER (M4)")
+            raise RuntimeError(
+                "PIPELINE_RETRIEVER=pgvector requires EMBEDDING_PROVIDER (M4)"
+            )
         return cls(deps.session_factory, deps.embedder, settings.HNSW_EF_SEARCH)
 
     @property
@@ -160,15 +168,27 @@ class PgVectorRetriever:
         return self.embedder.model_id
 
     def build_query(self, extraction, names: dict[str, str]) -> str:
-        primary = next((c for c in extraction.presenting_complaints if c.is_primary), None)
-        others = [names.get(c.code, c.code) for c in extraction.presenting_complaints if not c.is_primary]
+        primary = next(
+            (c for c in extraction.presenting_complaints if c.is_primary), None
+        )
+        others = [
+            names.get(c.code, c.code)
+            for c in extraction.presenting_complaints
+            if not c.is_primary
+        ]
         parts = [
             f"{extraction.species.value.title()}.",
             f"{names.get(primary.code, primary.code)}." if primary else "",
             f"Other complaints: {', '.join(others)}." if others else "",
-            f"Signs: {', '.join(extraction.associated_signs)}." if extraction.associated_signs else "",
-            f"Red flags: {', '.join(extraction.red_flags)}." if extraction.red_flags else "",
-            f"Duration: {extraction.onset_duration}." if extraction.onset_duration else "",
+            f"Signs: {', '.join(extraction.associated_signs)}."
+            if extraction.associated_signs
+            else "",
+            f"Red flags: {', '.join(extraction.red_flags)}."
+            if extraction.red_flags
+            else "",
+            f"Duration: {extraction.onset_duration}."
+            if extraction.onset_duration
+            else "",
         ]
         return " ".join(p for p in parts if p)
 
@@ -186,7 +206,9 @@ class PgVectorRetriever:
                 stmt = (
                     select(KBChunk, KBEntry, dist)
                     .join(KBEntry, KBEntry.id == KBChunk.entry_id)
-                    .join(kb_version_entries, kb_version_entries.c.entry_id == KBEntry.id)
+                    .join(
+                        kb_version_entries, kb_version_entries.c.entry_id == KBEntry.id
+                    )
                     .where(kb_version_entries.c.kb_version_id == kb_version_id)
                     .where(KBEntry.kind == KBEntryKind.COMPLAINT)
                     .where(KBEntry.species.any(extraction.species))
@@ -239,6 +261,7 @@ Citation and safety-floor enforcement happen afterward, in the deterministic
 SafetyValidator (P05, ADR-09) -- this class only calls the model and validates
 the JSON shape.
 """
+
 from __future__ import annotations
 
 import time
@@ -280,11 +303,14 @@ class LLMRecommendationGenerator:
 
     def generate(self, extraction, passages) -> DraftRecommendation:
         blocks = "\n\n".join(
-            f"[{p.rank}] {p.entry_title} \u2014 {p.source_title}\n{p.text}" for p in passages
+            f"[{p.rank}] {p.entry_title} \u2014 {p.source_title}\n{p.text}"
+            for p in passages
         )
         user = self.prompt.render_user(
             species=extraction.species.value,
-            extraction_json=extraction.model_dump_json(exclude={"evidence_spans"}, indent=1),
+            extraction_json=extraction.model_dump_json(
+                exclude={"evidence_spans"}, indent=1
+            ),
             passages=blocks or "(no passages found)",
         )
         feedback, start = "", time.perf_counter()
@@ -307,7 +333,9 @@ class LLMRecommendationGenerator:
                 )
             except (ValidationError, LLMInvalidOutput) as exc:
                 if attempt >= self.max_retries:
-                    raise GenerationFailed("invalid generation output after retry") from exc
+                    raise GenerationFailed(
+                        "invalid generation output after retry"
+                    ) from exc
                 feedback = "\n\nYour previous answer was invalid. Return only the JSON object described."
         raise GenerationFailed("unreachable")
 ```

@@ -1,0 +1,14 @@
+docker compose exec db psql -U triageai -d triageai -c \
+  "select
+     percentile_cont(0.5) within group (order by retrieve_ms) as retrieve_p50,
+     percentile_cont(0.95) within group (order by retrieve_ms) as retrieve_p95,
+     percentile_cont(0.5) within group (order by generate_ms) as generate_p50,
+     percentile_cont(0.95) within group (order by generate_ms) as generate_p95,
+     count(*) as n
+   from (
+     select (params->'stage_ms'->>'retrieve')::float as retrieve_ms,
+            (params->'stage_ms'->>'generate')::float as generate_ms
+     from recommendations
+     order by created_at desc
+     limit 20
+   ) recent;"

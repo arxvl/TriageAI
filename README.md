@@ -205,9 +205,9 @@ deploy/             production compose, Nginx, backup
 
 Complete: P01 scaffold, P02 database, P03 auth and RBAC, P04 intake and queue, P05 pipeline
 framework, P05b suggested actions, P06 clinical review, M1 de-identification and red-flag
-screening, M2 LLM provider adapter, M3 extraction, M4 embeddings, P08 §8.1 knowledge-base
-workflow and versioning.
-Next: P08 §8.2 YAML importer and §8.3 the knowledge-base screen. See
+screening, M2 LLM provider adapter, M3 extraction, M4 embeddings, P08 knowledge-base
+management, M5 KB authoring, chunking, and indexing, M6 Retrieval and recommendation generation
+Next: M6b LLM action suggestion. See
 `docs/dev-prompts/00-START-HERE.md`.
 
 ## Privacy and data handling
