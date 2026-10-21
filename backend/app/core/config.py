@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     knowledge_base_dir: str = "/knowledge_base"
 
     EXTRACTION_PROMPT_VERSION: str = "v1.0"
+    GENERATION_PROMPT_VERSION: str = "v1.0"
 
     # ---- LLM provider (M2) ----
     LLM_PROVIDER: Literal["mock", "hosted", "ollama"] = "mock"
@@ -142,6 +143,8 @@ class Settings(BaseSettings):
 
     KB_CHUNK_TARGET_WORDS: int = 150
     KB_CHUNK_OVERLAP_SENTENCES: int = 1
+
+    HNSW_EF_SEARCH: int = 40
 
     pipeline_deidentifier: DeidentifierOption = DeidentifierOption.MOCK
     pipeline_redflags: RedFlagsOption = RedFlagsOption.MOCK

@@ -22,6 +22,7 @@ from app.core.config import AppEnv, DeidentifierOption, LLMProviderOption, Setti
 from app.pipeline import mocks
 from app.pipeline.config import PipelineConfig
 from app.pipeline.deidentify_rules import RuleBasedDeidentifier
+from app.pipeline.generation_llm import LLMRecommendationGenerator
 from app.pipeline.orchestrator import TriagePipeline
 from app.pipeline.redflags_keywords import KeywordRedFlagScreener
 from app.pipeline.registry import (
@@ -74,11 +75,9 @@ IMPLEMENTED_LLM_PROVIDER_CASES: list[tuple[dict[str, str], type]] = [
 # Every non-mock option whose module is still to be written, with the M-guide its
 # error message must name. M1, M2 and M4 are merged, so `rules`, `keywords`,
 # `hosted`, `ollama` and `sentence_transformer` are covered by the tests above and
-# below instead of here.
+# below instead of here. M5 and M6 are merged too, so `pgvector` (indexer and
+# retriever) and the `llm` generator are covered by the tests further down.
 NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
-    ({"KB_INDEXER": "pgvector"}, "KB_INDEXER=pgvector", "M5"),
-    ({"PIPELINE_RETRIEVER": "pgvector"}, "PIPELINE_RETRIEVER=pgvector", "M6"),
-    ({"PIPELINE_GENERATOR": "llm"}, "PIPELINE_GENERATOR=llm", "M6"),
     ({"PIPELINE_ACTIONS": "llm"}, "PIPELINE_ACTIONS=llm", "M6b"),
 ]
 
@@ -306,10 +305,46 @@ def test_the_message_says_how_to_get_back_to_a_working_configuration(
     monkeypatch: pytest.MonkeyPatch, session_factory: FakeSessionFactory
 ) -> None:
     """A broken real stage must be revertible in seconds during a demo (ADR-17)."""
-    settings = settings_with(monkeypatch, PIPELINE_GENERATOR="llm")
+    settings = settings_with(monkeypatch, PIPELINE_ACTIONS="llm")
 
-    with pytest.raises(StageNotImplementedError, match="PIPELINE_GENERATOR=mock"):
+    with pytest.raises(StageNotImplementedError, match="PIPELINE_ACTIONS=mock"):
         build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"KB_INDEXER": "pgvector"}, {"PIPELINE_RETRIEVER": "pgvector"}],
+    ids=["KB_INDEXER=pgvector", "PIPELINE_RETRIEVER=pgvector"],
+)
+def test_a_pgvector_stage_without_an_embedder_says_what_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    session_factory: FakeSessionFactory,
+    overrides: dict[str, str],
+) -> None:
+    """M5 and M6 exist now; what is missing is the embedder they both need (M4)."""
+    settings = settings_with(monkeypatch, **overrides)
+
+    with pytest.raises(RuntimeError, match="EMBEDDING_PROVIDER"):
+        build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+
+
+def test_the_llm_generator_is_built_on_the_shared_provider(
+    monkeypatch: pytest.MonkeyPatch, session_factory: FakeSessionFactory
+) -> None:
+    """`PIPELINE_GENERATOR=llm` builds M6's class onto `deps.llm`, opening nothing (ADR-17)."""
+    settings = settings_with(
+        monkeypatch,
+        PIPELINE_GENERATOR="llm",
+        LLM_PROVIDER="ollama",
+        PIPELINE_DEIDENTIFIER="rules",
+    )
+
+    pipeline = build_pipeline(settings, session_factory=session_factory)  # type: ignore[arg-type]
+
+    assert type(pipeline.generator) is LLMRecommendationGenerator
+    assert pipeline.generator.llm is pipeline.deps.llm
+    assert pipeline.generator.prompt_version == "generation/v1.0"
+    assert session_factory.calls == 0
 
 
 def test_an_embedding_provider_is_built_only_when_one_is_selected(
