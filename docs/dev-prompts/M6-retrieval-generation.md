@@ -16,9 +16,9 @@ to the settings; every other `LLM_*` setting already exists from M2.
 
 ## Prerequisites
 
-- [ ] M3 done: the real extractor works.
-- [ ] M5 done: a published KB version exists with embedded chunks.
-- [ ] The P05 safety-validator tests are green.
+- [x] M3 done: the real extractor works.
+- [x] M5 done: a published KB version exists with embedded chunks.
+- [x] The P05 safety-validator tests are green.
 
 ---
 

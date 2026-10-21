@@ -53,7 +53,7 @@ The table lists every step in order and maps it to your PD8 roadmap. "CC" means 
 | ✅9  | P06 Case Review and HITL decisions            | CC       | P05 (parallel to M1–M3) | 3             |
 | ✅10 | M4 pgvector and embedding model               | You      | P02                     | 2             |
 | ✅11 | P08 Knowledge base management                 | CC       | P06                     | 2–3           |
-| 12  | M5 KB authoring, chunking, and indexing       | You      | M4, P08                 | 2             |
+| ✅12 | M5 KB authoring, chunking, and indexing       | You      | M4, P08                 | 2             |
 | 13  | M6 Retrieval and recommendation generation    | You      | M3, M5                  | 2             |
 | 13b | M6b LLM action suggestion                     | You      | M6, P05b                | 2–3           |
 | 14  | P07 Resilience, regeneration, and history     | CC       | P06                     | 3             |
