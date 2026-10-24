@@ -52,7 +52,7 @@ from app.models import (
     VTLCategory,
 )
 from app.pipeline.action_validator import baseline_actions
-from app.pipeline.messages import failure_message
+from app.pipeline.messages import failure_message, regeneration_failure_message
 from app.repositories.case_repository import (
     CaseRepository,
     OwnerReferenceValues,
@@ -86,6 +86,8 @@ from app.schemas.review import (
     NoteOut,
     PermissionsOut,
     RecommendationOut,
+    RecommendationVersionDetail,
+    RecommendationVersionOut,
     ReferenceOut,
     RetryAccepted,
     SafetyFloorRuleOut,
@@ -410,6 +412,45 @@ class CaseService:
             ],
             permissions=self._permissions(status, user),
             failure=self._failure(case_id, status),
+            recommendation_versions=self._recommendation_versions(case_id),
+            regeneration_failure=self._regeneration_failure(
+                case_id, status, extraction, recommendation
+            ),
+        )
+
+    def get_recommendation_version(
+        self, case_id: uuid.UUID, version: int
+    ) -> RecommendationVersionDetail:
+        """One stored recommendation version, read-only (FR-27, ADR-14).
+
+        What the switcher shows for an older version. Every role that can open
+        the case can read it: a version is the record of what was shown, and the
+        suggested actions that are visible to reviewers only (FR-79) are not part
+        of it.
+        """
+        if self._reviews.status_of(case_id) is None:
+            raise CaseNotFound()
+        row = self._reviews.recommendation_by_version(case_id, version)
+        if row is None:
+            raise CaseNotFound("That recommendation version could not be found.")
+        latest = self._reviews.latest_recommendation(case_id)
+        return RecommendationVersionDetail(
+            recommendation=self._recommendation(row),
+            references=[
+                ReferenceOut(
+                    rank=reference.rank,
+                    entry_title=reference.entry_title,
+                    source_title=reference.source_title,
+                    source_url=reference.source_url,
+                    passage_text=reference.passage_text,
+                    score=None if reference.score is None else float(reference.score),
+                    is_cited=reference.is_cited,
+                )
+                for reference in self._reviews.references(row.id)
+            ],
+            configuration=self._configuration(row),
+            extraction_version=row.extraction_version,
+            is_current=latest is not None and latest.id == row.id,
         )
 
     # --- The review screen (FR-31, P06 §6.1) ------------------------------
@@ -487,6 +528,7 @@ class CaseService:
             id=row.id,
             version=row.version,
             is_corrected=row.is_corrected,
+            corrected_by_name=row.corrected_by_name,
             species=_as_species(entities.get("species")),
             presenting_complaints=[
                 ExtractedComplaintOut(
@@ -578,8 +620,10 @@ class CaseService:
         is_reviewer = user.role is UserRole.VETERINARY_REVIEWER
         return PermissionsOut(
             can_decide=is_reviewer and status is not CaseStatus.CLOSED,
-            # The regenerate backend is P07 §7.2; W-04 shows the button disabled.
-            can_regenerate=False,
+            # P07 §7.2: a correction is refused once a decision exists, and while
+            # a regeneration is running the case is `PROCESSING`. `correct_extraction`
+            # enforces the same rule.
+            can_regenerate=is_reviewer and status is CaseStatus.AWAITING_REVIEW,
             # W-06's Retry (P07 §7.1): only a reviewer, only while the case is
             # waiting on a failed run. `retry_pipeline` enforces the same rule.
             can_retry=is_reviewer and status is CaseStatus.MANUAL_TRIAGE_REQUIRED,
@@ -620,6 +664,62 @@ class CaseService:
         return FailureOut(
             reason_code=reason,
             message=failure_message(
+                reason,
+                attempts=attempts if isinstance(attempts, int) else None,
+                failed_at=failed_at,
+                tz=str(self._display_timezone),
+            ),
+            failed_at=failed_at,
+        )
+
+    def _recommendation_versions(self, case_id: uuid.UUID) -> list[RecommendationVersionOut]:
+        """Every recommendation version, oldest first, the newest marked current (FR-27)."""
+        rows = self._reviews.recommendation_versions(case_id)
+        return [
+            RecommendationVersionOut(
+                version=row.version,
+                category=VTLCategory(row.category),
+                created_at=row.created_at,
+                is_current=index == len(rows) - 1,
+            )
+            for index, row in enumerate(rows)
+        ]
+
+    def _regeneration_failure(
+        self,
+        case_id: uuid.UUID,
+        status: CaseStatus,
+        extraction: Row | None,
+        recommendation: Row | None,
+    ) -> FailureOut | None:
+        """Why the last regeneration failed, while it is still the latest thing (P07 §7.2).
+
+        Only for a case awaiting review whose newest extraction has no
+        recommendation made from it, and whose newest `REGENERATE_FAILED` entry
+        is about that extraction. Matching on the extraction rather than on
+        timestamps is what lets a failure stop showing once a retry succeeds (the
+        newest extraction then has its recommendation), while the entry itself
+        stays in the append-only log (ADR-12).
+        """
+        if status is not CaseStatus.AWAITING_REVIEW or extraction is None or recommendation is None:
+            return None
+        if extraction.id == recommendation.extraction_id:
+            return None
+        entry = self._reviews.latest_audit_entry(case_id, AuditAction.REGENERATE_FAILED)
+        if entry is None:
+            return None
+
+        payload = entry.after or {}
+        if payload.get("extraction_id") != str(extraction.id):
+            return None
+        reason = payload.get("reason")
+        if not isinstance(reason, str) or reason == "":
+            return None
+        failed_at = _parse_iso(payload.get("failed_at")) or entry.ts
+        attempts = payload.get("attempts")
+        return FailureOut(
+            reason_code=reason,
+            message=regeneration_failure_message(
                 reason,
                 attempts=attempts if isinstance(attempts, int) else None,
                 failed_at=failed_at,

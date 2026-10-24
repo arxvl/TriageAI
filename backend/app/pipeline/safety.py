@@ -31,7 +31,8 @@ from collections.abc import Hashable, Iterable
 from typing import TypeVar
 
 from app.core.vtl import URGENCY_ORDER, more_urgent
-from app.models.enums import ConfidenceLevel, VTLCategory
+from app.models import RedFlagRule
+from app.models.enums import ConfidenceLevel, Species, VTLCategory
 from app.pipeline.config import PipelineConfig
 from app.pipeline.types import (
     OTHER_COMPLAINT,
@@ -49,6 +50,7 @@ __all__ = [
     "UNSUPPORTED_COMPLAINT",
     "SafetyValidator",
     "citation_flags",
+    "reviewer_red_flag_hits",
 ]
 
 # The machine-readable reasons stored in `recommendations.low_confidence_reasons`
@@ -132,6 +134,34 @@ def citation_flags(passages: list[Passage], cited_ranks: list[int]) -> dict[int,
     """
     cited = set(cited_ranks)
     return {passage.rank: passage.rank in cited for passage in passages}
+
+
+def reviewer_red_flag_hits(
+    red_flags: Iterable[str], rules: Iterable[RedFlagRule], species: Species
+) -> list[RedFlagHit]:
+    """Red-flag hits for the red flags listed on a corrected extraction (FR-27).
+
+    A regeneration does not run the keyword screener again, so a red flag a
+    reviewer adds by hand reaches the safety floor only if it names a rule. The
+    match is on the **exact rule label** — "male cat, no urine", as the W-08
+    rules table and the safety-floor notice print it — and not on a phrase, a
+    synonym or a substring: free text a person typed is never interpreted into
+    an urgency. A flag that matches no label is ignored for the floor (it still
+    shows on the review screen), and a rule that does not apply to this species
+    is ignored, as it would be by the screener.
+
+    The hits can only raise the category, never lower it (FR-23), so listing a
+    flag the model had already reported does no harm.
+    """
+    by_label = {rule.label: rule for rule in rules if species in rule.species}
+    hits: list[RedFlagHit] = []
+    for flag in red_flags:
+        rule = by_label.get(flag)
+        if rule is not None:
+            hits.append(
+                RedFlagHit(rule_code=rule.code, matched_text=flag, min_category=rule.min_category)
+            )
+    return hits
 
 
 class SafetyValidator:

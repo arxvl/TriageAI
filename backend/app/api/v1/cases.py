@@ -30,10 +30,13 @@ from app.schemas.case import (
 from app.schemas.review import (
     AuditTimeline,
     CaseClosed,
+    CorrectionAccepted,
     DecisionCreate,
     DecisionOut,
+    ExtractionCorrection,
     NoteCreate,
     NoteOut,
+    RecommendationVersionDetail,
     RetryAccepted,
 )
 from app.services.case_service import CaseService
@@ -132,6 +135,22 @@ def retry_pipeline(case_id: uuid.UUID, db: DbSession, user: ReviewerUser) -> Ret
     return CaseService(db).retry_pipeline(case_id, user)
 
 
+@router.patch("/{case_id}/extraction", status_code=status.HTTP_202_ACCEPTED)
+def correct_extraction(
+    case_id: uuid.UUID, payload: ExtractionCorrection, db: DbSession, user: ReviewerUser
+) -> CorrectionAccepted:
+    """Correct the extracted information and regenerate the recommendation (UC-09, FR-27).
+
+    Answers 202: a new extraction version is stored, the original is kept, and a
+    `REGENERATE` job is queued; the case is `PROCESSING` until it finishes and the
+    client polls `GET /cases/{id}/status` for the outcome. Answers 409 unless the
+    case is awaiting review — a decided case is never changed by regeneration
+    (NFR-11) — and 422 naming the field when a value is not acceptable, such as a
+    complaint code the clinic does not have.
+    """
+    return ReviewService(db).correct_extraction(case_id, payload, user)
+
+
 @router.post("/{case_id}/notes")
 def add_note(case_id: uuid.UUID, payload: NoteCreate, db: DbSession, user: ReviewerUser) -> NoteOut:
     """Attach a clinical note to a case (FR-37).
@@ -160,6 +179,17 @@ def read_case_audit(case_id: uuid.UUID, db: DbSession, user: QueueReader) -> Aud
     exists (FR-41, ADR-12).
     """
     return ReviewService(db).get_timeline(case_id)
+
+
+@router.get("/{case_id}/recommendations/{version}")
+def read_recommendation_version(
+    case_id: uuid.UUID, version: int, db: DbSession, user: QueueReader
+) -> RecommendationVersionDetail:
+    """One stored recommendation version, read-only (FR-27, ADR-14).
+
+    Every version is kept; older ones can be read here and cannot be decided on.
+    """
+    return CaseService(db).get_recommendation_version(case_id, version)
 
 
 @router.get("/{case_id}")

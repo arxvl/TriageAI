@@ -46,6 +46,7 @@ from app.schemas.review import (
     NoteOut,
     PermissionsOut,
     RecommendationOut,
+    RecommendationVersionOut,
     ReferenceOut,
 )
 
@@ -385,3 +386,8 @@ class CaseDetail(BaseModel):
     permissions: PermissionsOut
     # The failure the case is currently sitting on, else null (P06 §6.3).
     failure: FailureOut | None = None
+    # Every recommendation version, oldest first, for the switcher (FR-27).
+    recommendation_versions: list[RecommendationVersionOut] = []
+    # The last regeneration failed and the previous recommendation is still the
+    # current one (P07 §7.2). Null otherwise.
+    regeneration_failure: FailureOut | None = None

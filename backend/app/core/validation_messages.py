@@ -146,6 +146,55 @@ MESSAGES: dict[str, dict[str, str]] = {
         "string_too_long": "The note must be 2,000 characters or fewer. Shorten it a little.",
         ANY_ERROR: "Enter the note, up to 2,000 characters.",
     },
+    # --- Extraction correction, W-04 panel 2 (FR-27) ----------------------
+    # Which complaint codes exist and which one is primary are cross-field rules
+    # raised by `ReviewService` as `InvalidCorrection`; only shapes are here.
+    "presenting_complaints": {
+        "too_long": "Choose at most 10 presenting complaints.",
+        ANY_ERROR: "Choose the presenting complaints from the list and mark one as primary.",
+    },
+    "presenting_complaints.code": {
+        ANY_ERROR: "Choose the presenting complaint from the list.",
+    },
+    "presenting_complaints.is_primary": {
+        ANY_ERROR: "Mark each complaint as primary or not.",
+    },
+    "onset_duration": {
+        "string_too_long": "Onset and duration can be at most 300 characters.",
+        ANY_ERROR: "Enter the onset and duration as text, or leave it blank.",
+    },
+    "frequency_severity": {
+        "string_too_long": "Frequency and severity can be at most 300 characters.",
+        ANY_ERROR: "Enter the frequency and severity as text, or leave it blank.",
+    },
+    "exposure_history": {
+        "string_too_long": "Exposure history can be at most 300 characters.",
+        ANY_ERROR: "Enter the exposure history as text, or leave it blank.",
+    },
+    "relevant_history": {
+        "string_too_long": "Relevant history can be at most 300 characters.",
+        ANY_ERROR: "Enter the relevant history as text, or leave it blank.",
+    },
+    "associated_signs": {
+        "too_long": "List at most 20 associated signs.",
+        "string_too_long": "Each associated sign can be at most 200 characters.",
+        ANY_ERROR: "Enter the associated signs as a list, one per line.",
+    },
+    "negated_findings": {
+        "too_long": "List at most 20 negated findings.",
+        "string_too_long": "Each negated finding can be at most 200 characters.",
+        ANY_ERROR: "Enter the negated findings as a list, one per line.",
+    },
+    "red_flags": {
+        "too_long": "List at most 20 red flags.",
+        "string_too_long": "Each red flag can be at most 200 characters.",
+        ANY_ERROR: "Enter the red flags as a list, one per line.",
+    },
+    "missing_information": {
+        "too_long": "List at most 20 items to ask the owner.",
+        "string_too_long": "Each item can be at most 200 characters.",
+        ANY_ERROR: "Enter what to ask the owner as a list, one per line.",
+    },
     # --- Knowledge base, W-08 (FR-49, FR-50, NFR-08) ---------------------
     # The source citation fields are all required, which is FR-50 and not a
     # formatting preference: an entry nobody can trace to a published source

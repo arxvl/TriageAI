@@ -173,6 +173,27 @@ class InvalidDecision(AppError):
         return error_body(self.code, self.message, self.field)
 
 
+class InvalidCorrection(AppError):
+    """422: an extraction correction is well formed but cannot be accepted.
+
+    The cross-field rules — a complaint code the clinic does not have, no primary
+    complaint, nothing actually changed — have no Pydantic error type to key
+    wording on, so `ReviewService` raises them with the field the panel should
+    point at (IR-05, FR-27).
+    """
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+    message = "Some of the information you entered is not valid."
+
+    def __init__(self, message: str | None = None, *, field: str | None = None) -> None:
+        self.field = field
+        super().__init__(message)
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, self.field)
+
+
 class KBNotFound(AppError):
     """404 for anything under `/kb`: an entry, a rule, or a version.
 

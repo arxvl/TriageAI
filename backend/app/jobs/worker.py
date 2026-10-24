@@ -20,23 +20,26 @@ dies on the first unhandled exception — would leave every later case stuck in
 `SUBMITTED` with nothing in the log to say why.
 
 **A triage job has a time budget** — `2 × timeout_s + 10` seconds
-(`PipelineConfig.job_timeout_s`, IR-19). A `PIPELINE_RUN` runs on its own thread
-and the worker waits for it that long. If it has not finished, the worker sets
-the run's cancel event and takes the ordinary failure path itself, so the case
-reaches `MANUAL_TRIAGE_REQUIRED` and the job `FAILED` exactly as for a model
-timeout (NFR-09, P07 §7.1 task 5). A Python thread cannot be killed; the
+(`PipelineConfig.job_timeout_s`, IR-19). A `PIPELINE_RUN` or `REGENERATE` runs on
+its own thread and the worker waits for it that long. If it has not finished, the
+worker sets the run's cancel event and takes the run's own failure path itself, so
+the case reaches `MANUAL_TRIAGE_REQUIRED` (or, for a regeneration,
+`AWAITING_REVIEW` with its previous recommendation) and the job `FAILED` exactly
+as for a model timeout (NFR-09, P07 §7.1 task 5). A Python thread cannot be killed; the
 abandoned run stops at its next checkpoint without writing, and a provider call
 already in flight is bounded by the provider's own timeout.
 
-Three job types are dispatched. `PIPELINE_RUN` triages a case;
+Four job types are dispatched. `PIPELINE_RUN` triages a case; `REGENERATE` makes
+the next recommendation version from a reviewer's corrected extraction, running
+retrieval, generation and the safety validator only (P07 §7.2, FR-27);
 `SUGGEST_ACTIONS` suggests actions for one stored recommendation, and its failure
 is recorded on that recommendation and never on the case (FR-77, ADR-18 §3);
 `KB_INDEX` indexes an approved knowledge-base entry and publishes the version
 that contains it, and its failure leaves the entry awaiting review with nothing
 published (FR-53, P08 §8.1). Anything else is refused rather than ignored, so a
 job enqueued by a later phase against a worker that predates it fails loudly
-instead of sitting `QUEUED` forever: `REGENERATE` arrives in P07 and `EVAL_RUN`
-with the evaluation harness (M7).
+instead of sitting `QUEUED` forever: `EVAL_RUN` arrives with the evaluation
+harness (M7).
 """
 
 import logging
@@ -46,7 +49,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.jobs.queue import JobQueue
+from app.jobs.queue import REGENERATE_EXTRACTION_KEY, JobQueue
 from app.models import Job, JobType
 from app.pipeline.orchestrator import ACTIONS_JOB_RECOMMENDATION_KEY
 from app.services.kb_indexing import kb_index_job_target, run_kb_index
@@ -60,6 +63,7 @@ __all__ = [
     "DEFAULT_POLL_INTERVAL_S",
     "MISSING_CASE_ID",
     "MISSING_ENTRY_ID",
+    "MISSING_EXTRACTION_ID",
     "MISSING_RECOMMENDATION_ID",
     "UNEXPECTED_ERROR",
     "UNSUPPORTED_JOB_TYPE",
@@ -78,6 +82,7 @@ UNEXPECTED_ERROR = "INTERNAL_ERROR"
 MISSING_CASE_ID = "MISSING_CASE_ID"
 MISSING_RECOMMENDATION_ID = "MISSING_RECOMMENDATION_ID"
 MISSING_ENTRY_ID = "MISSING_ENTRY_ID"
+MISSING_EXTRACTION_ID = "MISSING_EXTRACTION_ID"
 
 
 def _recommendation_id(job: Job) -> uuid.UUID | None:
@@ -95,22 +100,41 @@ def _recommendation_id(job: Job) -> uuid.UUID | None:
         return None
 
 
+def _extraction_id(job: Job) -> uuid.UUID | None:
+    """The corrected extraction a `REGENERATE` job is about, or None.
+
+    In the payload for the same reason as the recommendation id: `jobs` points at
+    a case, and this job is about one *version* of that case's extraction.
+    """
+    raw = (job.payload or {}).get(REGENERATE_EXTRACTION_KEY)
+    try:
+        return uuid.UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
 def _run_with_budget(
     pipeline: "TriagePipeline", job: Job, budget_s: float | None
 ) -> "PipelineRunResult":
-    """Run a triage job on a watchdog thread; fail the case if it overruns.
+    """Run a triage or regeneration job on a watchdog thread; fail it if it overruns.
 
     The ids are read off the job before the thread starts: the `Job` belongs to
     the worker's session, and the run opens its own.
     """
     case_id, job_id = job.case_id, job.id
+    extraction_id = _extraction_id(job) if job.type is JobType.REGENERATE else None
     budget = pipeline.config.job_timeout_s if budget_s is None else budget_s
     cancel = threading.Event()
     outcome: dict[str, object] = {}
 
     def target() -> None:
         try:
-            outcome["result"] = pipeline.run(case_id, job_id=job_id, cancel=cancel)
+            if extraction_id is not None:
+                outcome["result"] = pipeline.regenerate(
+                    case_id, extraction_id, job_id=job_id, cancel=cancel
+                )
+            else:
+                outcome["result"] = pipeline.run(case_id, job_id=job_id, cancel=cancel)
         except BaseException as error:  # noqa: BLE001 - handed back to the worker thread
             outcome["error"] = error
 
@@ -121,9 +145,16 @@ def _run_with_budget(
     if thread.is_alive():
         cancel.set()
         logger.error(
-            "triage job exceeded its time budget",
-            extra={"job_id": str(job_id), "case_id": str(case_id), "budget_s": budget},
+            "job exceeded its time budget",
+            extra={
+                "job_id": str(job_id),
+                "case_id": str(case_id),
+                "job_type": str(job.type),
+                "budget_s": budget,
+            },
         )
+        if extraction_id is not None:
+            return pipeline.fail_regeneration_timed_out(case_id, extraction_id, job_id=job_id)
         return pipeline.fail_timed_out(case_id, job_id=job_id)
 
     error = outcome.get("error")
@@ -158,6 +189,13 @@ def run_job(
             if job.case_id is None:
                 logger.error("PIPELINE_RUN job without a case", extra=context)
                 queue.fail(job, MISSING_CASE_ID)
+                return
+            result = _run_with_budget(pipeline, job, budget_s)
+
+        elif job.type is JobType.REGENERATE:
+            if job.case_id is None or _extraction_id(job) is None:
+                logger.error("REGENERATE job without a case or an extraction", extra=context)
+                queue.fail(job, MISSING_EXTRACTION_ID)
                 return
             result = _run_with_budget(pipeline, job, budget_s)
 

@@ -402,11 +402,16 @@ export interface ExtractedComplaint {
   is_primary: boolean;
 }
 
-/** Panel 2: the extracted information. Read-only until P07. */
+/**
+ * Panel 2: the extracted information. A reviewer can correct it before deciding
+ * (P07 §7.2); a correction is a new version, never an edit (ADR-14).
+ */
 export interface CaseExtraction {
   id: string;
   version: number;
   is_corrected: boolean;
+  /** Who made the correction; null for the pipeline's own version. */
+  corrected_by_name: string | null;
   species: Species | null;
   presenting_complaints: ExtractedComplaint[];
   onset_duration: string | null;
@@ -531,15 +536,40 @@ export interface CaseNote {
  * What this caller may do with this case, as the server sees it.
  *
  * For hiding controls, never for allowing them: the server refuses the request
- * whatever these say (SR-05, BR-02). `can_regenerate` is false until P07 §7.2,
- * where W-04 shows the button disabled. `can_retry` is true for a reviewer on a
- * case that is waiting on a failed run (P07 §7.1).
+ * whatever these say (SR-05, BR-02). `can_regenerate` is true for a reviewer on
+ * a case that is awaiting review: a correction is refused once a decision exists
+ * and while a regeneration is already running (P07 §7.2). `can_retry` is true for
+ * a reviewer on a case that is waiting on a failed run (P07 §7.1).
  */
 export interface CasePermissions {
   can_decide: boolean;
   can_regenerate: boolean;
   can_retry: boolean;
   can_close: boolean;
+}
+
+/** One entry of the version switcher under panel 3 (FR-27). */
+export interface RecommendationVersion {
+  version: number;
+  category: VTLCategory;
+  created_at: string;
+  /** Only the current version can be decided on. */
+  is_current: boolean;
+}
+
+/**
+ * One stored recommendation version, read-only (FR-27, ADR-14).
+ *
+ * What the switcher shows for an older version: the recommendation as it was,
+ * the passages it cited, the configuration that produced it, and the extraction
+ * version it was made from.
+ */
+export interface RecommendationVersionDetail {
+  recommendation: CaseRecommendation;
+  references: CaseReference[];
+  configuration: CaseConfiguration;
+  extraction_version: number;
+  is_current: boolean;
 }
 
 /**
@@ -579,6 +609,13 @@ export interface CaseDetail {
   permissions: CasePermissions;
   /** The failure the case is sitting on, for W-06's banner. */
   failure: CaseFailure | null;
+  /** Every recommendation version, oldest first (FR-27). */
+  recommendation_versions: RecommendationVersion[];
+  /**
+   * The last regeneration failed and the previous recommendation is still the
+   * current one (P07 §7.2). Same shape as `failure`; the wording is different.
+   */
+  regeneration_failure: CaseFailure | null;
 }
 
 /** One row of the action list a reviewer finalizes with their decision (FR-76). */
@@ -678,6 +715,54 @@ export interface CaseRetryAccepted {
 /** Run the AI pipeline again for a case it gave up on. Reviewers only (UC-08). */
 export async function retryCase(caseId: string): Promise<CaseRetryAccepted> {
   return apiFetch<CaseRetryAccepted>(`/cases/${caseId}/retry`, { method: "POST" });
+}
+
+/**
+ * The fields of a correction to the extracted information (UC-09, FR-27).
+ *
+ * Partial: only the fields present are changed, and a field sent as `null` or
+ * `[]` is cleared deliberately. Species, signalment and the evidence spans are
+ * not editable, and the server refuses a request that sends them.
+ */
+export interface ExtractionCorrection {
+  presenting_complaints?: { code: string; is_primary: boolean }[];
+  onset_duration?: string | null;
+  frequency_severity?: string | null;
+  associated_signs?: string[];
+  negated_findings?: string[];
+  exposure_history?: string | null;
+  relevant_history?: string | null;
+  red_flags?: string[];
+  missing_information?: string[];
+}
+
+/** The 202 that follows a correction: the case is `PROCESSING` while it regenerates. */
+export interface CorrectionAccepted {
+  id: string;
+  case_no: string;
+  status: CaseStatus;
+  extraction_version: number;
+  /** Field names only, never values. Empty when an earlier failure was re-queued. */
+  changed_fields: string[];
+}
+
+/** Correct the extracted information and regenerate. Reviewers only (FR-27). */
+export async function correctExtraction(
+  caseId: string,
+  payload: ExtractionCorrection,
+): Promise<CorrectionAccepted> {
+  return apiFetch<CorrectionAccepted>(`/cases/${caseId}/extraction`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** One stored recommendation version, read-only (FR-27). */
+export async function readRecommendationVersion(
+  caseId: string,
+  version: number,
+): Promise<RecommendationVersionDetail> {
+  return apiFetch<RecommendationVersionDetail>(`/cases/${caseId}/recommendations/${version}`);
 }
 
 /** Attach a clinical note to a case. Reviewers only (FR-37). */

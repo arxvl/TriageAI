@@ -135,6 +135,27 @@ startup sweep returns a job to the queue only once it has been `RUNNING` for
 either wait that long before restarting or set `JOB_STALE_AFTER_MINUTES=0` for the check. The
 case is then triaged and never stays in `PROCESSING` (NFR-13).
 
+## Correcting the extraction and regenerating
+
+On W-04 a Veterinary Reviewer can click a value in **Extracted information**, correct it, and press
+**Save and regenerate** (UC-09, FR-27); the API is `PATCH /api/v1/cases/{id}/extraction` (reviewer
+only, answers 202). It is allowed only while the case is `AWAITING_REVIEW`, so a decided category is
+never changed by regeneration (NFR-11). Nothing is edited in place:
+
+- the correction is stored as a **new extraction version** (`is_corrected`, `corrected_by`) and the
+  original is kept; the audit entry `EXTRACTION_CORRECTED` lists the changed field *names* only;
+- a `REGENERATE` job runs retrieval, generation and the safety validator only — never
+  de-identification, the red-flag screen or extraction — and stores the next **recommendation
+  version**; older versions stay readable (`GET /api/v1/cases/{id}/recommendations/{version}`) and
+  cannot be decided on;
+- the safety floor uses the case's stored red-flag alerts plus any red flag the reviewer typed that
+  equals a rule's label *exactly* (W-08 shows the labels); anything else is ignored for the floor;
+- the case is `PROCESSING` while it runs. If it fails, the case returns to `AWAITING_REVIEW` with
+  the previous recommendation still current, `REGENERATE_FAILED` is audited, and pressing **Save and
+  regenerate** again re-queues the saved correction. With `MOCK_LLM_BEHAVIOR=timeout` the mock
+  generator fails, which shows the banner; the mocks have no fixture for a corrected extraction, so a
+  successful mock regeneration returns the generic YELLOW draft.
+
 The application **refuses to start** if a real LLM provider is selected while de-identification is
 still mocked, so raw owner text cannot leave the server (ADR-10).
 

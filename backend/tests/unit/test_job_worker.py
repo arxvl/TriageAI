@@ -18,7 +18,9 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.jobs.queue import REGENERATE_EXTRACTION_KEY
 from app.jobs.worker import (
+    MISSING_EXTRACTION_ID,
     MISSING_RECOMMENDATION_ID,
     UNEXPECTED_ERROR,
     UNSUPPORTED_JOB_TYPE,
@@ -55,6 +57,7 @@ class _StubPipeline:
         self._actions_result = actions_result
         self.calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
         self.actions_calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+        self.regenerate_calls: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None]] = []
 
     config = PipelineConfig()
 
@@ -63,6 +66,29 @@ class _StubPipeline:
     block: threading.Event | None = None
     cancel_seen: threading.Event | None = None
     timed_out: list[uuid.UUID] = []
+    regeneration_timed_out: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    def regenerate(
+        self,
+        case_id: uuid.UUID,
+        extraction_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+        cancel: threading.Event | None = None,
+    ) -> object:
+        self.regenerate_calls.append((case_id, extraction_id, job_id))
+        if self.block is not None:
+            self.cancel_seen = cancel
+            self.block.wait(timeout=10)
+        if self._raises is not None:
+            raise self._raises
+        return self._result or PipelineRunResult(case_id, CaseStatus.AWAITING_REVIEW)
+
+    def fail_regeneration_timed_out(
+        self, case_id: uuid.UUID, extraction_id: uuid.UUID, *, job_id: uuid.UUID | None = None
+    ) -> object:
+        self.regeneration_timed_out = [*self.regeneration_timed_out, (case_id, extraction_id)]
+        return PipelineRunResult(case_id, CaseStatus.AWAITING_REVIEW, FailureReason.LLM_TIMEOUT)
 
     def run(
         self,
@@ -169,14 +195,14 @@ def test_an_empty_queue_runs_nothing(
     assert pipeline.calls == []
 
 
-@pytest.mark.parametrize("job_type", [JobType.REGENERATE, JobType.EVAL_RUN])
+@pytest.mark.parametrize("job_type", [JobType.EVAL_RUN])
 def test_a_job_type_this_worker_does_not_handle_fails_loudly(
     db_session: Session, app_session_factory: sessionmaker, job_type: JobType
 ) -> None:
-    """P07 and M7 add these. Until then, failing beats sitting `QUEUED`.
+    """M7 adds this one. Until then, failing beats sitting `QUEUED`.
 
-    `KB_INDEX` has left this list: P08 §8.1 dispatches it, and
-    `tests/unit/test_kb_indexing.py` covers what it does.
+    `KB_INDEX` and `REGENERATE` have left this list: P08 §8.1 and P07 §7.2
+    dispatch them, and their own tests cover what they do.
     """
     job = make_job(db_session, case=make_case(db_session), job_type=job_type)
     pipeline = _StubPipeline()
@@ -188,6 +214,74 @@ def test_a_job_type_this_worker_does_not_handle_fails_loudly(
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
     assert job.last_error.startswith(UNSUPPORTED_JOB_TYPE)
+
+
+def test_a_regenerate_job_runs_the_regeneration_not_the_pipeline(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    case = make_case(db_session)
+    extraction_id = uuid.uuid4()
+    job = make_job(
+        db_session,
+        case=case,
+        job_type=JobType.REGENERATE,
+        payload={REGENERATE_EXTRACTION_KEY: str(extraction_id)},
+    )
+    pipeline = _StubPipeline()
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    assert pipeline.regenerate_calls == [(case.id, extraction_id, job.id)]
+    assert pipeline.calls == []
+    db_session.refresh(job)
+    assert job.status is JobStatus.DONE
+
+
+@pytest.mark.parametrize("payload", [None, {}, {REGENERATE_EXTRACTION_KEY: "not-a-uuid"}])
+def test_a_regenerate_job_without_an_extraction_fails(
+    db_session: Session, app_session_factory: sessionmaker, payload: dict | None
+) -> None:
+    job = make_job(
+        db_session, case=make_case(db_session), job_type=JobType.REGENERATE, payload=payload
+    )
+    pipeline = _StubPipeline()
+
+    run_pending_jobs_once(app_session_factory, pipeline)
+
+    assert pipeline.regenerate_calls == []
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(MISSING_EXTRACTION_ID)
+
+
+def test_a_regeneration_that_outlives_its_budget_takes_its_own_failure_path(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    """The same `2 × timeout_s + 10` budget, but the case is not sent to manual triage."""
+    case = make_case(db_session)
+    extraction_id = uuid.uuid4()
+    job = make_job(
+        db_session,
+        case=case,
+        job_type=JobType.REGENERATE,
+        payload={REGENERATE_EXTRACTION_KEY: str(extraction_id)},
+    )
+    pipeline = _StubPipeline()
+    pipeline.block = threading.Event()
+
+    try:
+        run_pending_jobs_once(app_session_factory, pipeline, budget_s=0.2)
+    finally:
+        pipeline.block.set()
+
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(FailureReason.LLM_TIMEOUT.value)
+    assert pipeline.regeneration_timed_out == [(case.id, extraction_id)]
+    assert pipeline.timed_out == []
+    assert pipeline.cancel_seen is not None and pipeline.cancel_seen.is_set()
 
 
 def test_a_pipeline_run_job_with_no_case_fails(

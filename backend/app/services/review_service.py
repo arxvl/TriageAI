@@ -13,6 +13,11 @@ of them may be reachable around:
   category and a reason code from a fixed list, and the direction is computed
   and stored, because the reasons and the directions are the data behind the
   disagreement analysis (BR-03, FR-42).
+* **A correction is a new version, never an edit.** A reviewer who corrects the
+  extracted information adds an extraction row and, through a `REGENERATE` job,
+  a recommendation row; both earlier versions stay as they were (FR-27, ADR-14).
+  It is allowed only before a decision, so a regeneration can never move a
+  category a person has settled (NFR-11, FR-48).
 * **What the reviewer accepted is recorded even when they accept everything.**
   Finalizing with no `final_actions` key is not "no actions"; it is the list
   they were shown, stored as `KEPT` (FR-76).
@@ -34,24 +39,30 @@ from datetime import UTC, datetime
 from sqlalchemy import Row
 from sqlalchemy.orm import Session
 
-from app.core.errors import CaseNotFound, InvalidDecision
+from app.core.errors import CaseNotFound, InvalidCaseTransition, InvalidCorrection, InvalidDecision
 from app.core.vtl import TARGET_MINUTES
+from app.jobs.queue import REGENERATE_EXTRACTION_KEY, JobQueue
 from app.models import (
     ActionSource,
     ActionStatus,
     AdjustReason,
     CaseStatus,
     DecisionType,
+    JobType,
     User,
     VTLCategory,
 )
+from app.pipeline.types import OTHER_COMPLAINT, ExtractedComplaint, ExtractionOutput
 from app.repositories.case_repository import CaseRepository
+from app.repositories.pipeline_repository import PipelineRepository
 from app.repositories.review_repository import FinalActionValues, ReviewRepository
 from app.schemas.review import (
     AuditTimeline,
     CaseClosed,
+    CorrectionAccepted,
     DecisionCreate,
     DecisionOut,
+    ExtractionCorrection,
     FinalActionInput,
     NoteCreate,
     NoteOut,
@@ -78,6 +89,8 @@ class ReviewService:
         self._session = session
         self._reviews = ReviewRepository(session)
         self._cases = CaseRepository(session)
+        self._pipeline_rows = PipelineRepository(session)
+        self._jobs = JobQueue(session)
         self._audit = AuditService(session)
         self._now = now or _utc_now
 
@@ -134,6 +147,11 @@ class ReviewService:
             before={
                 "status": status.value,
                 "category": None if recommended is None else recommended.value,
+                # Which version the reviewer decided on: always the latest, and
+                # recorded so a later regeneration cannot blur it (FR-27).
+                "recommendation_version": None
+                if recommendation is None
+                else recommendation.version,
                 "previous_decision_id": None if previous is None else str(previous.id),
             },
             after={
@@ -378,6 +396,163 @@ class ReviewService:
             return []
         return baseline_actions(self._session, category, kb_version_id)
 
+    # --- Extraction correction and regeneration (FR-27, UC-09) ------------
+
+    def correct_extraction(
+        self, case_id: uuid.UUID, payload: ExtractionCorrection, user: User
+    ) -> CorrectionAccepted:
+        """Store a corrected extraction and queue the regeneration. One transaction.
+
+        Allowed only in `AWAITING_REVIEW`: before a decision, because a decided
+        category is never changed by regeneration (NFR-11), and not while a
+        regeneration is already running, because the case is then `PROCESSING`.
+        The move to `PROCESSING` is a compare-and-set that happens in the same
+        transaction as the new rows and the job, so a second press finds the
+        status already moved and answers 409 instead of queueing twice, and no
+        decision can be recorded on the recommendation about to be superseded.
+
+        The correction is a **new** `ExtractionResult`; the version it was made
+        from is never touched (ADR-14). When the request changes nothing and the
+        latest extraction has no recommendation yet — an earlier regeneration
+        failed — it re-queues that extraction instead of storing a duplicate.
+        """
+        status = self._reviews.status_of(case_id)
+        if status is None:
+            raise CaseNotFound()
+        if status is not CaseStatus.AWAITING_REVIEW:
+            raise InvalidCaseTransition(_correction_refused(status))
+
+        latest = self._reviews.latest_extraction(case_id)
+        recommendation = self._reviews.latest_recommendation(case_id)
+        if latest is None or recommendation is None:
+            raise InvalidCaseTransition("This case has no AI recommendation to regenerate.")
+
+        base = _stored_extraction(latest.entities)
+        corrected, changed = self._apply_correction(base, payload)
+
+        # An earlier regeneration failed: the newest extraction is the corrected
+        # one that no recommendation has been made from.
+        pending_extraction = latest.id != recommendation.extraction_id
+        if not changed and not pending_extraction:
+            raise InvalidCorrection("Change at least one value before saving.")
+
+        if not self._reviews.begin_regeneration(case_id):
+            # Somebody else moved the case between the read above and the update.
+            self._session.rollback()
+            raise InvalidCaseTransition(_correction_refused(CaseStatus.PROCESSING))
+
+        if changed:
+            known = self._pipeline_rows.known_complaint_codes(
+                [c.code for c in corrected.presenting_complaints] + [OTHER_COMPLAINT]
+            )
+            row = self._pipeline_rows.insert_extraction(
+                case_id=case_id,
+                version=self._pipeline_rows.next_extraction_version(case_id),
+                input_text=latest.input_text,
+                extraction=corrected,
+                # The values were corrected by a person; the model and prompt are
+                # still what produced everything the reviewer left alone.
+                model_id=latest.model_id,
+                prompt_version=latest.prompt_version,
+                latency_ms=None,
+                complaint_codes=PipelineRepository.mapped_complaints(corrected, known),
+                corrected_by=user.id,
+            )
+            extraction_id, extraction_version = row.id, row.version
+        else:
+            extraction_id, extraction_version = latest.id, latest.version
+
+        self._jobs.enqueue(
+            JobType.REGENERATE,
+            case_id=case_id,
+            payload={REGENERATE_EXTRACTION_KEY: str(extraction_id)},
+        )
+        # Field names only. The values are clinical free text, the log cannot be
+        # corrected, and the new extraction row holds them (FR-43, CLAUDE.md §9).
+        self._audit.record(
+            action=AuditAction.EXTRACTION_CORRECTED,
+            entity_type=CASE_ENTITY,
+            entity_id=str(case_id),
+            user_id=user.id,
+            role=user.role,
+            before={
+                "status": CaseStatus.AWAITING_REVIEW.value,
+                "extraction_version": latest.version,
+                "recommendation_version": recommendation.version,
+            },
+            after={
+                "status": CaseStatus.PROCESSING.value,
+                "extraction_id": str(extraction_id),
+                "extraction_version": extraction_version,
+                "changed_fields": changed,
+            },
+        )
+        header = self._reviews.header_row(case_id)
+        self._session.commit()
+        if header is None:  # pragma: no cover - the row was read a moment ago
+            raise CaseNotFound()
+        return CorrectionAccepted(
+            id=case_id,
+            case_no=header.case_no,
+            status=CaseStatus.PROCESSING,
+            extraction_version=extraction_version,
+            changed_fields=changed,
+        )
+
+    def _apply_correction(
+        self, base: ExtractionOutput, payload: ExtractionCorrection
+    ) -> tuple[ExtractionOutput, list[str]]:
+        """The extraction with the correction applied, and which fields changed.
+
+        Only fields the request actually sent are applied. The result is rebuilt
+        through `ExtractionOutput`, so what is stored is always the contract
+        object, and compared field by field against the version it replaces, so
+        "changed" means the value differs and not merely that it was sent.
+        """
+        sent = payload.model_fields_set
+        updates: dict[str, object] = {}
+        for name in sent:
+            value = getattr(payload, name)
+            if name == "presenting_complaints":
+                if value is None:
+                    raise InvalidCorrection("Choose at least one presenting complaint.", field=name)
+                updates[name] = self._validated_complaints(value)
+            elif name in _LIST_FIELDS:
+                updates[name] = [] if value is None else list(value)
+            else:
+                updates[name] = value
+
+        corrected = ExtractionOutput.model_validate({**base.model_dump(), **updates})
+        before, after = base.model_dump(), corrected.model_dump()
+        changed = [
+            name
+            for name in ExtractionCorrection.model_fields
+            if name in sent and _normalised(name, before[name]) != _normalised(name, after[name])
+        ]
+        return corrected, changed
+
+    def _validated_complaints(self, complaints: list) -> list[ExtractedComplaint]:
+        """The complaint list, if it is one the pipeline could have produced.
+
+        Every code must be a supported complaint or `OTHER`; there must be
+        exactly one primary; a code appears once. The same rules the safety
+        validator relies on (it reads the primary, and treats `OTHER` as a reason
+        to recommend manual triage), checked here so the reviewer is told which
+        input is wrong rather than getting a quietly different recommendation.
+        """
+        field = "presenting_complaints"
+        if not complaints:
+            raise InvalidCorrection("Choose at least one presenting complaint.", field=field)
+        codes = [complaint.code for complaint in complaints]
+        if len(set(codes)) != len(codes):
+            raise InvalidCorrection("Each complaint can be chosen only once.", field=field)
+        unknown = set(codes) - self._pipeline_rows.known_complaint_codes(codes + [OTHER_COMPLAINT])
+        if unknown - {OTHER_COMPLAINT}:
+            raise InvalidCorrection("Choose the presenting complaints from the list.", field=field)
+        if sum(1 for complaint in complaints if complaint.is_primary) != 1:
+            raise InvalidCorrection("Mark exactly one complaint as primary.", field=field)
+        return [ExtractedComplaint(code=c.code, is_primary=c.is_primary) for c in complaints]
+
     # --- Notes and close (FR-37, FR-38) -----------------------------------
 
     def add_note(self, case_id: uuid.UUID, payload: NoteCreate, user: User) -> NoteOut:
@@ -470,3 +645,50 @@ class ReviewService:
             reference_counts=self._reviews.reference_counts(case_id),
             marks=self._reviews.timing_marks(case_id),
         )
+
+
+# The correctable fields that hold a list of strings.
+_LIST_FIELDS = frozenset(
+    {"associated_signs", "negated_findings", "red_flags", "missing_information"}
+)
+
+
+def _stored_extraction(entities: object) -> ExtractionOutput:
+    """The latest extraction as the contract object, or a 422 if it cannot be read.
+
+    A row written by an older version of the contract cannot be corrected in
+    place; the reviewer is told, rather than a field being quietly reset.
+    """
+    try:
+        return ExtractionOutput.model_validate(entities)
+    except ValueError:
+        raise InvalidCorrection(
+            "The stored extraction can no longer be read, so it cannot be corrected."
+        ) from None
+
+
+def _normalised(name: str, value: object) -> object:
+    """A field's value in the form that is compared to decide whether it changed.
+
+    The complaint list is compared as a set of `(code, is_primary)`: their order
+    is not information. Blank text and `None` are the same "nothing stated".
+    """
+    if name == "presenting_complaints" and isinstance(value, list):
+        return {(item["code"], item["is_primary"]) for item in value}
+    if isinstance(value, str):
+        return value.strip() or None
+    return value
+
+
+def _correction_refused(status: CaseStatus) -> str:
+    """Why a correction cannot be saved now, in a sentence a reviewer can act on."""
+    if status is CaseStatus.PROCESSING:
+        return "A new recommendation is already being made for this case. Wait for it to finish."
+    if status in (CaseStatus.SUBMITTED,):
+        return "This case is still being processed. Wait for the recommendation, then correct it."
+    if status is CaseStatus.MANUAL_TRIAGE_REQUIRED:
+        return "There is no AI recommendation for this case, so there is nothing to regenerate."
+    return (
+        "This case has already been decided, so its recommendation can no longer be regenerated. "
+        "Record an amendment instead."
+    )

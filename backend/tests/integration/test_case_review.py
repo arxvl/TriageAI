@@ -426,15 +426,15 @@ def test_notes_are_returned_oldest_first_with_their_authors(
     assert all(note["author_name"] for note in notes)
 
 
-def test_a_reviewer_may_decide_but_not_regenerate_or_close_yet(
+def test_a_reviewer_may_decide_and_regenerate_but_not_close_yet(
     reviewer_client: TestClient, demo_case: Case
 ) -> None:
-    """`can_regenerate` is false until P07; `can_close` needs a decision."""
+    """`can_regenerate` is true while awaiting review (P07 §7.2); `can_close` needs a decision."""
     permissions = read(reviewer_client, demo_case).json()["permissions"]
 
     assert permissions == {
         "can_decide": True,
-        "can_regenerate": False,
+        "can_regenerate": True,
         "can_retry": False,
         "can_close": False,
     }

@@ -28,8 +28,9 @@ statuses only (ADR-12).
 
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.models.enums import (
     ActionSource,
@@ -124,6 +125,73 @@ class DecisionCreate(BaseModel):
         return value.strip() if isinstance(value, str) else value
 
 
+# One free-text value on the extraction panel. Short on purpose: these are the
+# reviewer's corrections to a structured record, not clinical notes (FR-27).
+EXTRACTION_VALUE_MAX_LENGTH = 300
+EXTRACTION_ITEM_MAX_LENGTH = 200
+EXTRACTION_LIST_MAX_ITEMS = 20
+COMPLAINTS_MAX_ITEMS = 10
+
+_Value = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=EXTRACTION_VALUE_MAX_LENGTH)
+]
+_Item = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=EXTRACTION_ITEM_MAX_LENGTH),
+]
+_Items = Annotated[list[_Item], Field(max_length=EXTRACTION_LIST_MAX_ITEMS)]
+
+
+class ComplaintCorrection(BaseModel):
+    """One presenting complaint in a correction: a code and whether it is primary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    is_primary: bool
+
+
+class ExtractionCorrection(BaseModel):
+    """A reviewer's corrections to the extracted information (UC-09, FR-27).
+
+    Partial: only the fields present in the request are changed, and the rest
+    are carried over from the latest extraction (`model_fields_set`). A field
+    sent as null or an empty list is a deliberate clearing, which is different
+    from leaving it out.
+
+    **Not editable here:** species and signalment (they come from the case
+    record) and the evidence spans (they index the de-identified text, which a
+    correction does not change). `extra="forbid"` turns an attempt to send them
+    into a 422 instead of a silent drop.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    presenting_complaints: (
+        Annotated[list[ComplaintCorrection], Field(max_length=COMPLAINTS_MAX_ITEMS)] | None
+    ) = None
+    onset_duration: _Value | None = None
+    frequency_severity: _Value | None = None
+    associated_signs: _Items | None = None
+    negated_findings: _Items | None = None
+    exposure_history: _Value | None = None
+    relevant_history: _Value | None = None
+    red_flags: _Items | None = None
+    missing_information: _Items | None = None
+
+    @field_validator(
+        "onset_duration",
+        "frequency_severity",
+        "exposure_history",
+        "relevant_history",
+        mode="after",
+    )
+    @classmethod
+    def _blank_is_absent(cls, value: str | None) -> str | None:
+        """A cleared input arrives as "" and means "nothing stated"."""
+        return value or None
+
+
 class NoteCreate(BaseModel):
     """A clinical note added to a case (FR-37)."""
 
@@ -211,16 +279,17 @@ class ExtractedComplaintOut(BaseModel):
 
 
 class ExtractionOut(BaseModel):
-    """Panel 2: the extracted information, read-only in this subphase.
+    """Panel 2: the extracted information, editable by a reviewer (P07 §7.2).
 
-    Editing arrives in P07; `is_corrected` is returned now because a corrected
-    extraction is a new version rather than an edit (ADR-14) and the screen will
-    need to say which it is looking at.
+    A correction is a new version rather than an edit (ADR-14), so `version` and
+    `is_corrected` say which one the screen is looking at, and
+    `corrected_by_name` who made it.
     """
 
     id: uuid.UUID
     version: int
     is_corrected: bool
+    corrected_by_name: str | None = None
     species: Species | None
     presenting_complaints: list[ExtractedComplaintOut]
     onset_duration: str | None
@@ -381,6 +450,50 @@ class RetryAccepted(BaseModel):
     status: CaseStatus
 
 
+class CorrectionAccepted(BaseModel):
+    """202 for `PATCH /cases/{id}/extraction`: the regeneration has been queued.
+
+    `status` is `PROCESSING` while the new recommendation is made; the client
+    polls `GET /cases/{id}/status` from there (IR-22). `changed_fields` is the
+    names of the fields that differ from the previous version, never their
+    values; it is empty when the request re-queued a regeneration that had
+    failed, for an extraction that already existed.
+    """
+
+    id: uuid.UUID
+    case_no: str
+    status: CaseStatus
+    extraction_version: int
+    changed_fields: list[str]
+
+
+class RecommendationVersionOut(BaseModel):
+    """One entry of the version switcher under panel 3 (FR-27).
+
+    Every version is kept (ADR-14); only the current one can be decided on.
+    """
+
+    version: int
+    category: VTLCategory
+    created_at: datetime
+    is_current: bool
+
+
+class RecommendationVersionDetail(BaseModel):
+    """One stored recommendation version, read-only (FR-27, ADR-14).
+
+    What the switcher shows for an older version: the recommendation as it was,
+    the passages it cited and the configuration that produced it, plus the
+    extraction version it was made from. Nothing here can be decided on.
+    """
+
+    recommendation: RecommendationOut
+    references: list[ReferenceOut]
+    configuration: ConfigurationOut
+    extraction_version: int
+    is_current: bool
+
+
 class PermissionsOut(BaseModel):
     """What this caller may do with this case, as the server sees it.
 
@@ -389,8 +502,9 @@ class PermissionsOut(BaseModel):
     enforcement. `require_role` and `ReviewService` enforce them, and would
     refuse the request whatever these flags said (SR-05, BR-02).
 
-    `can_regenerate` is always false in this subphase: the regenerate backend is
-    P07 §7.2, and W-04 shows the button disabled until then.
+    `can_regenerate` is true for a reviewer on a case that is awaiting review: a
+    correction is refused once a decision exists (FR-48, NFR-11) and while a
+    regeneration is already running.
 
     `can_retry` is true for a reviewer on a case sitting in
     `MANUAL_TRIAGE_REQUIRED`, which is when W-06's Retry button is live (P07 §7.1).

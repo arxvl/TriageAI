@@ -391,7 +391,7 @@ class CaseRepository:
         ).first()
 
     def latest_pipeline_job(self, case_id: uuid.UUID) -> Row | None:
-        """The newest `PIPELINE_RUN` job for a case: its status and its payload.
+        """The newest `PIPELINE_RUN` or `REGENERATE` job for a case: its status and payload.
 
         How far a run has got is reported from the job rather than from the case,
         because `CaseStatus` has one value for the whole run — `PROCESSING` —
@@ -401,7 +401,10 @@ class CaseRepository:
         """
         statement = (
             select(Job.status, Job.payload, Job.last_error)
-            .where(Job.case_id == case_id, Job.type == JobType.PIPELINE_RUN)
+            .where(
+                Job.case_id == case_id,
+                Job.type.in_([JobType.PIPELINE_RUN, JobType.REGENERATE]),
+            )
             .order_by(Job.created_at.desc(), Job.id.desc())
             .limit(1)
         )

@@ -136,8 +136,13 @@ class ReviewRepository:
                 ExtractionResult.entities,
                 ExtractionResult.red_flags,
                 ExtractionResult.missing_information,
+                ExtractionResult.model_id,
+                ExtractionResult.prompt_version,
                 ExtractionResult.created_at,
+                User.full_name.label("corrected_by_name"),
             )
+            .select_from(ExtractionResult)
+            .outerjoin(User, User.id == ExtractionResult.corrected_by)
             .where(ExtractionResult.case_id == case_id)
             .order_by(ExtractionResult.version.desc(), ExtractionResult.id.desc())
             .limit(1)
@@ -179,6 +184,39 @@ class ReviewRepository:
         says "KB version 7", and the id means nothing to a reviewer (FR-26).
         """
         statement = (
+            self._recommendation_statement(case_id)
+            .order_by(Recommendation.version.desc(), Recommendation.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).one_or_none()
+
+    def recommendation_by_version(self, case_id: uuid.UUID, version: int) -> Row | None:
+        """One stored recommendation version, for the read-only switcher (FR-27)."""
+        statement = (
+            self._recommendation_statement(case_id)
+            .where(Recommendation.version == version)
+            .order_by(Recommendation.id.desc())
+            .limit(1)
+        )
+        return self._session.execute(statement).one_or_none()
+
+    def recommendation_versions(self, case_id: uuid.UUID) -> list[Row]:
+        """Every recommendation version for a case, oldest first (FR-27)."""
+        statement = (
+            select(
+                Recommendation.version,
+                Recommendation.category,
+                Recommendation.created_at,
+            )
+            .where(Recommendation.case_id == case_id)
+            .order_by(Recommendation.version.asc(), Recommendation.id.asc())
+        )
+        return list(self._session.execute(statement).all())
+
+    @staticmethod
+    def _recommendation_statement(case_id: uuid.UUID):
+        """The columns every recommendation read returns, unordered."""
+        return (
             select(
                 Recommendation.id,
                 Recommendation.version,
@@ -195,15 +233,15 @@ class ReviewRepository:
                 Recommendation.prompt_version,
                 Recommendation.latency_ms,
                 Recommendation.created_at,
+                Recommendation.extraction_id,
                 KBVersion.version_no.label("kb_version_no"),
+                ExtractionResult.version.label("extraction_version"),
             )
             .select_from(Recommendation)
             .outerjoin(KBVersion, KBVersion.id == Recommendation.kb_version_id)
+            .outerjoin(ExtractionResult, ExtractionResult.id == Recommendation.extraction_id)
             .where(Recommendation.case_id == case_id)
-            .order_by(Recommendation.version.desc(), Recommendation.id.desc())
-            .limit(1)
         )
-        return self._session.execute(statement).one_or_none()
 
     def references(self, recommendation_id: uuid.UUID) -> list[Row]:
         """One recommendation's retrieved passages, in rank order (FR-31)."""
@@ -613,6 +651,23 @@ class ReviewRepository:
             update(Case)
             .where(Case.id == case_id, Case.status == CaseStatus.MANUAL_TRIAGE_REQUIRED)
             .values(status=CaseStatus.SUBMITTED)
+        )
+        self._session.flush()
+        return result.rowcount == 1
+
+    def begin_regeneration(self, case_id: uuid.UUID) -> bool:
+        """Move `AWAITING_REVIEW` to `PROCESSING`; True if this call did.
+
+        A compare-and-set in one statement, like `reopen_for_retry`: two presses
+        of "Save and regenerate" must produce one job, and a decision recorded in
+        between must win. While the case is `PROCESSING` no decision can be made
+        on the recommendation that is about to be superseded (FR-27, NFR-11).
+        Flushes, never commits.
+        """
+        result = self._session.execute(
+            update(Case)
+            .where(Case.id == case_id, Case.status == CaseStatus.AWAITING_REVIEW)
+            .values(status=CaseStatus.PROCESSING)
         )
         self._session.flush()
         return result.rowcount == 1

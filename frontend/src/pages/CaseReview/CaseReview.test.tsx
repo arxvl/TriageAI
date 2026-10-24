@@ -128,6 +128,7 @@ function makeCaseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
       id: "00000000-0000-4000-8000-0000000000e1",
       version: 1,
       is_corrected: false,
+      corrected_by_name: null,
       species: "CAT",
       presenting_complaints: [
         { code: "URINARY_STRAINING", name: "Straining or inability to urinate", is_primary: true },
@@ -186,6 +187,10 @@ function makeCaseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
     notes: [],
     permissions: { can_decide: true, can_regenerate: false, can_retry: false, can_close: false },
     failure: null,
+    recommendation_versions: [
+      { version: 1, category: "ORANGE", created_at: "2026-10-01T01:36:14Z", is_current: true },
+    ],
+    regeneration_failure: null,
 
     ...overrides,
   };
@@ -241,6 +246,7 @@ function manualTriageCase(overrides: Partial<CaseDetail> = {}): CaseDetail {
       failed_at: "2026-10-01T01:20:41Z",
     },
     permissions: { can_decide: true, can_regenerate: false, can_retry: true, can_close: false },
+    recommendation_versions: [],
     ...overrides,
   });
 }
@@ -448,13 +454,425 @@ describe("CaseReview panel 2 — the extraction", () => {
     expect(await screen.findByText(copy.extractionUnavailable)).toBeInTheDocument();
   });
 
-  // Correcting a value and regenerating from it is P07.
-  it("offers 'Save and regenerate' disabled, with the P07 tooltip", async () => {
+  // Without `can_regenerate` the panel is a record: nothing to press.
+  it("is read-only, with no Save and regenerate button, when regenerating is not allowed", async () => {
     renderCase(makeCaseDetail());
 
+    await screen.findByText(copy.fields.onset_duration);
+    expect(screen.queryByRole("button", { name: copy.saveAndRegenerate })).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.editHint)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: copy.editField.replace("{field}", copy.fields.onset_duration),
+      }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+const COMPLAINT_OPTIONS = [
+  { code: "URINARY_STRAINING", name: "Straining or inability to urinate" },
+  { code: "VOMITING", name: "Vomiting" },
+  { code: "COLLAPSE", name: "Collapse" },
+];
+
+function regenerable(overrides: Partial<CaseDetail> = {}): CaseDetail {
+  return makeCaseDetail({
+    permissions: { can_decide: true, can_regenerate: true, can_retry: false, can_close: false },
+    ...overrides,
+  });
+}
+
+/** A correction accepted by the server: the 202 for `PATCH /cases/{id}/extraction`. */
+const ACCEPTED = {
+  status: 202,
+  body: {
+    id: CASE_ID,
+    case_no: "C-0142",
+    status: "PROCESSING",
+    extraction_version: 2,
+    changed_fields: ["onset_duration"],
+  },
+};
+
+function renderRegenerable(
+  detail: CaseDetail = regenerable(),
+  routes: Record<string, { status?: number; body?: unknown }> = {},
+) {
+  return renderCase(detail, {
+    routes: { "/extraction": ACCEPTED, "/kb/complaints": { body: COMPLAINT_OPTIONS }, ...routes },
+  });
+}
+
+function editButton(label: string) {
+  return screen.getByRole("button", { name: copy.editField.replace("{field}", label) });
+}
+
+/** Opens a field's editor, types into it, and closes the editor again. */
+function editField(label: string, value: string) {
+  fireEvent.click(editButton(label));
+  fireEvent.change(screen.getByRole("textbox", { name: label }), { target: { value } });
+  fireEvent.click(screen.getByRole("button", { name: copy.editDone }));
+}
+
+function savedCorrection(mock: ReturnType<typeof stubFetch>) {
+  const call = mock.mock.calls.find((entry) => String(entry[0]).includes("/extraction"));
+  return call === undefined
+    ? undefined
+    : {
+        method: call[1]?.method,
+        body: JSON.parse(String(call[1]?.body)) as Record<string, unknown>,
+      };
+}
+
+describe("CaseReview panel 2 — correcting the extraction (P07 §7.2, FR-27)", () => {
+  it("invites a correction and keeps Save and regenerate off until something changes", async () => {
+    renderRegenerable();
+
     const button = await screen.findByRole("button", { name: copy.saveAndRegenerate });
+    expect(screen.getByText(copy.editHint)).toBeInTheDocument();
+    expect(screen.getByText(copy.enabledAfterCorrection)).toBeInTheDocument();
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", copy.availableInP07);
+  });
+
+  it("turns the button on for a change and off again when the change is undone", async () => {
+    renderRegenerable();
+    await screen.findByText(copy.fields.onset_duration);
+
+    editField(copy.fields.onset_duration, "Since yesterday evening");
+    expect(screen.getByRole("button", { name: copy.saveAndRegenerate })).toBeEnabled();
+    expect(screen.getByText(`(${copy.editedMarker})`)).toBeInTheDocument();
+
+    editField(copy.fields.onset_duration, "Since this morning (< 24 h)");
+    expect(screen.getByRole("button", { name: copy.saveAndRegenerate })).toBeDisabled();
+  });
+
+  it("sends only the fields that changed", async () => {
+    const { mock } = renderRegenerable();
+    await screen.findByText(copy.fields.onset_duration);
+
+    editField(copy.fields.onset_duration, "  Since yesterday evening ");
+    fireEvent.click(editButton(copy.fields.red_flags));
+    fireEvent.change(screen.getByRole("textbox", { name: copy.fields.red_flags }), {
+      target: { value: "Male cat producing no urine\nCollapsed at the litter box\n\n" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    await waitFor(() => expect(savedCorrection(mock)).toBeDefined());
+    expect(savedCorrection(mock)).toEqual({
+      method: "PATCH",
+      body: {
+        onset_duration: "Since yesterday evening",
+        red_flags: ["Male cat producing no urine", "Collapsed at the litter box"],
+      },
+    });
+  });
+
+  it("sends a cleared text value as null", async () => {
+    const { mock } = renderRegenerable();
+    await screen.findByText(copy.fields.onset_duration);
+
+    editField(copy.fields.onset_duration, "   ");
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    await waitFor(() => expect(savedCorrection(mock)).toBeDefined());
+    expect(savedCorrection(mock)?.body).toEqual({ onset_duration: null });
+  });
+
+  it("chooses complaints from the list with exactly one primary", async () => {
+    const { mock } = renderRegenerable();
+    await screen.findByText(copy.fields.onset_duration);
+
+    fireEvent.click(editButton(copy.fields.presenting_complaints));
+    // The list loads from the knowledge-base complaints endpoint.
+    const collapse = await screen.findByRole("checkbox", { name: /Collapse/ });
+    fireEvent.click(collapse);
+    fireEvent.click(
+      screen.getByRole("radio", { name: copy.primaryFor.replace("{complaint}", "Collapse") }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    await waitFor(() => expect(savedCorrection(mock)).toBeDefined());
+    expect(savedCorrection(mock)?.body).toEqual({
+      presenting_complaints: [
+        { code: "URINARY_STRAINING", is_primary: false },
+        { code: "VOMITING", is_primary: false },
+        { code: "COLLAPSE", is_primary: true },
+      ],
+    });
+  });
+
+  it("hands the primary mark on when the primary complaint is unchecked", async () => {
+    const { mock } = renderRegenerable();
+    await screen.findByText(copy.fields.onset_duration);
+
+    fireEvent.click(editButton(copy.fields.presenting_complaints));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Straining or inability/ }));
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    await waitFor(() => expect(savedCorrection(mock)).toBeDefined());
+    expect(savedCorrection(mock)?.body).toEqual({
+      presenting_complaints: [{ code: "VOMITING", is_primary: true }],
+    });
+  });
+
+  it("shows the server's wording when a value is refused", async () => {
+    renderRegenerable(regenerable(), {
+      "/extraction": {
+        status: 422,
+        body: errorBody(
+          "VALIDATION_ERROR",
+          "Mark exactly one complaint as primary.",
+          "presenting_complaints",
+        ),
+      },
+    });
+    await screen.findByText(copy.fields.onset_duration);
+
+    editField(copy.fields.onset_duration, "Since yesterday");
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    expect(await screen.findByText("Mark exactly one complaint as primary.")).toBeInTheDocument();
+  });
+
+  it("refreshes and explains when the case can no longer be corrected", async () => {
+    renderRegenerable(regenerable(), {
+      "/extraction": {
+        status: 409,
+        body: errorBody("INVALID_TRANSITION", "This case has already been decided."),
+      },
+    });
+    await screen.findByText(copy.fields.onset_duration);
+
+    editField(copy.fields.onset_duration, "Since yesterday");
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    expect(await screen.findByText(copy.errors.correctionConflict)).toBeInTheDocument();
+  });
+
+  it("shows a quiet error when the correction cannot be sent", async () => {
+    renderRegenerable(regenerable(), { "/extraction": { status: 500 } });
+    await screen.findByText(copy.fields.onset_duration);
+
+    editField(copy.fields.onset_duration, "Since yesterday");
+    fireEvent.click(screen.getByRole("button", { name: copy.saveAndRegenerate }));
+
+    expect(await screen.findByText(copy.errors.correctionFailed)).toBeInTheDocument();
+  });
+
+  it("says who corrected a corrected version", async () => {
+    const detail = regenerable();
+    renderRegenerable({
+      ...detail,
+      extraction: detail.extraction && {
+        ...detail.extraction,
+        version: 2,
+        is_corrected: true,
+        corrected_by_name: "Reviewer Demo",
+      },
+    });
+
+    expect(await screen.findByText("Version 2 – corrected by Reviewer Demo.")).toBeInTheDocument();
+  });
+});
+
+const REGENERATING_STATUS = {
+  body: {
+    status: "PROCESSING",
+    category: "ORANGE",
+    has_red_flag: true,
+    pipeline_stage: "generate",
+    actions_status: "READY",
+    updated_at: "2026-10-01T01:50:00Z",
+  },
+};
+
+describe("CaseReview while a correction is being regenerated (FR-27)", () => {
+  it("shows the regeneration progress, not the first-run wording", async () => {
+    renderCase(regenerable({ status: "PROCESSING" }), {
+      routes: { "/status": REGENERATING_STATUS },
+    });
+
+    expect(await screen.findByText(copy.processing.regeneratingTitle)).toBeInTheDocument();
+    expect(
+      await screen.findByText(copy.processing.regeneratingStages.generate),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(copy.processing.title)).not.toBeInTheDocument();
+  });
+
+  it("offers no decision and no further correction while it runs", async () => {
+    renderCase(
+      makeCaseDetail({
+        status: "PROCESSING",
+        permissions: {
+          can_decide: true,
+          can_regenerate: false,
+          can_retry: false,
+          can_close: false,
+        },
+      }),
+      { routes: { "/status": REGENERATING_STATUS } },
+    );
+
+    await screen.findByText(copy.processing.regeneratingTitle);
+    expect(screen.getByRole("button", { name: /^Confirm/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: copy.decisionBar.adjust })).toBeDisabled();
+    expect(screen.getByRole("button", { name: copy.decisionBar.manual })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: copy.saveAndRegenerate })).not.toBeInTheDocument();
+  });
+
+  it("uses the first-run wording for a case with no recommendation yet", async () => {
+    renderCase(manualTriageCase({ status: "SUBMITTED", failure: null }), {
+      routes: { "/status": REGENERATING_STATUS },
+    });
+
+    expect(await screen.findByText(copy.processing.title)).toBeInTheDocument();
+  });
+
+  it("shows why the last regeneration failed and keeps the previous recommendation", async () => {
+    renderCase(
+      regenerable({
+        regeneration_failure: {
+          reason_code: "LLM_TIMEOUT",
+          message:
+            "The language model did not respond after 2 attempts (09:20:41). " +
+            "Your correction was saved and the previous recommendation is unchanged.",
+          failed_at: "2026-10-01T01:20:41Z",
+        },
+      }),
+    );
+
+    expect(await screen.findByText(/Your correction was saved/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(copy.regenerationFailedTitle))).toBeInTheDocument();
+    expect(screen.getByText("ORANGE")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Confirm/ })).toBeEnabled();
+  });
+});
+
+const VERSION_ONE = {
+  version: 1,
+  category: "BLUE" as const,
+  created_at: "2026-10-01T01:36:14Z",
+  is_current: false,
+};
+const VERSION_TWO = {
+  version: 2,
+  category: "ORANGE" as const,
+  created_at: "2026-10-01T01:52:00Z",
+  is_current: true,
+};
+
+function regeneratedCase(): CaseDetail {
+  const detail = makeCaseDetail();
+  return makeCaseDetail({
+    recommendation: detail.recommendation && { ...detail.recommendation, version: 2 },
+    recommendation_versions: [VERSION_ONE, VERSION_TWO],
+  });
+}
+
+const OLD_VERSION = {
+  body: {
+    recommendation: {
+      id: "00000000-0000-4000-8000-0000000000r0",
+      version: 1,
+      category: "BLUE",
+      target_minutes: 240,
+      rationale: "The first reading was a routine complaint.",
+      confidence: "HIGH",
+      safety_floor_applied: false,
+      safety_floor_rules: [],
+      low_confidence_reasons: [],
+      created_at: "2026-10-01T01:36:14Z",
+    },
+    references: [],
+    configuration: {
+      model_id: "mock",
+      prompt_version: "mock-0",
+      kb_version_no: 7,
+      generated_at: "2026-10-01T01:36:14Z",
+      latency_ms: null,
+    },
+    extraction_version: 1,
+    is_current: false,
+  },
+};
+
+describe("CaseReview recommendation versions (FR-27, ADR-14)", () => {
+  it("notes that the recommendation was regenerated after a correction", async () => {
+    renderCase(regeneratedCase());
+
+    expect(
+      await screen.findByText(
+        "Version 2 – regenerated after correction (version 1 kept in audit).",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("has no switcher and no note while there is only one version", async () => {
+    renderCase(makeCaseDetail());
+
+    await screen.findByText("ORANGE");
+    expect(screen.queryByRole("group", { name: copy.versions.label })).not.toBeInTheDocument();
+    expect(screen.queryByText(/regenerated after correction/)).not.toBeInTheDocument();
+  });
+
+  it("lists every version and marks the current one", async () => {
+    renderCase(regeneratedCase());
+
+    const group = await screen.findByRole("group", { name: copy.versions.label });
+    const buttons = within(group).getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Version 1 · Blue",
+      "Version 2 · Orange (current)",
+    ]);
+    expect(buttons[1]).toHaveAttribute("aria-pressed", "true");
+    expect(buttons[0]).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("shows an older version read-only, and cannot be decided on", async () => {
+    const { mock } = renderCase(regeneratedCase(), {
+      routes: { "/recommendations/1": OLD_VERSION },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Version 1/ }));
+
+    expect(
+      await screen.findByText("The first reading was a routine complaint."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(copy.versions.viewingOlder.replace("{version}", "1")),
+    ).toBeInTheDocument();
+    expect(screen.getByText(copy.versions.madeFrom.replace("{version}", "1"))).toBeInTheDocument();
+    // Decisions always apply to the latest version.
+    expect(screen.getByRole("button", { name: /^Confirm/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: copy.decisionBar.adjust })).toBeDisabled();
+    // The checklist belongs to the current recommendation.
+    expect(screen.queryByText(copy.actions.aiHeading)).not.toBeInTheDocument();
+    expect(mock.mock.calls.some((entry) => String(entry[0]).endsWith("/recommendations/1"))).toBe(
+      true,
+    );
+  });
+
+  it("goes back to the current version", async () => {
+    renderCase(regeneratedCase(), { routes: { "/recommendations/1": OLD_VERSION } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Version 1/ }));
+    await screen.findByText("The first reading was a routine complaint.");
+    fireEvent.click(screen.getByRole("button", { name: copy.versions.backToCurrent }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("The first reading was a routine complaint."),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /^Confirm/ })).toBeEnabled();
+  });
+
+  it("says so when an older version cannot be loaded", async () => {
+    renderCase(regeneratedCase(), { routes: { "/recommendations/1": { status: 500 } } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Version 1/ }));
+
+    expect(await screen.findByText(copy.errors.versionFailed)).toBeInTheDocument();
   });
 });
 

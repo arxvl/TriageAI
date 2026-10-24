@@ -21,6 +21,7 @@ import uuid
 
 import pytest
 
+from app.models import RedFlagRule
 from app.models.enums import ConfidenceLevel, Species, VTLCategory
 from app.pipeline.config import PipelineConfig
 from app.pipeline.mock_fixtures import load_fixtures
@@ -30,6 +31,7 @@ from app.pipeline.safety import (
     UNSUPPORTED_COMPLAINT,
     SafetyValidator,
     citation_flags,
+    reviewer_red_flag_hits,
 )
 from app.pipeline.types import (
     OTHER_COMPLAINT,
@@ -455,3 +457,97 @@ def test_demo_1_fixture_is_raised_to_orange() -> None:
     assert final.cited_ranks == [1, 2]
     assert final.low_confidence_reasons == []
     assert final.confidence is ConfidenceLevel.HIGH
+
+
+# --- Red flags a reviewer added to a corrected extraction (P07 §7.2) ---------
+
+
+def _rule(code: str, label: str, min_category: VTLCategory, *species: Species) -> RedFlagRule:
+    return RedFlagRule(
+        code=code,
+        label=label,
+        min_category=min_category,
+        species=list(species or (Species.DOG, Species.CAT)),
+    )
+
+
+RULES = [
+    _rule("NOT_BREATHING", "Not breathing or severe difficulty breathing", VTLCategory.RED),
+    _rule(
+        "MALE_CAT_NO_URINE",
+        "Male cat unable to pass urine",
+        VTLCategory.ORANGE,
+        Species.CAT,
+    ),
+]
+
+
+def test_a_red_flag_equal_to_a_rule_label_becomes_a_hit_for_that_rule() -> None:
+    hits = reviewer_red_flag_hits(
+        ["Not breathing or severe difficulty breathing"], RULES, Species.DOG
+    )
+
+    assert [(hit.rule_code, hit.min_category) for hit in hits] == [
+        ("NOT_BREATHING", VTLCategory.RED)
+    ]
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "not breathing or severe difficulty breathing",  # case differs
+        "Not breathing",  # a fragment of the label
+        "Not breathing or severe difficulty breathing, I think",  # more than the label
+        "dog has stopped breathing",  # a paraphrase
+        "",
+    ],
+)
+def test_only_the_exact_label_matches(flag: str) -> None:
+    """Free text a person typed is never interpreted into an urgency."""
+    assert reviewer_red_flag_hits([flag], RULES, Species.DOG) == []
+
+
+def test_a_rule_for_the_other_species_is_ignored() -> None:
+    assert reviewer_red_flag_hits(["Male cat unable to pass urine"], RULES, Species.DOG) == []
+    assert len(reviewer_red_flag_hits(["Male cat unable to pass urine"], RULES, Species.CAT)) == 1
+
+
+def test_a_reviewer_hit_can_only_raise_the_category() -> None:
+    hits = reviewer_red_flag_hits(["Male cat unable to pass urine"], RULES, Species.CAT)
+    draft = DraftRecommendation(
+        category=VTLCategory.BLUE,
+        rationale="r",
+        cited_ranks=[1],
+        confidence=ConfidenceLevel.HIGH,
+    )
+    passages = [
+        Passage(
+            rank=1,
+            chunk_id=uuid.uuid4(),
+            entry_id=uuid.uuid4(),
+            entry_title="t",
+            source_title="s",
+            source_url=None,
+            text="x",
+            score=0.9,
+        )
+    ]
+    extraction = ExtractionOutput(
+        species=Species.CAT,
+        signalment={},
+        presenting_complaints=[ExtractedComplaint(code="URINARY_OBSTRUCTION", is_primary=True)],
+        onset_duration=None,
+        frequency_severity=None,
+        associated_signs=[],
+        negated_findings=[],
+        exposure_history=None,
+        relevant_history=None,
+        red_flags=[],
+        missing_information=[],
+        evidence_spans=[],
+    )
+
+    final = SafetyValidator.finalize(draft, passages, hits, extraction, PipelineConfig())
+
+    assert final.category is VTLCategory.ORANGE
+    assert final.safety_floor_rule_codes == ["MALE_CAT_NO_URINE"]

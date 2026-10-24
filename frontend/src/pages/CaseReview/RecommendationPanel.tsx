@@ -19,6 +19,11 @@
  *   version, time, latency — so a recommendation can be reproduced and compared
  *   (FR-26, NFR-23, ADR-14).
  *
+ * **Versions (FR-27).** A regenerated recommendation is a new version and the
+ * earlier ones are kept. Once there is more than one, a switcher lists them; an
+ * older one is shown read-only, without the checklist, and says so — decisions
+ * always apply to the latest.
+ *
  * The suggested-action checklist is rendered here too, beneath the rationale,
  * where ADR-18 and IR-23 put it: the actions belong to the category, and reading
  * them before the rationale would invite accepting them without it.
@@ -30,6 +35,8 @@ import type {
   CaseRecommendation,
   CaseReference,
   ConfidenceLevel,
+  RecommendationVersion,
+  RecommendationVersionDetail,
 } from "../../api/cases";
 import { VtlBadge } from "../../components/VtlBadge";
 import { strings } from "../../i18n/strings";
@@ -48,63 +55,172 @@ export function RecommendationPanel({
   recommendation,
   references,
   configuration,
+  versions = [],
+  viewing = null,
+  viewedVersion = null,
+  isLoadingViewing = false,
+  viewingError = null,
+  onSelectVersion,
   children,
 }: {
   recommendation: CaseRecommendation | null;
   references: readonly CaseReference[];
   configuration: CaseConfiguration | null;
+  /** Every version, oldest first (FR-27). The switcher shows from two upward. */
+  versions?: readonly RecommendationVersion[];
+  /** The older version being looked at, once it has loaded. */
+  viewing?: RecommendationVersionDetail | null;
+  /** The older version selected, or null for the current one. */
+  viewedVersion?: number | null;
+  isLoadingViewing?: boolean;
+  viewingError?: string | null;
+  onSelectVersion?: (version: number | null) => void;
   /** The action checklist, which is shown whether or not there is a recommendation. */
   children?: ReactNode;
 }) {
+  const isViewingOlder = viewedVersion !== null;
+  const shown = isViewingOlder ? viewing?.recommendation ?? null : recommendation;
+  const shownReferences = isViewingOlder ? viewing?.references ?? [] : references;
+  const shownConfiguration = isViewingOlder ? viewing?.configuration ?? null : configuration;
+
   return (
     <section className={`${styles.panel} ${styles.panelRecommendation}`}>
       <h2 className={styles.panelTitle}>{copy.recommendationTitle}</h2>
 
-      {recommendation === null ? (
-        // W-06's reading of a missing recommendation: a case to triage by hand,
-        // never an error (NFR-09).
-        <p className={styles.muted}>{copy.recommendationUnavailable}</p>
+      {versions.length > 1 && onSelectVersion !== undefined && (
+        <VersionSwitcher versions={versions} selected={viewedVersion} onSelect={onSelectVersion} />
+      )}
+
+      {isViewingOlder && (
+        <div className={styles.noticeBanner} role="status">
+          <p>{copy.versions.viewingOlder.replace("{version}", String(viewedVersion))}</p>
+          {viewing !== null && (
+            <p>{copy.versions.madeFrom.replace("{version}", String(viewing.extraction_version))}</p>
+          )}
+          {onSelectVersion !== undefined && (
+            <button
+              type="button"
+              className={styles.inlineButton}
+              onClick={() => onSelectVersion(null)}
+            >
+              {copy.versions.backToCurrent}
+            </button>
+          )}
+        </div>
+      )}
+
+      {isViewingOlder && viewingError !== null && (
+        <p className={styles.error} role="alert">
+          {viewingError}
+        </p>
+      )}
+
+      {isViewingOlder && isLoadingViewing && (
+        <p className={styles.muted}>{copy.versions.loading}</p>
+      )}
+
+      {shown === null ? (
+        isViewingOlder ? null : (
+          // W-06's reading of a missing recommendation: a case to triage by hand,
+          // never an error (NFR-09).
+          <p className={styles.muted}>{copy.recommendationUnavailable}</p>
+        )
       ) : (
         <>
           <div className={styles.categoryLine}>
-            <VtlBadge category={recommendation.category} size="md" />
+            <VtlBadge category={shown.category} size="md" />
             <span className={styles.categoryLabel}>
               {copy.categoryHeading
-                .replace("{label}", strings.vtl.labels[recommendation.category])
-                .replace("{target}", strings.vtl.targets[recommendation.category])}
+                .replace("{label}", strings.vtl.labels[shown.category])
+                .replace("{target}", strings.vtl.targets[shown.category])}
             </span>
           </div>
 
-          {recommendation.safety_floor_applied && (
-            <SafetyFloorNotice recommendation={recommendation} />
-          )}
+          {!isViewingOlder && shown.version > 1 && <RegeneratedNote version={shown.version} />}
+
+          {shown.safety_floor_applied && <SafetyFloorNotice recommendation={shown} />}
 
           <p className={styles.rationale}>
-            <b>{copy.rationaleLabel}</b> {recommendation.rationale}
+            <b>{copy.rationaleLabel}</b> {shown.rationale}
           </p>
 
-          <Confidence
-            level={recommendation.confidence}
-            reasons={recommendation.low_confidence_reasons}
-          />
+          <Confidence level={shown.confidence} reasons={shown.low_confidence_reasons} />
         </>
       )}
 
-      {children}
+      {/* The checklist belongs to the current recommendation; an older version
+          is a record, and nothing on it can be finalized (FR-27). */}
+      {!isViewingOlder && children}
 
-      {recommendation !== null && (
+      {shown !== null && (
         <>
           <h3 className={styles.sectionTitle}>{copy.referencesTitle}</h3>
-          {references.length === 0 ? (
+          {shownReferences.length === 0 ? (
             <p className={styles.actionsIntro}>{copy.referencesEmpty}</p>
           ) : (
-            references.map((reference) => <Reference key={reference.rank} reference={reference} />)
+            shownReferences.map((reference) => (
+              <Reference key={reference.rank} reference={reference} />
+            ))
           )}
         </>
       )}
 
-      {configuration !== null && <Footnote configuration={configuration} />}
+      {shownConfiguration !== null && <Footnote configuration={shownConfiguration} />}
     </section>
+  );
+}
+
+/**
+ * "Version 2 – regenerated after correction (version 1 kept in audit)." (FR-27)
+ *
+ * Shown on every version after the first: it is true of each of them, and the
+ * reviewer should never have to wonder whether the recommendation in front of
+ * them was made from their correction.
+ */
+function RegeneratedNote({ version }: { version: number }) {
+  const previous = version - 1;
+  const kept =
+    previous === 1
+      ? copy.keptOne.replace("{n}", "1")
+      : copy.keptMany.replace("{n}", String(previous));
+
+  return (
+    <p className={styles.noticeBanner}>
+      {copy.regenerated.replace("{version}", String(version)).replace("{kept}", kept)}
+    </p>
+  );
+}
+
+/** The version buttons (FR-27). Pressed state is announced, not only coloured. */
+function VersionSwitcher({
+  versions,
+  selected,
+  onSelect,
+}: {
+  versions: readonly RecommendationVersion[];
+  selected: number | null;
+  onSelect: (version: number | null) => void;
+}) {
+  return (
+    <div className={styles.versionSwitcher} role="group" aria-label={copy.versions.label}>
+      {versions.map((entry) => {
+        const isSelected = selected === null ? entry.is_current : selected === entry.version;
+        return (
+          <button
+            key={entry.version}
+            type="button"
+            className={`${styles.button} ${styles.buttonSmall}`}
+            aria-pressed={isSelected}
+            onClick={() => onSelect(entry.is_current ? null : entry.version)}
+          >
+            {copy.versions.option
+              .replace("{version}", String(entry.version))
+              .replace("{category}", strings.vtl.names[entry.category])}
+            {entry.is_current && ` (${copy.versions.current})`}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

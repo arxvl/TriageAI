@@ -373,7 +373,7 @@ export const strings = {
     // {field} is the extraction field, {text} the quoted evidence.
     unmatchedEvidence: "{field}: “{text}”",
 
-    // Panel 2 (FR-09, FR-31). Read-only until P07.
+    // Panel 2 (FR-09, FR-31). A reviewer can correct it and regenerate (P07 §7.2).
     extractionTitle: "Extracted information",
     extractionUnavailable: "Extracted information: not available for this case.",
     fields: {
@@ -391,8 +391,23 @@ export const strings = {
     primaryMarker: "(primary)",
     emptyValue: "None stated",
     saveAndRegenerate: "Save and regenerate",
-    // The phase prompt's own wording for a control whose backend is P07.
-    availableInP07: "Available in P07",
+    saving: "Saving…",
+    // W-04's hint beside the panel title, and beside the button until a value changes.
+    editHint: "Click a value to correct it",
+    enabledAfterCorrection: "enabled after a correction",
+    // {field} is the field's label.
+    editField: "Edit {field}",
+    editDone: "Done",
+    editListHelper: "One per line.",
+    editComplaintsHelper: "Choose the complaints and mark one as primary.",
+    editedMarker: "edited",
+    // Names the complaint a primary radio belongs to; {complaint} is its name.
+    primaryFor: "Primary complaint: {complaint}",
+    complaintsLoading: "Loading the complaint list…",
+    complaintsUnavailable: "The complaint list could not be loaded. Try again in a moment.",
+    // The note under panel 2 once a reviewer has corrected it.
+    correctedBy: "Version {version} – corrected by {name}.",
+    correctedByUnknown: "Version {version} – corrected by a reviewer.",
 
     // Panel 3 (FR-20..FR-26).
     recommendationTitle: "Recommended urgency",
@@ -600,6 +615,28 @@ export const strings = {
       retrying: "Retrying…",
     },
 
+    // The note under the recommendation once it has been regenerated (FR-27). The
+    // placeholders are filled in by the panel: {version} is this version, and
+    // {kept} names the versions that remain viewable.
+    regenerated: "Version {version} – regenerated after correction ({kept} kept in audit).",
+    keptOne: "version {n}",
+    keptMany: "versions 1–{n}",
+    versions: {
+      label: "Recommendation versions",
+      // {version} is the number, {category} the VTL name.
+      option: "Version {version} · {category}",
+      current: "current",
+      viewingOlder:
+        "You are viewing version {version}, which is read-only. Decisions always apply " +
+        "to the latest version.",
+      madeFrom: "Made from extraction version {version}.",
+      backToCurrent: "Back to the current version",
+      loading: "Loading that version…",
+    },
+    // Why a regeneration did not produce a new version. The sentence itself comes
+    // from the server (`backend/app/pipeline/messages.py`).
+    regenerationFailedTitle: "The new recommendation could not be made.",
+
     // The banner while a run is in progress — after a case is entered, and after
     // Retry on W-06 (IR-22, P07 §7.1). The stages are the orchestrator's steps.
     processing: {
@@ -609,6 +646,17 @@ export const strings = {
         deidentify: "Removing identifying details…",
         screen: "Checking for red flags…",
         extract: "Reading the description…",
+        retrieve: "Searching the knowledge base…",
+        generate: "Preparing the recommendation…",
+        done: "Finishing up…",
+        failed: "Stopped. This screen is updating…",
+      },
+      // The same banner for a regeneration after a correction (P07 §7.2). It skips
+      // reading the description, so only the stages it runs have their own wording.
+      regeneratingTitle:
+        "A new recommendation is being made from your correction. This screen updates by itself.",
+      regeneratingStages: {
+        queued: "Waiting to start…",
         retrieve: "Searching the knowledge base…",
         generate: "Preparing the recommendation…",
         done: "Finishing up…",
@@ -673,6 +721,12 @@ export const strings = {
       closeFailed: "The case could not be closed right now. Please try again.",
       retryFailed: "AI processing could not be restarted right now. Please try again.",
       // A 409 on retry: someone else retried, or decided, first.
+      correctionFailed: "The correction could not be saved right now. Please try again.",
+      // A 409 on a correction: someone decided, or another correction started, first.
+      correctionConflict:
+        "This case can no longer be corrected: it has been decided, or a new " +
+        "recommendation is already being made. The screen has been refreshed.",
+      versionFailed: "That version could not be loaded right now. Please try again.",
       retryConflict:
         "This case is no longer waiting for a retry. The screen has been refreshed " +
         "with the current state.",

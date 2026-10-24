@@ -39,14 +39,17 @@ import {
   CASE_STATUS_POLL_INTERVAL_MS,
   addCaseNote,
   closeCase,
+  correctExtraction,
   readCase,
   readCaseStatus,
+  readRecommendationVersion,
   recordDecision,
   retryCase,
   type CaseAlert,
   type CaseDetail,
   type CaseStatus,
   type DecisionRequest,
+  type ExtractionCorrection,
   type VTLCategory,
 } from "../../api/cases";
 import { ApiErrorCode, isApiError } from "../../api/errors";
@@ -178,6 +181,32 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
   const [isManualChosen, setIsManualChosen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<FieldError | null>(null);
+  // Panel 2's own error, kept apart from the decision's so a failed correction
+  // does not appear under the dialogs (FR-27).
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  // An older recommendation version being looked at, read-only (FR-27). It is
+  // remembered with the current version it was chosen against, so a new current
+  // version (the regeneration's) takes the screen back to itself without an
+  // effect to reset it.
+  const currentVersion = detail.recommendation?.version ?? null;
+  const [viewedChoice, setViewedChoice] = useState<{
+    version: number;
+    current: number | null;
+  } | null>(null);
+  const viewedVersion =
+    viewedChoice !== null && viewedChoice.current === currentVersion ? viewedChoice.version : null;
+
+  function selectVersion(version: number | null) {
+    setViewedChoice(version === null ? null : { version, current: currentVersion });
+  }
+
+  const viewing = useQuery({
+    queryKey: ["cases", "version", detail.id, viewedVersion],
+    queryFn: () => readRecommendationVersion(detail.id, viewedVersion ?? 0),
+    enabled: viewedVersion !== null,
+    // A stored version never changes (ADR-14).
+    staleTime: Infinity,
+  });
 
   // The picker replaces panel 3 only for someone who can actually use it. A case
   // the pipeline gave up on still opens read-only for intake staff and
@@ -282,6 +311,31 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
     },
   });
 
+  // Save and regenerate (UC-09, FR-27). Success is not the end of it: the case
+  // goes to PROCESSING, so the re-read turns the screen into the progress view
+  // until the new version arrives or the attempt fails.
+  const correction = useMutation({
+    mutationFn: (payload: ExtractionCorrection) => correctExtraction(detail.id, payload),
+    onSuccess: () => {
+      setCorrectionError(null);
+      void queryClient.invalidateQueries({ queryKey: ["cases"] });
+    },
+    onError: (error: unknown) => {
+      if (isApiError(error)) {
+        if (error.code === ApiErrorCode.invalidTransition) {
+          onStale();
+          setCorrectionError(copy.errors.correctionConflict);
+          return;
+        }
+        if (error.code === ApiErrorCode.validationError) {
+          setCorrectionError(error.message);
+          return;
+        }
+      }
+      setCorrectionError(copy.errors.correctionFailed);
+    },
+  });
+
   function toggleRow(key: string) {
     setRows((previous) =>
       previous.map((row) => (row.key === key ? { ...row, isKept: !row.isKept } : row)),
@@ -309,7 +363,20 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
       <RedFlagBanner alerts={detail.alerts.map(toBannerAlert)} />
 
       {(detail.status === "SUBMITTED" || detail.status === "PROCESSING") && (
-        <ProcessingBanner caseId={detail.id} />
+        // A case that already has a recommendation and is processing again is
+        // being regenerated from a correction (FR-27).
+        <ProcessingBanner caseId={detail.id} isRegeneration={detail.recommendation !== null} />
+      )}
+
+      {detail.regeneration_failure !== null && (
+        <div className={styles.warnBanner} role="alert">
+          <span className={styles.warnIcon} aria-hidden="true">
+            !
+          </span>
+          <span>
+            {copy.regenerationFailedTitle} {detail.regeneration_failure.message}
+          </span>
+        </div>
       )}
 
       {isManualMode && (
@@ -323,7 +390,16 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
 
       <div className={styles.panels}>
         <DescriptionPanel description={detail.description} extraction={detail.extraction} />
-        <ExtractionPanel extraction={detail.extraction} />
+        <ExtractionPanel
+          extraction={detail.extraction}
+          canEdit={detail.permissions.can_regenerate}
+          isSaving={correction.isPending}
+          error={correctionError}
+          onSave={(payload) => {
+            setCorrectionError(null);
+            correction.mutate(payload);
+          }}
+        />
 
         {isManualMode ? (
           <ManualTriagePanel
@@ -354,6 +430,12 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
             recommendation={detail.recommendation}
             references={detail.references}
             configuration={detail.configuration}
+            versions={detail.recommendation_versions}
+            viewedVersion={viewedVersion}
+            viewing={viewing.data ?? null}
+            isLoadingViewing={viewing.isPending && viewedVersion !== null}
+            viewingError={viewing.isError ? copy.errors.versionFailed : null}
+            onSelectVersion={selectVersion}
           >
             <ActionChecklist
               rows={rows}
@@ -375,6 +457,7 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
         detail={detail}
         isDecided={isDecided}
         isManualMode={isManualMode}
+        isViewingOlderVersion={viewedVersion !== null}
         isReviewer={isReviewer}
         onConfirm={() => openDialogWith("confirm")}
         onAdjust={() => openDialogWith("adjust")}
@@ -609,7 +692,7 @@ function ManualTriageBanner({
  * `SUBMITTED`/`PROCESSING` — whether the run succeeded or fell back to manual
  * triage, the same re-read shows which. A backgrounded tab stops asking.
  */
-function ProcessingBanner({ caseId }: { caseId: string }) {
+function ProcessingBanner({ caseId, isRegeneration }: { caseId: string; isRegeneration: boolean }) {
   const queryClient = useQueryClient();
   const progress = useQuery({
     queryKey: ["cases", "status", caseId],
@@ -631,10 +714,17 @@ function ProcessingBanner({ caseId }: { caseId: string }) {
 
   const stage = progress.data?.pipeline_stage ?? "queued";
 
+  // A regeneration runs retrieval and generation only, so the stages it never
+  // reaches would be misleading: it falls back to the plain "waiting" wording.
+  const regenerating: Record<string, string> = copy.processing.regeneratingStages;
+  const stageText = isRegeneration
+    ? regenerating[stage] ?? copy.processing.regeneratingStages.queued
+    : copy.processing.stages[stage];
+
   return (
     <div className={styles.noticeBanner} role="status">
-      <p>{copy.processing.title}</p>
-      <p>{copy.processing.stages[stage]}</p>
+      <p>{isRegeneration ? copy.processing.regeneratingTitle : copy.processing.title}</p>
+      <p>{stageText}</p>
     </div>
   );
 }
@@ -795,6 +885,7 @@ function DecisionBar({
   detail,
   isDecided,
   isManualMode,
+  isViewingOlderVersion,
   isReviewer,
   onConfirm,
   onAdjust,
@@ -805,6 +896,8 @@ function DecisionBar({
   detail: CaseDetail;
   isDecided: boolean;
   isManualMode: boolean;
+  /** An older recommendation is on screen: decisions apply to the latest only (FR-27). */
+  isViewingOlderVersion: boolean;
   /** Used only to keep Add note reachable on a closed case; never to allow anything. */
   isReviewer: boolean;
   onConfirm: () => void;
@@ -844,7 +937,10 @@ function DecisionBar({
   // Both speak about a recommendation — one accepts it, the other departs from
   // it — so both need one, and need nobody to have decided yet.
   const canDecideOnRecommendation =
-    detail.status === "AWAITING_REVIEW" && category !== null && !isManualMode;
+    detail.status === "AWAITING_REVIEW" &&
+    category !== null &&
+    !isManualMode &&
+    !isViewingOlderVersion;
 
   return (
     <div className={styles.decisionBar}>
@@ -880,7 +976,9 @@ function DecisionBar({
           <button
             type="button"
             className={styles.button}
-            disabled={isManualMode}
+            // Not while a new recommendation is being made: the server refuses a
+            // decision on a case that is processing (FR-27, NFR-11).
+            disabled={isManualMode || detail.status === "PROCESSING"}
             onClick={onManual}
           >
             {bar.manual}

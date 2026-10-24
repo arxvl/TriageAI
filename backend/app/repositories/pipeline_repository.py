@@ -40,7 +40,7 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -338,6 +338,59 @@ class PipelineRepository:
             chunk_ids_by_rank={reference.rank: reference.chunk_id for reference in references},
         )
 
+    def stored_red_flag_hits(self, case_id: uuid.UUID) -> list[RedFlagHit]:
+        """The case's stored red-flag alerts, as the hits the safety floor takes.
+
+        A regeneration does not screen again: the description has not changed,
+        and the alerts the first run committed are the record of what the
+        pre-screen found (FR-12). `matched_text` is read here because the
+        contract carries it; it goes no further than the validator, which looks
+        only at the rule code and its floor (CLAUDE.md §9).
+        """
+        rows = self._session.execute(
+            select(
+                RedFlagAlert.rule_code,
+                RedFlagAlert.matched_text,
+                RedFlagAlert.min_category,
+            )
+            .where(RedFlagAlert.case_id == case_id)
+            .order_by(RedFlagAlert.created_at.asc(), RedFlagAlert.id.asc())
+        ).all()
+        return [
+            RedFlagHit(
+                rule_code=row.rule_code,
+                matched_text=row.matched_text,
+                min_category=row.min_category,
+            )
+            for row in rows
+        ]
+
+    def extraction_entities(self, case_id: uuid.UUID, extraction_id: uuid.UUID) -> dict | None:
+        """The stored contract object of one of this case's extractions, or None.
+
+        Scoped by case so a job built by hand cannot regenerate one patient's
+        recommendation from another's extraction.
+        """
+        return self._session.scalars(
+            select(ExtractionResult.entities).where(
+                ExtractionResult.id == extraction_id, ExtractionResult.case_id == case_id
+            )
+        ).one_or_none()
+
+    def has_recommendation_for_extraction(self, extraction_id: uuid.UUID) -> bool:
+        """Whether a recommendation was already made from this extraction.
+
+        What makes a re-run of a `REGENERATE` job after a crash harmless: if the
+        previous attempt got as far as storing its recommendation, there is
+        nothing left to do but restore the status (ADR-08).
+        """
+        return (
+            self._session.scalars(
+                select(Recommendation.id).where(Recommendation.extraction_id == extraction_id)
+            ).first()
+            is not None
+        )
+
     def next_extraction_version(self, case_id: uuid.UUID) -> int:
         return self._next_version(ExtractionResult, case_id)
 
@@ -387,6 +440,19 @@ class PipelineRepository:
         if case is not None:
             case.status = status
 
+    def set_status_if(self, case_id: uuid.UUID, expected: CaseStatus, new: CaseStatus) -> bool:
+        """Move a case from `expected` to `new`; True if this call did.
+
+        A compare-and-set, so a regeneration can restore `AWAITING_REVIEW` only
+        from `PROCESSING` and can never overwrite a decision recorded in the
+        meantime (NFR-11). Flushes.
+        """
+        result = self._session.execute(
+            update(Case).where(Case.id == case_id, Case.status == expected).values(status=new)
+        )
+        self._session.flush()
+        return result.rowcount == 1
+
     def insert_red_flag_alert(self, case_id: uuid.UUID, hit: RedFlagHit) -> RedFlagAlert:
         """Record one pre-screen hit. Flushes; the caller commits immediately
         (NFR-05)."""
@@ -405,12 +471,13 @@ class PipelineRepository:
         *,
         case_id: uuid.UUID,
         version: int,
-        input_text: str,
+        input_text: str | None,
         extraction: ExtractionOutput,
         model_id: str,
         prompt_version: str,
         latency_ms: int | None,
         complaint_codes: list[tuple[str, bool]],
+        corrected_by: uuid.UUID | None = None,
     ) -> ExtractionResult:
         """Store an extraction and its complaint junction rows. Flushes.
 
@@ -421,6 +488,10 @@ class PipelineRepository:
         never the raw one (ADR-10). It is stored because the evidence spans in
         `entities` are exact substrings of it and the review screen has to map
         them to character offsets (FR-13).
+
+        `corrected_by` marks a reviewer's correction (P07 §7.2): the row is then
+        `is_corrected` and names who made it. The original version is a
+        different row and is never touched (ADR-14).
         """
         row = ExtractionResult(
             case_id=case_id,
@@ -429,7 +500,8 @@ class PipelineRepository:
             entities=extraction.model_dump(mode="json"),
             red_flags=list(extraction.red_flags),
             missing_information=list(extraction.missing_information),
-            is_corrected=False,
+            is_corrected=corrected_by is not None,
+            corrected_by=corrected_by,
             model_id=model_id,
             prompt_version=prompt_version,
             latency_ms=latency_ms,

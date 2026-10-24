@@ -45,6 +45,9 @@ LABELS: dict[str, str] = {
     AuditAction.RED_FLAG_ALERT: "Red-flag pre-screen",
     EXTRACTION_STORED: "Extraction stored",
     AuditAction.RECOMMENDATION_CREATED: "Recommendation created",
+    AuditAction.EXTRACTION_CORRECTED: "Extraction corrected by a reviewer",
+    AuditAction.RECOMMENDATION_REGENERATED: "Recommendation regenerated after correction",
+    AuditAction.REGENERATE_FAILED: "Regeneration failed",
     AuditAction.PIPELINE_FAILED: "AI processing failed",
     AuditAction.PIPELINE_RETRY: "AI processing retried",
     AuditAction.ACTIONS_SUGGESTED: "Suggested actions ready",
@@ -119,9 +122,8 @@ def _from_extraction(row: Row) -> AuditTimelineItem:
     """One stored extraction as a timeline item.
 
     No actor: the extraction is the pipeline's own output. A *corrected*
-    extraction is a reviewer's work, but correction is P07 and will write its own
-    audit entry; until then `is_corrected` only ever says so about a row this
-    version of the system did not create.
+    extraction is a reviewer's work and writes its own `EXTRACTION_CORRECTED`
+    audit entry, which carries the actor; this item is the version marker.
     """
     parts = [f"Prompt {row.prompt_version}"]
     if row.is_corrected:
@@ -157,10 +159,13 @@ def _details(
             return None
         return _joined(str(rule), None if minimum is None else f"at least {minimum}")
 
-    if action == AuditAction.RECOMMENDATION_CREATED:
+    if action in (AuditAction.RECOMMENDATION_CREATED, AuditAction.RECOMMENDATION_REGENERATED):
         return _recommendation_details(after, reference_counts)
 
-    if action == AuditAction.PIPELINE_FAILED:
+    if action == AuditAction.EXTRACTION_CORRECTED:
+        return _correction_details(after)
+
+    if action in (AuditAction.PIPELINE_FAILED, AuditAction.REGENERATE_FAILED):
         reason = after.get("reason")
         return None if reason is None else f"Reason: {reason}"
 
@@ -205,6 +210,20 @@ def _recommendation_details(after: dict, reference_counts: dict[uuid.UUID, int])
         parts.append(applied)
 
     return " · ".join(parts) or None
+
+
+def _correction_details(after: dict) -> str | None:
+    """ "Extraction v2 · changed: onset_duration, red_flags" — names, never values."""
+    parts: list[str] = []
+    version = after.get("extraction_version")
+    if isinstance(version, int):
+        parts.append(f"Extraction v{version}")
+    fields = after.get("changed_fields")
+    if isinstance(fields, list) and fields:
+        parts.append("changed: " + ", ".join(str(field) for field in fields))
+    else:
+        parts.append("regeneration queued again")
+    return " · ".join(parts)
 
 
 def _reference_count(after: dict, reference_counts: dict[uuid.UUID, int]) -> int | None:

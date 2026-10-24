@@ -45,6 +45,7 @@ __all__ = [
     "DEFAULT_STALE_AFTER_MINUTES",
     "KB_INDEX_APPROVER_KEY",
     "KB_INDEX_ENTRY_KEY",
+    "REGENERATE_EXTRACTION_KEY",
     "STAGE_KEY",
     "JobStage",
     "JobQueue",
@@ -67,6 +68,11 @@ STAGE_KEY = "stage"
 # (FR-52, FR-54).
 KB_INDEX_ENTRY_KEY = "entry_id"
 KB_INDEX_APPROVER_KEY = "approved_by"
+
+# What a `REGENERATE` job carries in its payload (P07 §7.2): the corrected
+# extraction to make the next recommendation from. `jobs` points at a case, and
+# the job is about one version of that case's extraction (ADR-14).
+REGENERATE_EXTRACTION_KEY = "extraction_id"
 
 
 class JobStage(StrEnum):

@@ -16,11 +16,30 @@ from zoneinfo import ZoneInfo
 
 from app.pipeline.orchestrator import FailureReason
 
-__all__ = ["FALLBACK_MESSAGE", "SAFE_TO_TRIAGE", "failure_message"]
+__all__ = [
+    "FALLBACK_MESSAGE",
+    "REGENERATION_FALLBACK_MESSAGE",
+    "SAFE_TO_TRIAGE",
+    "STILL_NEEDS_DECISION",
+    "failure_message",
+    "regeneration_failure_message",
+]
 
 SAFE_TO_TRIAGE = "The case is safe to triage; no data was lost."
 
 FALLBACK_MESSAGE = f"AI processing could not be completed for this case. {SAFE_TO_TRIAGE}"
+
+# What a reviewer needs to hear when a *regeneration* fails instead: nothing was
+# lost, the correction was saved, and the recommendation they were looking at is
+# still there to decide on (P07 §7.2, NFR-09).
+STILL_NEEDS_DECISION = (
+    "Your correction was saved and the previous recommendation is unchanged. "
+    "It still needs your decision; you can save again to try once more."
+)
+
+REGENERATION_FALLBACK_MESSAGE = (
+    f"A new recommendation could not be made after the correction. {STILL_NEEDS_DECISION}"
+)
 
 # The part of the sentence before the optional attempts and time. Codes whose
 # cause is a model call say how many attempts were made; the others do not,
@@ -46,6 +65,19 @@ _REPORTS_ATTEMPTS = frozenset(
 )
 
 
+def _head(code: str, attempts: int | None, failed_at: datetime | None, tz: str) -> str | None:
+    """The sentence before the closing line: what stopped, how often, and when."""
+    head = _MESSAGES.get(code)
+    if head is None:
+        return None
+
+    if attempts is not None and attempts >= 1 and code in _REPORTS_ATTEMPTS:
+        head += f" after {attempts} attempt{'' if attempts == 1 else 's'}"
+    if failed_at is not None:
+        head += f" ({failed_at.astimezone(ZoneInfo(tz)).strftime('%H:%M:%S')})"
+    return head
+
+
 def failure_message(
     code: str,
     *,
@@ -63,12 +95,26 @@ def failure_message(
     be printed at a clinician. `failed_at` is rendered in `tz`, the clinic's
     display zone; timestamps are stored in UTC (CLAUDE.md §7).
     """
-    head = _MESSAGES.get(code)
+    head = _head(code, attempts, failed_at, tz)
     if head is None:
         return FALLBACK_MESSAGE
-
-    if attempts is not None and attempts >= 1 and code in _REPORTS_ATTEMPTS:
-        head += f" after {attempts} attempt{'' if attempts == 1 else 's'}"
-    if failed_at is not None:
-        head += f" ({failed_at.astimezone(ZoneInfo(tz)).strftime('%H:%M:%S')})"
     return f"{head}. {SAFE_TO_TRIAGE}"
+
+
+def regeneration_failure_message(
+    code: str,
+    *,
+    attempts: int | None = None,
+    failed_at: datetime | None = None,
+    tz: str = "Asia/Manila",
+) -> str:
+    """The sentence for a failed regeneration (P07 §7.2).
+
+    The same reason codes and the same opening as `failure_message`, with a
+    different close: the case is not waiting for manual triage, it is waiting for
+    a decision on the recommendation it already has.
+    """
+    head = _head(code, attempts, failed_at, tz)
+    if head is None:
+        return REGENERATION_FALLBACK_MESSAGE
+    return f"{head}. {STILL_NEEDS_DECISION}"

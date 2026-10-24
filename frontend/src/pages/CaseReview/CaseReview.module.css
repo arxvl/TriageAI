@@ -132,6 +132,71 @@
 
 /* --- panel 2: the extraction ------------------------------------------- */
 
+/* W-04's "Click a value to correct it", beside the panel title. */
+.panelHint {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: normal;
+  color: var(--color-text-muted);
+}
+
+/* A value a reviewer can click to correct. A button, so it is reachable and
+   announced; underlined so it reads as editable without relying on colour. */
+.editValue {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.editedMarker {
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.editor .input,
+.editor .textarea {
+  width: 100%;
+}
+
+.editHelper {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.complaintFieldset {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.complaintOption {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.complaintPrimary {
+  white-space: nowrap;
+}
+
 .grid {
   display: grid;
   grid-template-columns: 150px 1fr;
@@ -278,6 +343,22 @@
   margin: var(--space-3) 0 0;
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+}
+
+/* The version buttons under the panel title (FR-27). The pressed one is bold and
+   filled, not only a different colour (NFR-21). */
+.versionSwitcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.versionSwitcher button[aria-pressed="true"] {
+  font-weight: bold;
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
 }
 
 /* --- the action checklist ---------------------------------------------- */
@@ -534,6 +615,7 @@
 }
 
 .select,
+.input,
 .textarea {
   display: block;
   width: 100%;
@@ -551,6 +633,7 @@
 }
 
 .select:disabled,
+.input:disabled,
 .textarea:disabled {
   color: var(--color-text-muted);
   background: var(--color-surface);

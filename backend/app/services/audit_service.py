@@ -52,6 +52,15 @@ class AuditAction(StrEnum):
     # the pipeline's own entries this one has a person: the user and role are set.
     # The payload is the previous reason code and the new status — nothing else.
     PIPELINE_RETRY = "PIPELINE_RETRY"
+    # A reviewer corrected the extracted information and asked for a new
+    # recommendation (P07 §7.2, FR-27). The payload lists the *names* of the
+    # changed fields and never their values: they are clinical free text and the
+    # log cannot be corrected (FR-43).
+    EXTRACTION_CORRECTED = "EXTRACTION_CORRECTED"
+    # The pipeline's own entries for a regeneration. The previous recommendation
+    # version is kept; these say a later one was written, or why it was not.
+    RECOMMENDATION_REGENERATED = "RECOMMENDATION_REGENERATED"
+    REGENERATE_FAILED = "REGENERATE_FAILED"
     # The suggested-actions job (P05b §5b.3, ADR-18 §3). Counts and reason codes
     # only: action text is untrusted model output and the log cannot be
     # corrected (SR-17, FR-43).

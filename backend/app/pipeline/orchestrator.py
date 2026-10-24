@@ -40,6 +40,15 @@ category by the time it runs, so its failure is recorded on
 `recommendations.actions_status` and nothing else moves (FR-77, NFR-29,
 ADR-18 §3).
 
+`regenerate(case_id, extraction_id)` is the third entry point (P07 §7.2, FR-27). A
+reviewer corrected the extracted information, and this makes the next
+recommendation version from it: retrieval, generation and the safety validator
+only. **De-identification, the red-flag screen and extraction are never called**
+— the description has not changed, and the alerts the first run stored are the
+record of what the pre-screen found. A failure here puts the case back in
+`AWAITING_REVIEW` with the previous recommendation still current, because that
+recommendation is still a valid thing to decide on (NFR-09, NFR-11).
+
 Any failure takes the failure path: `MANUAL_TRIAGE_REQUIRED`, a reason code the
 worker writes into the job's `last_error`, audit `PIPELINE_FAILED`. A case is
 never lost and never left in `PROCESSING` (NFR-09, ADR-08) — which is why the
@@ -63,7 +72,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import JobQueue, JobStage
-from app.models import ActionSource, ActionsStatus, CaseStatus, JobType
+from app.models import ActionSource, ActionsStatus, CaseStatus, JobType, Recommendation, Species
 from app.pipeline.action_validator import baseline_actions
 from app.pipeline.action_validator import validate as validate_actions
 from app.pipeline.config import PipelineConfig
@@ -76,7 +85,7 @@ from app.pipeline.errors import (
     LLMUnavailable,
     RetrievalFailed,
 )
-from app.pipeline.safety import SafetyValidator, citation_flags
+from app.pipeline.safety import SafetyValidator, citation_flags, reviewer_red_flag_hits
 from app.pipeline.stages import (
     ActionSuggester,
     Deidentifier,
@@ -409,6 +418,40 @@ class TriagePipeline:
         with self.deps.session_factory() as session:
             return _TriageRun(self, session, case_id, job_id).fail(FailureReason.LLM_TIMEOUT)
 
+    def regenerate(
+        self,
+        case_id: uuid.UUID,
+        extraction_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+        cancel: threading.Event | None = None,
+    ) -> PipelineRunResult:
+        """Make the next recommendation version from a corrected extraction.
+
+        Never raises. Called by the worker for a `REGENERATE` job, never inside a
+        request (ADR-08). Retrieval, generation and the safety validator only; see
+        the module docstring. `job_id` and `cancel` are as for `run`.
+        """
+        with self.deps.session_factory() as session:
+            return _RegenerateRun(self, session, case_id, extraction_id, job_id, cancel).execute()
+
+    def fail_regeneration_timed_out(
+        self,
+        case_id: uuid.UUID,
+        extraction_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+    ) -> PipelineRunResult:
+        """The regeneration counterpart of `fail_timed_out`.
+
+        Puts the case back in `AWAITING_REVIEW` with a `REGENERATE_FAILED` entry,
+        for a regeneration the worker has stopped waiting for. Never raises.
+        """
+        with self.deps.session_factory() as session:
+            return _RegenerateRun(self, session, case_id, extraction_id, job_id).fail(
+                FailureReason.LLM_TIMEOUT
+            )
+
     def run_actions(
         self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
     ) -> ActionsRunResult:
@@ -433,6 +476,10 @@ class _TriageRun:
     Separate from `TriagePipeline` so the pipeline itself stays frozen and
     shareable between the worker thread and the request handlers.
     """
+
+    # Where the case is left when this kind of run fails. A regeneration
+    # overrides it: its failure leaves the previous recommendation standing.
+    _FAILED_STATUS = CaseStatus.MANUAL_TRIAGE_REQUIRED
 
     def __init__(
         self,
@@ -468,9 +515,7 @@ class _TriageRun:
             # overwrite it. Whatever this run had not committed is dropped.
             self._session.rollback()
             logger.warning("triage pipeline cancelled after its budget", extra=self._log_context())
-            return PipelineRunResult(
-                self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED, FailureReason.LLM_TIMEOUT
-            )
+            return PipelineRunResult(self._case_id, self._FAILED_STATUS, FailureReason.LLM_TIMEOUT)
         except _StageFailure as failure:
             return self._fail(failure.reason)
         except Exception:
@@ -852,7 +897,7 @@ class _TriageRun:
         self._session.rollback()
         if self._cancel is not None and self._cancel.is_set():
             # The worker has already recorded a failure for this run.
-            return PipelineRunResult(self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED, reason)
+            return PipelineRunResult(self._case_id, self._FAILED_STATUS, reason)
         try:
             self._repo.set_status(self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED)
             self._record(
@@ -877,7 +922,7 @@ class _TriageRun:
                 "triage pipeline failed; case sent to manual triage",
                 extra={**self._log_context(), "reason": str(reason)},
             )
-        return PipelineRunResult(self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED, reason)
+        return PipelineRunResult(self._case_id, self._FAILED_STATUS, reason)
 
     # --- Internals --------------------------------------------------------
 
@@ -939,6 +984,215 @@ class _TriageRun:
             "case_id": str(self._case_id),
             "job_id": str(self._job_id) if self._job_id else None,
         }
+
+
+class _RegenerateRun(_TriageRun):
+    """One `REGENERATE` job's state (P07 §7.2, FR-27, UC-09).
+
+    A `_TriageRun` that starts from a stored, corrected extraction instead of a
+    description, so everything from retrieval onward — the retry rule, the
+    checkpoints, the provenance, the safety validator — is the code a first run
+    uses, not a copy of it. What it skips is the point: the description is not
+    read, nothing is de-identified, no model is asked to extract, and the
+    red-flag screener is not run.
+
+    The case is `PROCESSING` when this starts (the correction put it there, in
+    the same transaction as the job), which is what kept a decision from being
+    recorded on the recommendation this one supersedes. It ends in
+    `AWAITING_REVIEW` either way. The status is only ever moved *from*
+    `PROCESSING`: a case that is anywhere else was not waiting on this job, and
+    a decided category is never touched by a regeneration (NFR-11).
+    """
+
+    _FAILED_STATUS = CaseStatus.AWAITING_REVIEW
+
+    def __init__(
+        self,
+        pipeline: TriagePipeline,
+        session: Session,
+        case_id: uuid.UUID,
+        extraction_id: uuid.UUID,
+        job_id: uuid.UUID | None,
+        cancel: threading.Event | None = None,
+    ) -> None:
+        super().__init__(pipeline, session, case_id, job_id, cancel)
+        self._extraction_id = extraction_id
+
+    def _run(self) -> PipelineRunResult:
+        case = self._repo.case_for_run(self._case_id)
+        if case is None:
+            logger.error("regeneration: case not found", extra=self._log_context())
+            return PipelineRunResult(self._case_id, None, FailureReason.CASE_NOT_FOUND)
+
+        if case.status is not CaseStatus.PROCESSING:
+            # Not waiting on this job: decided, closed, or already restored by an
+            # earlier attempt of the same job. Nothing to do and nothing to move.
+            logger.warning(
+                "regeneration: case is not waiting for one; nothing done",
+                extra={**self._log_context(), "status": case.status.value},
+            )
+            return PipelineRunResult(self._case_id, case.status)
+
+        if self._repo.has_recommendation_for_extraction(self._extraction_id):
+            # A previous attempt of this job stored its recommendation and was
+            # lost before it restored the status (ADR-08). Writing a second
+            # version for the same extraction would only duplicate it.
+            self._repo.set_status_if(
+                self._case_id, CaseStatus.PROCESSING, CaseStatus.AWAITING_REVIEW
+            )
+            self._session.commit()
+            return PipelineRunResult(self._case_id, CaseStatus.AWAITING_REVIEW)
+
+        extraction = self._stored_extraction()
+        hits = self._safety_floor_hits(case.species, extraction)
+
+        kb_version_id = self._repo.latest_kb_version_id()
+        if kb_version_id is None:
+            logger.warning("regeneration: no knowledge base version", extra=self._log_context())
+            raise _StageFailure(FailureReason.INTERNAL_ERROR)
+
+        passages = self._retrieve(extraction, kb_version_id)
+        draft = self._generate(extraction, passages)
+
+        final = SafetyValidator.finalize(draft, passages, hits, extraction, self._config)
+        recommendation_id = self._store_recommendation(
+            case=case,
+            extraction_id=self._extraction_id,
+            kb_version_id=kb_version_id,
+            passages=passages,
+            final=final,
+        )
+        return self._finish_regeneration(final, recommendation_id)
+
+    # --- Steps -------------------------------------------------------------
+
+    def _stored_extraction(self) -> ExtractionOutput:
+        """The corrected extraction, read back from its row."""
+        entities = self._repo.extraction_entities(self._case_id, self._extraction_id)
+        if entities is None:
+            logger.error("regeneration: extraction not found", extra=self._log_context())
+            raise _StageFailure(FailureReason.INTERNAL_ERROR)
+        try:
+            return ExtractionOutput.model_validate(entities)
+        except ValidationError:
+            logger.warning(
+                "regeneration: stored extraction does not match the contract",
+                extra=self._log_context(),
+            )
+            raise _StageFailure(FailureReason.INTERNAL_ERROR) from None
+
+    def _safety_floor_hits(
+        self, species: Species, extraction: ExtractionOutput
+    ) -> list[RedFlagHit]:
+        """The red-flag hits the safety floor works from (FR-23).
+
+        The case's stored alerts, plus any red flag on the corrected extraction
+        that names a rule. The second source is the exact-label match in
+        `reviewer_red_flag_hits`: the screener is not run again, so a flag a
+        reviewer typed counts only if it is a rule's label word for word.
+        """
+        hits = self._repo.stored_red_flag_hits(self._case_id)
+        hits += reviewer_red_flag_hits(
+            extraction.red_flags, self._pipeline.deps.rules_provider(), species
+        )
+        return hits
+
+    def _finish_regeneration(
+        self, final: FinalRecommendation, recommendation_id: uuid.UUID
+    ) -> PipelineRunResult:
+        """`AWAITING_REVIEW`, audit, enqueue the actions job, commit.
+
+        As `_finish` for a first run, with its own audit action so the timeline
+        can say "regenerated after correction". The actions job is enqueued for
+        the *new* recommendation: the earlier version keeps the suggestions it
+        was made with (ADR-14).
+        """
+        self._checkpoint()
+        self._repo.set_status_if(self._case_id, CaseStatus.PROCESSING, CaseStatus.AWAITING_REVIEW)
+        self._repo.set_actions_status(recommendation_id, ActionsStatus.PENDING)
+        stored = self._session.get(Recommendation, recommendation_id)
+        self._record(
+            AuditAction.RECOMMENDATION_REGENERATED,
+            {
+                "status": CaseStatus.AWAITING_REVIEW.value,
+                "recommendation_id": str(recommendation_id),
+                "recommendation_version": None if stored is None else stored.version,
+                "extraction_id": str(self._extraction_id),
+                "category": final.category.value,
+                "confidence": final.confidence.value,
+                "safety_floor_applied": final.safety_floor_applied,
+                "safety_floor_rule_codes": list(final.safety_floor_rule_codes),
+                "low_confidence_reasons": list(final.low_confidence_reasons),
+                "cited_rank_count": len(final.cited_ranks),
+            },
+        )
+        self._jobs.enqueue(
+            JobType.SUGGEST_ACTIONS,
+            case_id=self._case_id,
+            payload={ACTIONS_JOB_RECOMMENDATION_KEY: str(recommendation_id)},
+        )
+        self._session.commit()
+        self._stage(JobStage.DONE)
+        logger.info(
+            "regeneration finished",
+            extra={
+                **self._log_context(),
+                "category": final.category.value,
+                "safety_floor_applied": final.safety_floor_applied,
+                "stage_ms": dict(self._stage_ms),
+            },
+        )
+        return PipelineRunResult(self._case_id, CaseStatus.AWAITING_REVIEW)
+
+    # --- The failure path --------------------------------------------------
+
+    def _fail(self, reason: FailureReason) -> PipelineRunResult:
+        """`AWAITING_REVIEW` with the previous recommendation, audit `REGENERATE_FAILED`.
+
+        Not `MANUAL_TRIAGE_REQUIRED`: the case has a valid recommendation that
+        the reviewer has not decided on, and taking it away because a second one
+        could not be made would make the failure worse than the thing it is
+        about. The corrected extraction stays stored, and pressing "Save and
+        regenerate" again re-queues it (NFR-09).
+
+        Written defensively, like the triage failure path: if even this cannot be
+        stored the case would stay `PROCESSING`, so the second failure is logged
+        and the reason is still returned so the job is marked `FAILED`.
+        """
+        self._session.rollback()
+        if self._cancel is not None and self._cancel.is_set():
+            return PipelineRunResult(self._case_id, self._FAILED_STATUS, reason)
+        try:
+            self._repo.set_status_if(
+                self._case_id, CaseStatus.PROCESSING, CaseStatus.AWAITING_REVIEW
+            )
+            self._record(
+                AuditAction.REGENERATE_FAILED,
+                {
+                    "status": CaseStatus.AWAITING_REVIEW.value,
+                    "reason": str(reason),
+                    "attempts": self._attempts,
+                    "extraction_id": str(self._extraction_id),
+                    "failed_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            logger.exception(
+                "regeneration could not record the failure path",
+                extra={**self._log_context(), "reason": str(reason)},
+            )
+        else:
+            self._stage(JobStage.FAILED)
+            logger.warning(
+                "regeneration failed; previous recommendation kept",
+                extra={**self._log_context(), "reason": str(reason)},
+            )
+        return PipelineRunResult(self._case_id, self._FAILED_STATUS, reason)
+
+    def _params(self) -> dict:
+        return {**super()._params(), "regeneration": True}
 
 
 class _ActionsRun:
