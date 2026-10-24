@@ -1,0 +1,8 @@
+All backend tests:
+docker compose exec backend pytest -q
+
+Test folder/files:
+docker compose exec backend pytest -q [tests/unit/kb*tests folder]
+
+recreate backend:
+docker compose up -d --force-recreate backend

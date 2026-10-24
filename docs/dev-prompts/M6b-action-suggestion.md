@@ -17,9 +17,9 @@ the golden runs in Step 4 (5 categories × 3 runs = 15 full pipelines ≈ 45 cal
 
 ## Prerequisites
 
-- [ ] M6 done: retrieval and generation are real, and the demo cases pass.
-- [ ] P05b merged: the validator, the job and the mock stage work.
-- [ ] M5 Part D done: the five `URGENCY_ACTIONS` entries hold real sourced
+- [x] M6 done: retrieval and generation are real, and the demo cases pass.
+- [x] P05b merged: the validator, the job and the mock stage work.
+- [x] M5 Part D done: the five `URGENCY_ACTIONS` entries hold real sourced
       content, not the seed placeholders.
 
 ---
@@ -247,8 +247,8 @@ evaluation test split.
 
 ## Done when
 
-- [ ] Unit tests pass; golden tests meet the table in Step 4.
-- [ ] `PIPELINE_ACTIONS=llm` runs end to end, all five categories covered.
-- [ ] Zero drug, dose or diagnosis text survives into the UI (NFR-30).
-- [ ] NFR-01 is unchanged; the actions p50 is recorded.
-- [ ] Prompt and CHANGELOG committed.
+- [x] Unit tests pass; golden tests meet the table in Step 4.
+- [x] `PIPELINE_ACTIONS=llm` runs end to end, all five categories covered.
+- [x] Zero drug, dose or diagnosis text survives into the UI (NFR-30).
+- [x] NFR-01 is unchanged; the actions p50 is recorded.
+- [x] Prompt and CHANGELOG committed.

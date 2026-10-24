@@ -1,71 +1,10 @@
-# Demo scenarios for the PD8 prototype walkthrough.
+# Demo scenarios for the initial prototype prototype walkthrough.
 #
-# Every pet, owner description and signalment here is invented (CLAUDE.md §9).
+# Every pet, owner description and signalment here is invented
 # All text is English; clinic staff translate what the owner reported before
 # entering it (FR-18, ADR-16). No description contains a diagnosis or any
 # treatment wording (FR-28) — they are what an owner would say at the counter.
 #
-# Fields
-#   id                      stable fixture identifier, referenced by the phase
-#                           prompts (P05, P06, P08, P10) and the manual guides
-#   species                 Species
-#   intake_channel          WALK_IN | PHONE | MESSAGE
-#   signalment              the Signalment columns; sex is Sex, age_unit AgeUnit
-#   description             the owner's verbatim account, as typed by intake
-#   force_failure           the scenario deliberately fails AI processing; the
-#                           mechanism is `mock_failure` below
-#   expected_category       VTLCategory, or null when no AI category is produced
-#   expected_status         CaseStatus the case should end in
-#   expected_red_flag_codes red_flag_rules.code values the pre-screen should hit
-#   notes                   what the scenario demonstrates
-#
-# --- The recorded mock outputs (P05 §5.2) --------------------------------
-#
-# `app.pipeline.mock_fixtures` loads the keys below and the mock stages in
-# `app.pipeline.mocks` replay them. A description matches a fixture when the two
-# are equal after whitespace normalisation — exact string matching, never
-# similarity. Nothing here is inferred from the text at run time; these are
-# recorded answers, written by hand, so the whole application runs end to end
-# before any AI component exists (CLAUDE.md §8, ADR-17).
-#
-#   mock_red_flags   what MockRedFlagScreener returns: rule_code (a code the
-#                    seeder creates), matched_text (an exact substring of the
-#                    normalised description) and min_category, the floor the
-#                    rule imposes on the safety validator (FR-23).
-#   mock_extraction  what MockEntityExtractor returns. `species` and
-#                    `signalment` are NOT written here: the loader fills them
-#                    from the case above, so the two can never drift apart.
-#                    Every evidence_spans[].text is an exact substring of the
-#                    normalised description, as the contract requires — the mock
-#                    de-identifier returns the text unchanged.
-#   mock_passages    what MockRetriever returns, in rank order. `rank` is the
-#                    list position (1-based) and `chunk_id`/`entry_id` are
-#                    derived by uuid5, so they are stable across runs and
-#                    environments and are never written here.
-#                    The entries and sources are INVENTED PLACEHOLDERS. No real
-#                    veterinary publication is cited anywhere in this file; the
-#                    knowledge base is built and approved by a veterinarian in
-#                    P08/M5.
-#   mock_draft       what MockRecommendationGenerator returns, before the
-#                    deterministic safety validator runs (ADR-09).
-#   mock_actions     what MockActionSuggester returns for this case, before the
-#                    deterministic action validator runs (FR-74, ADR-18 §4).
-#                    Each entry is {text, cited_ranks, source}; `source` is
-#                    always AI, because BASELINE actions come from the
-#                    URGENCY_ACTIONS knowledge base entry and REVIEWER actions
-#                    are typed by a person (P06). Every `text` is written to
-#                    pass the validator unchanged: at most 25 words, no
-#                    medication name, no dose expression and no asserted
-#                    diagnosis (FR-28, ADR-18 §1). `cited_ranks` are
-#                    mock_passages positions, so an entry here cites a passage
-#                    the retriever really returned.
-#                    The stage is looked up by extraction, like mock_passages
-#                    and mock_draft, so a scenario with no mock_extraction can
-#                    never reach its mock_actions.
-#   mock_failure     optional; a MOCK_LLM_BEHAVIOR value the extraction stage
-#                    applies to this case alone, whatever the global setting is.
-#                    A scenario with a mock_failure records no extraction,
-#                    passages or draft: the run never reaches those stages.
 
 cases:
   - id: DEMO_1

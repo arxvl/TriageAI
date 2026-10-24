@@ -77,9 +77,7 @@ IMPLEMENTED_LLM_PROVIDER_CASES: list[tuple[dict[str, str], type]] = [
 # `hosted`, `ollama` and `sentence_transformer` are covered by the tests above and
 # below instead of here. M5 and M6 are merged too, so `pgvector` (indexer and
 # retriever) and the `llm` generator are covered by the tests further down.
-NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = [
-    ({"PIPELINE_ACTIONS": "llm"}, "PIPELINE_ACTIONS=llm", "M6b"),
-]
+NOT_IMPLEMENTED_CASES: list[tuple[dict[str, str], str, str]] = []
 
 
 def _must_not_load(_self: object) -> None:
@@ -304,7 +302,26 @@ def test_real_stage_without_a_module_fails_clearly(
 def test_the_message_says_how_to_get_back_to_a_working_configuration(
     monkeypatch: pytest.MonkeyPatch, session_factory: FakeSessionFactory
 ) -> None:
-    """A broken real stage must be revertible in seconds during a demo (ADR-17)."""
+    """A broken real stage must be revertible in seconds during a demo (ADR-17).
+
+    Every documented stage is implemented now (M1–M6b), so there is no real
+    "not written yet" module left to select. This simulates one instead, by
+    making only `app.pipeline.actions_llm` fail to import — every other import
+    `build_pipeline` needs (the mock stages built before `action_suggester`)
+    still goes through the real `importlib.import_module`.
+    """
+    import importlib
+
+    real_import_module = importlib.import_module
+
+    def fail_only_for_actions_llm(name: str, *args: object, **kwargs: object) -> Any:
+        if name == "app.pipeline.actions_llm":
+            raise ModuleNotFoundError(
+                "No module named 'app.pipeline.actions_llm'", name="app.pipeline.actions_llm"
+            )
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fail_only_for_actions_llm)
     settings = settings_with(monkeypatch, PIPELINE_ACTIONS="llm")
 
     with pytest.raises(StageNotImplementedError, match="PIPELINE_ACTIONS=mock"):

@@ -1,0 +1,3 @@
+
+# from repo root, where docker compose exec backend already works
+bash scripts/submit_demo_case.sh DEMO_4

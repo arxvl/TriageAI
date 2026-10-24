@@ -1,0 +1,12 @@
+# Fix safe, automatically fixable lint issues
+docker compose exec backend ruff check . --fix
+
+# Apply the optional unsafe fix for UP042
+docker compose exec backend ruff check . --fix --unsafe-fixes
+
+# Format Python files
+docker compose exec backend ruff format .
+
+# Verify lint and formatting
+docker compose exec backend ruff check .
+docker compose exec backend ruff format --check .

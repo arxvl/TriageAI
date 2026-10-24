@@ -1,0 +1,43 @@
+# Golden cases for the suggested-actions stage (M6b Step 4).
+#
+# RED, ORANGE and BLUE are copied directly from the CASES list in
+# test_generation_golden.py, so there is one shared source of truth for these
+# three.
+
+- id: RED_1
+  species: DOG
+  expected_category: RED
+  text: >-
+    My dog is panting heavily and gasping for air. He is having difficulty
+    breathing.
+
+- id: ORANGE_1
+  species: CAT
+  expected_category: ORANGE
+  text: >-
+    My cat has been repeatedly going to the litter box since this morning,
+    but nothing comes out.
+
+- id: BLUE_1
+  species: DOG
+  expected_category: BLUE
+  text: >-
+    My dog has had a small itchy patch on his back leg for a few months. It
+    comes and goes but hasn't gotten any worse, and he's eating and acting
+    completely normal otherwise.
+
+- id: YELLOW_1
+  species: DOG
+  expected_category: YELLOW
+  text: >-
+    A 5-year-old dog has been experiencing persistent vomiting for the past two days, with several episodes occurring each day.
+    The vomit consists mainly of partially digested food and liquid, with no visible blood.
+    The dog remains alert and responsive but has a mildly reduced appetite. No severe weakness, abdominal distension, breathing difficulty, or collapse has been observed.
+
+- id: GREEN_1
+  species: DOG
+  expected_category: GREEN
+  text: >-
+    A 4-year-old cat has had a mild skin irritation on its neck for the past two days, causing occasional scratching.
+    The affected area is slightly red, with no open wounds, swelling, or discharge.
+    The cat is eating and drinking normally, remains playful and active, and shows no signs of pain or other behavioral changes.

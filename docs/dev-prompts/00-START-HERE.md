@@ -39,27 +39,27 @@ state explicitly what each one already provides.
 
 The table lists every step in order and maps it to your PD8 roadmap. "CC" means Claude Code does the work; "You" means the team follows a manual guide.
 
-| #   | Step                                          | Who      | Depends on              | Roadmap phase |
-| --- | --------------------------------------------- | -------- | ----------------------- | ------------- |
-| ✅ 1 | P01 Repository scaffold and dev environment   | CC       | —                       | 0             |
-| ✅ 2 | P02 Database schema, migrations, seed data    | CC       | P01                     | 0             |
-| ✅ 3 | P03 Authentication and RBAC                   | CC       | P02                     | 0             |
-| ✅ 4 | P04 Case intake and Triage Queue              | CC       | P03                     | 1             |
-| ✅ 5 | P05 Triage pipeline framework (mocks)         | CC       | P04                     | 1             |
-| ✅5b | P05b Suggested actions framework (mocks)      | CC       | P05                     | 1–2           |
-| ✅ 6 | M1 De-identification and red-flag screening   | You      | P05                     | 2             |
-| ✅ 7 | M2 LLM provider setup and selection           | You      | P05                     | 1 (spike)     |
-| ✅8  | M3 Clinical entity extraction                 | You      | M1, M2                  | 2             |
-| ✅9  | P06 Case Review and HITL decisions            | CC       | P05 (parallel to M1–M3) | 3             |
-| ✅10 | M4 pgvector and embedding model               | You      | P02                     | 2             |
-| ✅11 | P08 Knowledge base management                 | CC       | P06                     | 2–3           |
-| ✅12 | M5 KB authoring, chunking, and indexing       | You      | M4, P08                 | 2             |
-| ✅13 | M6 Retrieval and recommendation generation    | You      | M3, M5                  | 2             |
-| 13b | M6b LLM action suggestion                     | You      | M6, P05b                | 2–3           |
-| 14  | P07 Resilience, regeneration, and history     | CC       | P06                     | 3             |
-| 15  | P09 Admin: users, evaluation harness, exports | CC       | P07                     | 3             |
-| 16  | M7 Evaluation with the real model             | You      | M6, P09                 | 3–4           |
-| 17  | P10 Hardening, deployment, and release        | CC + You | all                     | 4             |
+| #    | Step                                          | Who      | Depends on              | Roadmap phase |
+| ---- | --------------------------------------------- | -------- | ----------------------- | ------------- |
+| ✅ 1  | P01 Repository scaffold and dev environment   | CC       | —                       | 0             |
+| ✅ 2  | P02 Database schema, migrations, seed data    | CC       | P01                     | 0             |
+| ✅ 3  | P03 Authentication and RBAC                   | CC       | P02                     | 0             |
+| ✅ 4  | P04 Case intake and Triage Queue              | CC       | P03                     | 1             |
+| ✅ 5  | P05 Triage pipeline framework (mocks)         | CC       | P04                     | 1             |
+| ✅5b  | P05b Suggested actions framework (mocks)      | CC       | P05                     | 1–2           |
+| ✅ 6  | M1 De-identification and red-flag screening   | You      | P05                     | 2             |
+| ✅ 7  | M2 LLM provider setup and selection           | You      | P05                     | 1 (spike)     |
+| ✅8   | M3 Clinical entity extraction                 | You      | M1, M2                  | 2             |
+| ✅9   | P06 Case Review and HITL decisions            | CC       | P05 (parallel to M1–M3) | 3             |
+| ✅10  | M4 pgvector and embedding model               | You      | P02                     | 2             |
+| ✅11  | P08 Knowledge base management                 | CC       | P06                     | 2–3           |
+| ✅12  | M5 KB authoring, chunking, and indexing       | You      | M4, P08                 | 2             |
+| ✅13  | M6 Retrieval and recommendation generation    | You      | M3, M5                  | 2             |
+| ✅13b | M6b LLM action suggestion                     | You      | M6, P05b                | 2–3           |
+| 14   | P07 Resilience, regeneration, and history     | CC       | P06                     | 3             |
+| 15   | P09 Admin: users, evaluation harness, exports | CC       | P07                     | 3             |
+| 16   | M7 Evaluation with the real model             | You      | M6, P09                 | 3–4           |
+| 17   | P10 Hardening, deployment, and release        | CC + You | all                     | 4             |
 
 P08 comes before P07 on purpose. The knowledge-base workflow must exist before M5 can index real entries.
 
