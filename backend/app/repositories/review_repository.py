@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import Row, func, select
+from sqlalchemy import Row, func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -601,6 +601,21 @@ class ReviewRepository:
         if case is not None:
             case.status = status
             self._session.flush()
+
+    def reopen_for_retry(self, case_id: uuid.UUID) -> bool:
+        """Move `MANUAL_TRIAGE_REQUIRED` back to `SUBMITTED`; True if this call did.
+
+        A compare-and-set in one statement rather than a read and a write: two
+        reviewers pressing Retry at once must produce one job, and only one of
+        them may see `True` (P07 §7.1 task 3). Flushes, never commits.
+        """
+        result = self._session.execute(
+            update(Case)
+            .where(Case.id == case_id, Case.status == CaseStatus.MANUAL_TRIAGE_REQUIRED)
+            .values(status=CaseStatus.SUBMITTED)
+        )
+        self._session.flush()
+        return result.rowcount == 1
 
     def close_case(self, case_id: uuid.UUID, at: datetime) -> Case | None:
         """Mark a case closed and stamp `closed_at`. Flushes, never commits."""

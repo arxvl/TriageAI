@@ -21,6 +21,7 @@ Several assertions are load-bearing beyond the mocks themselves:
 All data here is fictitious (CLAUDE.md §9).
 """
 
+import time
 import uuid
 
 import pytest
@@ -78,6 +79,9 @@ DESCRIPTION = (
 # model stage too, but it runs in its own job and raises its own `ActionsFailed`,
 # so it has its own section below (FR-77, ADR-18 §3).
 MODEL_STAGES = [MockEntityExtractor, MockRecommendationGenerator]
+
+# What `slow` sleeps in these tests; the 12 s default is only asserted, not waited for.
+SMALL_DELAY_S = 0.05
 
 WORKING_SCENARIOS = ["DEMO_1", "DEMO_2", "DEMO_3"]
 
@@ -466,11 +470,25 @@ def test_resetting_the_attempt_counts_makes_flaky_flake_again(
 @pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
 def test_slow_answers_late_but_answers(mock_class: type, deps: PipelineDeps) -> None:
     """`slow` means late, not timed out, and the delay must stay inside the budget."""
-    stage = mock_class(config=deps.config, behavior=MockLLMBehavior.SLOW)
+    stage = mock_class(
+        config=deps.config, behavior=MockLLMBehavior.SLOW, slow_delay_s=SMALL_DELAY_S
+    )
 
     assert call_model_stage(stage) is not None
-    assert stage.last_latency_ms >= int(MOCK_SLOW_DELAY_S * 1000)
+    assert stage.last_latency_ms >= int(SMALL_DELAY_S * 1000)
+    # The default is the 12 s a demo needs (P07 §7.1 task 4); it is not slept here.
+    assert MOCK_SLOW_DELAY_S == 12.0
     assert MOCK_SLOW_DELAY_S < deps.config.timeout_s
+
+
+def test_slow_delay_is_capped_by_the_stage_timeout() -> None:
+    config = PipelineConfig(timeout_s=0.05)
+    stage = MockEntityExtractor(config=config, behavior=MockLLMBehavior.SLOW, slow_delay_s=60)
+
+    started = time.perf_counter()
+    call_model_stage(stage)
+
+    assert time.perf_counter() - started < 5
 
 
 @pytest.mark.parametrize("mock_class", MODEL_STAGES, ids=lambda c: c.__name__)
@@ -687,10 +705,12 @@ def test_the_suggester_flakes_once_then_succeeds(deps: PipelineDeps) -> None:
 
 def test_the_suggester_answers_late_under_slow(deps: PipelineDeps) -> None:
     scenario = fixture("DEMO_1")
-    stage = MockActionSuggester(config=deps.config, behavior=MockLLMBehavior.SLOW)
+    stage = MockActionSuggester(
+        config=deps.config, behavior=MockLLMBehavior.SLOW, slow_delay_s=SMALL_DELAY_S
+    )
 
     assert (
         stage.suggest(scenario.extraction, VTLCategory.ORANGE, scenario.passages, max_items=5)
         == scenario.actions
     )
-    assert stage.last_latency_ms >= int(MOCK_SLOW_DELAY_S * 1000)
+    assert stage.last_latency_ms >= int(SMALL_DELAY_S * 1000)

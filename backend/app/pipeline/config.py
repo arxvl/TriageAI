@@ -14,9 +14,12 @@ on a row comes from the stage that produced it — every stage exposes its own
 retriever with a real generator, and the row has to say which was which.
 """
 
+import logging
 from dataclasses import dataclass
 
-from app.core.config import Settings
+from app.core.config import AppEnv, Settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,19 @@ class PipelineConfig:
     # was shown, so it belongs in the stored provenance.
     actions_prompt_version: str = "v1.0"
     actions_max_items: int = 5
+    # See `Settings.demo_force_failure_case_text`. Already `None` outside
+    # `APP_ENV=dev`, so nothing downstream has to check the environment.
+    demo_force_failure_phrase: str | None = None
+
+    @property
+    def job_timeout_s(self) -> float:
+        """The whole-job budget: `2 × timeout_s + 10` seconds (IR-19, ADR-08).
+
+        Two model stages, each allowed `timeout_s`, plus ten seconds for
+        everything that is not a model call. The worker fails a job that runs past
+        it (P07 §7.1 task 5).
+        """
+        return 2 * self.timeout_s + 10
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "PipelineConfig":
@@ -54,4 +70,23 @@ class PipelineConfig:
             retrieval_min_score=settings.retrieval_min_score,
             actions_prompt_version=settings.actions_prompt_version,
             actions_max_items=settings.actions_max_items,
+            demo_force_failure_phrase=_demo_phrase(settings),
         )
+
+
+def _demo_phrase(settings: Settings) -> str | None:
+    """The demo failure phrase, or None unless this is a development run.
+
+    A toggle that makes real cases fail must not be reachable in production by an
+    environment variable that was left set (P07 §7.1 task 7).
+    """
+    phrase = settings.demo_force_failure_case_text.strip()
+    if not phrase:
+        return None
+    if settings.app_env is not AppEnv.DEV:
+        logger.warning(
+            "DEMO_FORCE_FAILURE_CASE_TEXT is set but ignored outside APP_ENV=dev",
+            extra={"app_env": settings.app_env.value},
+        )
+        return None
+    return phrase

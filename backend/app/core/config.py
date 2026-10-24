@@ -72,13 +72,15 @@ class MockLLMBehavior(StrEnum):
     SLOW = "slow"
 
 
-# How long `slow` delays one model call. Long enough to show a real latency in
-# the stored `stage_ms` and in the UI, short enough that a test suite running the
-# whole behaviour matrix stays quick, and far inside `PIPELINE_TIMEOUT_S` — `slow`
-# means late, not timed out (P05 §5.2). It lives here, next to the enum that
-# selects it, so the mock stages and the mock provider share one value without
-# either importing the other.
-MOCK_SLOW_DELAY_S = 0.25
+# How long `slow` delays one model call (P07 §7.1 task 4). Long enough that the
+# "Processing…" state on W-03 and W-06 is visible in a demo and that a backend
+# killed mid-job is killed mid-job, and still inside `PIPELINE_TIMEOUT_S` — `slow`
+# means late, not timed out (P05 §5.2). It is the default of
+# `Settings.mock_slow_delay_s` and of the mocks' `slow_delay_s`; tests pass a
+# small value instead of sleeping. It lives here, next to the enum that selects
+# it, so the mock stages and the mock provider share one value without either
+# importing the other.
+MOCK_SLOW_DELAY_S = 12.0
 
 
 class Settings(BaseSettings):
@@ -157,6 +159,13 @@ class Settings(BaseSettings):
     pipeline_actions: ActionsOption = ActionsOption.MOCK
 
     mock_llm_behavior: MockLLMBehavior = MockLLMBehavior.OK
+    mock_slow_delay_s: float = MOCK_SLOW_DELAY_S
+
+    # A phrase that, found in a case description, makes the pipeline time out on
+    # purpose so the PD8 demo can show the fallback without editing `.env` live
+    # (P07 §7.1 task 7). Honoured in `APP_ENV=dev` only; the registry drops it
+    # everywhere else. Blank means off.
+    demo_force_failure_case_text: str = ""
 
     # The background job worker (P05 §5.4 task 2, ADR-08). Enabled by default so
     # a clean `docker compose up` triages the cases it is given; `false` in tests,

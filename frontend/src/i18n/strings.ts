@@ -575,8 +575,6 @@ export const strings = {
     manualTriage: {
       // The banner for a case the pipeline gave up on.
       aiUnavailable: "AI unavailable – triage manually using the VTL.",
-      // {reason} is one of `failureReasons`, {time} the time it failed.
-      failureDetail: "{reason} ({time})",
       safeToTriage: "The case is safe to triage; no data was lost.",
       // A reviewer who chose manual triage on a case that has a recommendation.
       // "AI unavailable" would be untrue, so this says what is actually happening.
@@ -599,30 +597,24 @@ export const strings = {
       cancel: "Cancel manual triage",
       statusNotice: "Status will change to “Manually triaged”.",
       retry: "Retry AI processing",
+      retrying: "Retrying…",
     },
 
-    // Why the pipeline stopped, in plain language (NFR-09, IR-05). The keys are
-    // `FailureReason` in `backend/app/pipeline/orchestrator.py`.
-    //
-    // TODO(P07): §7.1 renames these codes and puts the sentences in
-    // `app/pipeline/messages.py`, which the response will then carry. This map
-    // goes away at that point.
-    failureReasons: {
-      EXTRACTION_TIMEOUT: "The language model did not respond in time.",
-      GENERATION_TIMEOUT: "The language model did not respond in time.",
-      EXTRACTION_UNAVAILABLE: "The language model could not be reached.",
-      GENERATION_UNAVAILABLE: "The language model could not be reached.",
-      EXTRACTION_INVALID_OUTPUT: "The language model’s answer could not be read.",
-      GENERATION_INVALID_OUTPUT: "The language model’s answer could not be read.",
-      EXTRACTION_FAILED: "The step that reads the description did not finish.",
-      GENERATION_FAILED: "The step that recommends a category did not finish.",
-      RETRIEVAL_FAILED: "The knowledge base could not be searched.",
-      KB_VERSION_MISSING: "No approved knowledge-base version was available.",
-      DESCRIPTION_MISSING: "The owner’s description could not be read.",
+    // The banner while a run is in progress — after a case is entered, and after
+    // Retry on W-06 (IR-22, P07 §7.1). The stages are the orchestrator's steps.
+    processing: {
+      title: "AI processing is running for this case. This screen updates by itself.",
+      stages: {
+        queued: "Waiting to start…",
+        deidentify: "Removing identifying details…",
+        screen: "Checking for red flags…",
+        extract: "Reading the description…",
+        retrieve: "Searching the knowledge base…",
+        generate: "Preparing the recommendation…",
+        done: "Finishing up…",
+        failed: "Stopped. This screen is updating…",
+      },
     },
-    // Any other code, including one this interface does not recognise. Never
-    // print the code itself at a clinician.
-    failureReasonFallback: "AI processing could not be completed for this case.",
 
     // The Add note dialog (FR-37).
     noteDialog: {
@@ -679,6 +671,11 @@ export const strings = {
       decisionFailed: "The decision could not be saved right now. Please try again.",
       noteFailed: "The note could not be saved right now. Please try again.",
       closeFailed: "The case could not be closed right now. Please try again.",
+      retryFailed: "AI processing could not be restarted right now. Please try again.",
+      // A 409 on retry: someone else retried, or decided, first.
+      retryConflict:
+        "This case is no longer waiting for a retry. The screen has been refreshed " +
+        "with the current state.",
       // A 409 on close: the case was closed by someone else while this screen
       // was open, which is not a failure to report as one (FR-38).
       closeConflict:

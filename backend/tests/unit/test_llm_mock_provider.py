@@ -111,7 +111,9 @@ def test_flaky_fails_the_first_call_and_answers_the_retry() -> None:
 
 
 def test_slow_answers_within_the_timeout() -> None:
-    assert call(MockLLMProvider(MockLLMBehavior.SLOW)) == {}
+    assert call(MockLLMProvider(MockLLMBehavior.SLOW, slow_delay_s=0.01)) == {}
+    # The default is the 12 s a demo needs (P07 §7.1 task 4); it is not slept here.
+    assert MOCK_SLOW_DELAY_S == 12.0
     assert MOCK_SLOW_DELAY_S < PipelineConfig().timeout_s
 
 

@@ -95,13 +95,13 @@ def test_fail_records_the_reason_code_and_the_time(db_session: Session) -> None:
     """NFR-09. A code and a timestamp — never a model response (CLAUDE.md §9)."""
     job = make_job(db_session, status=JobStatus.RUNNING)
 
-    JobQueue(db_session).fail(job, "EXTRACTION_TIMEOUT")
+    JobQueue(db_session).fail(job, "LLM_TIMEOUT")
 
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
-    assert job.last_error.startswith("EXTRACTION_TIMEOUT at ")
+    assert job.last_error.startswith("LLM_TIMEOUT at ")
     # Parses, so P07 can read the time back rather than only display it.
-    datetime.fromisoformat(job.last_error.removeprefix("EXTRACTION_TIMEOUT at "))
+    datetime.fromisoformat(job.last_error.removeprefix("LLM_TIMEOUT at "))
 
 
 def test_set_stage_records_progress_without_losing_the_payload(db_session: Session) -> None:

@@ -308,7 +308,7 @@ def test_a_timeout_sends_the_case_to_manual_triage(
 
     result = pipeline.run(case.id)
 
-    assert result.failure_reason is FailureReason.EXTRACTION_TIMEOUT
+    assert result.failure_reason is FailureReason.LLM_TIMEOUT
     assert status_of(db_session, case) is CaseStatus.MANUAL_TRIAGE_REQUIRED
     assert recommendation_of(db_session, case) is None
     assert audit_for(db_session, case)[-1].action == AuditAction.PIPELINE_FAILED.value
@@ -370,7 +370,7 @@ def test_unusable_output_on_every_attempt_sends_the_case_to_manual_triage(
 
     result = pipeline_factory(mock_llm_behavior=MockLLMBehavior.INVALID_JSON).run(case.id)
 
-    assert result.failure_reason is FailureReason.EXTRACTION_INVALID_OUTPUT
+    assert result.failure_reason is FailureReason.LLM_INVALID_OUTPUT
     assert status_of(db_session, case) is CaseStatus.MANUAL_TRIAGE_REQUIRED
     assert extraction_of(db_session, case) is None
 
@@ -415,7 +415,7 @@ def test_demo_4_fails_on_its_own_without_changing_the_configuration(
 
     result = pipeline.run(case.id)
 
-    assert result.failure_reason is FailureReason.EXTRACTION_INVALID_OUTPUT
+    assert result.failure_reason is FailureReason.LLM_INVALID_OUTPUT
     assert status_of(db_session, case) is CaseStatus.MANUAL_TRIAGE_REQUIRED
     assert demo_cases()["DEMO_4"]["expected_status"] == CaseStatus.MANUAL_TRIAGE_REQUIRED.value
 
@@ -433,7 +433,7 @@ def test_a_run_with_no_knowledge_base_version_fails_rather_than_inventing_one(
 
     result = pipeline.run(case.id)
 
-    assert result.failure_reason is FailureReason.KB_VERSION_MISSING
+    assert result.failure_reason is FailureReason.INTERNAL_ERROR
     assert status_of(db_session, case) is CaseStatus.MANUAL_TRIAGE_REQUIRED
     assert alerts_of(db_session, case) == []
 
@@ -497,7 +497,7 @@ def test_a_failed_run_marks_the_job_failed_with_the_reason(
     db_session.refresh(job)
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
-    assert job.last_error.startswith(FailureReason.EXTRACTION_TIMEOUT.value)
+    assert job.last_error.startswith(FailureReason.LLM_TIMEOUT.value)
     assert job.payload == {STAGE_KEY: JobStage.FAILED.value}
     assert status_of(db_session, case) is CaseStatus.MANUAL_TRIAGE_REQUIRED
 

@@ -184,7 +184,7 @@ function makeCaseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
 
     decision: null,
     notes: [],
-    permissions: { can_decide: true, can_regenerate: false, can_close: false },
+    permissions: { can_decide: true, can_regenerate: false, can_retry: false, can_close: false },
     failure: null,
 
     ...overrides,
@@ -213,6 +213,11 @@ function confirmedCase(): CaseDetail {
 }
 
 /** A case the pipeline gave up on: no recommendation, and a reason why (W-06). */
+/** What the server writes for `LLM_TIMEOUT` (backend `pipeline/messages.py`). */
+const FAILURE_MESSAGE =
+  "The language model did not respond after 2 attempts (09:20:41). " +
+  "The case is safe to triage; no data was lost.";
+
 function manualTriageCase(overrides: Partial<CaseDetail> = {}): CaseDetail {
   return makeCaseDetail({
     status: "MANUAL_TRIAGE_REQUIRED",
@@ -230,7 +235,12 @@ function manualTriageCase(overrides: Partial<CaseDetail> = {}): CaseDetail {
       rejected_count: 0,
       is_outdated: false,
     },
-    failure: { reason_code: "GENERATION_TIMEOUT", failed_at: "2026-10-01T01:20:41Z" },
+    failure: {
+      reason_code: "LLM_TIMEOUT",
+      message: FAILURE_MESSAGE,
+      failed_at: "2026-10-01T01:20:41Z",
+    },
+    permissions: { can_decide: true, can_regenerate: false, can_retry: true, can_close: false },
     ...overrides,
   });
 }
@@ -536,7 +546,12 @@ describe("CaseReview panel 3 — the recommendation", () => {
   it("reads a missing recommendation as a case to triage by hand, not an error", async () => {
     renderCase(
       manualTriageCase({
-        permissions: { can_decide: false, can_regenerate: false, can_close: false },
+        permissions: {
+          can_decide: false,
+          can_regenerate: false,
+          can_retry: false,
+          can_close: false,
+        },
       }),
       { role: "INTAKE_STAFF" },
     );
@@ -592,7 +607,12 @@ describe("CaseReview suggested actions", () => {
       {
         ...detail,
         actions: { ...detail.actions, tailored: [], rejected_count: 0 },
-        permissions: { can_decide: false, can_regenerate: false, can_close: false },
+        permissions: {
+          can_decide: false,
+          can_regenerate: false,
+          can_retry: false,
+          can_close: false,
+        },
       },
       { role: "INTAKE_STAFF" },
     );
@@ -702,7 +722,12 @@ describe("CaseReview decision bar", () => {
   it("hides the decision buttons and says the case is read-only for Intake Staff", async () => {
     renderCase(
       makeCaseDetail({
-        permissions: { can_decide: false, can_regenerate: false, can_close: false },
+        permissions: {
+          can_decide: false,
+          can_regenerate: false,
+          can_retry: false,
+          can_close: false,
+        },
       }),
       { role: "INTAKE_STAFF" },
     );
@@ -918,32 +943,90 @@ describe("CaseReview manual triage (W-06)", () => {
     ).toBeInTheDocument();
 
     const banner = screen.getByText(copy.manualTriage.aiUnavailable, { exact: false });
-    expect(banner).toHaveTextContent(copy.failureReasons.GENERATION_TIMEOUT);
-    expect(banner).toHaveTextContent("9:20");
-    expect(banner).toHaveTextContent(copy.manualTriage.safeToTriage);
+    expect(banner).toHaveTextContent(FAILURE_MESSAGE);
+    expect(banner).toHaveTextContent("09:20:41");
   });
 
-  // IR-05: never print a code at a clinician, even one this build has not met.
-  it("falls back to a general sentence for a reason code it does not know", async () => {
+  // IR-05: the code behind the sentence is never shown.
+  it("never prints the reason code", async () => {
     renderCase(
       manualTriageCase({
-        failure: { reason_code: "SOMETHING_NEW_IN_P07", failed_at: "2026-10-01T01:20:41Z" },
+        failure: {
+          reason_code: "SOMETHING_NEW_IN_P08",
+          message: "AI processing could not be completed for this case.",
+          failed_at: "2026-10-01T01:20:41Z",
+        },
       }),
     );
 
     expect(
-      await screen.findByText(copy.failureReasonFallback, { exact: false }),
+      await screen.findByText("AI processing could not be completed", { exact: false }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/SOMETHING_NEW_IN_P07/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/SOMETHING_NEW_IN_P08/)).not.toBeInTheDocument();
   });
 
-  // P07 §7.1 owns POST /cases/{id}/retry.
-  it("shows Retry AI processing as not yet available", async () => {
-    renderCase(manualTriageCase());
+  it("still says the case is safe when no failure was recorded", async () => {
+    renderCase(manualTriageCase({ failure: null }));
+
+    const banner = await screen.findByText(copy.manualTriage.aiUnavailable, { exact: false });
+    expect(banner).toHaveTextContent(copy.manualTriage.safeToTriage);
+  });
+
+  // P07 §7.1, UC-08.
+  it("posts a retry and re-reads the case", async () => {
+    const { mock } = renderCase(manualTriageCase(), {
+      routes: { "/retry": { status: 202, body: { id: CASE_ID, status: "SUBMITTED" } } },
+    });
 
     const retry = await screen.findByRole("button", { name: copy.manualTriage.retry });
-    expect(retry).toBeDisabled();
-    expect(retry).toHaveAttribute("title", copy.availableInP07);
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+
+    await waitFor(() => {
+      const call = mock.mock.calls.find((entry) => String(entry[0]).includes("/retry"));
+      expect(call?.[1]?.method).toBe("POST");
+    });
+    const reads = () =>
+      mock.mock.calls.filter((entry) => String(entry[0]).endsWith(`/cases/${CASE_ID}`)).length;
+    await waitFor(() => expect(reads()).toBeGreaterThan(1));
+  });
+
+  it("leaves Retry disabled when the server says it is not allowed", async () => {
+    renderCase(
+      manualTriageCase({
+        permissions: {
+          can_decide: true,
+          can_regenerate: false,
+          can_retry: false,
+          can_close: false,
+        },
+      }),
+    );
+
+    expect(await screen.findByRole("button", { name: copy.manualTriage.retry })).toBeDisabled();
+  });
+
+  it("refreshes and explains when the retry is refused as out of date", async () => {
+    renderCase(manualTriageCase(), {
+      routes: {
+        "/retry": {
+          status: 409,
+          body: errorBody("INVALID_TRANSITION", "This case is no longer in that state."),
+        },
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.manualTriage.retry }));
+
+    expect(await screen.findByText(copy.errors.retryConflict)).toBeInTheDocument();
+  });
+
+  it("shows a quiet error when the retry cannot be sent", async () => {
+    renderCase(manualTriageCase(), { routes: { "/retry": { status: 500 } } });
+
+    fireEvent.click(await screen.findByRole("button", { name: copy.manualTriage.retry }));
+
+    expect(await screen.findByText(copy.errors.retryFailed)).toBeInTheDocument();
   });
 
   it("records the category and the note, then returns to the queue", async () => {
@@ -1062,7 +1145,7 @@ describe("CaseReview notes (FR-37)", () => {
     renderCase({
       ...confirmedCase(),
       status: "CLOSED",
-      permissions: { can_decide: false, can_regenerate: false, can_close: false },
+      permissions: { can_decide: false, can_regenerate: false, can_retry: false, can_close: false },
     });
 
     expect(await screen.findByText(copy.decisionBar.readOnly)).toBeInTheDocument();
@@ -1077,7 +1160,7 @@ describe("CaseReview closing a case (FR-38)", () => {
   function closable(): CaseDetail {
     return {
       ...confirmedCase(),
-      permissions: { can_decide: true, can_regenerate: false, can_close: true },
+      permissions: { can_decide: true, can_regenerate: false, can_retry: false, can_close: true },
     };
   }
 
@@ -1148,7 +1231,12 @@ describe("CaseReview decision controls and role", () => {
     it(`offers no decision, note or close control to ${role}`, async () => {
       renderCase(
         manualTriageCase({
-          permissions: { can_decide: false, can_regenerate: false, can_close: false },
+          permissions: {
+            can_decide: false,
+            can_regenerate: false,
+            can_retry: false,
+            can_close: false,
+          },
         }),
         { role },
       );
@@ -1180,5 +1268,56 @@ describe("CaseReview loading and failure", () => {
     });
 
     expect(await screen.findByText(copy.errors.notFound)).toBeInTheDocument();
+  });
+});
+
+describe("CaseReview while a run is in progress (IR-22)", () => {
+  it("names the stage the pipeline has reached", async () => {
+    renderCase(manualTriageCase({ status: "SUBMITTED", failure: null }), {
+      routes: {
+        "/status": {
+          body: {
+            status: "PROCESSING",
+            category: null,
+            has_red_flag: false,
+            pipeline_stage: "extract",
+            actions_status: null,
+            updated_at: "2026-10-01T01:21:00Z",
+          },
+        },
+      },
+    });
+
+    expect(await screen.findByText(copy.processing.title)).toBeInTheDocument();
+    expect(await screen.findByText(copy.processing.stages.extract)).toBeInTheDocument();
+  });
+
+  it("re-reads the case as soon as the status settles", async () => {
+    const { mock } = renderCase(manualTriageCase({ status: "SUBMITTED", failure: null }), {
+      routes: {
+        "/status": {
+          body: {
+            status: "AWAITING_REVIEW",
+            category: "ORANGE",
+            has_red_flag: true,
+            pipeline_stage: "done",
+            actions_status: "PENDING",
+            updated_at: "2026-10-01T01:21:00Z",
+          },
+        },
+      },
+    });
+
+    await screen.findByText(copy.processing.title);
+    const reads = () =>
+      mock.mock.calls.filter((entry) => String(entry[0]).endsWith(`/cases/${CASE_ID}`)).length;
+    await waitFor(() => expect(reads()).toBeGreaterThan(1));
+  });
+
+  it("shows no progress banner on a case that is not running", async () => {
+    renderCase(makeCaseDetail());
+
+    await screen.findByText("C-0142", { exact: false });
+    expect(screen.queryByText(copy.processing.title)).not.toBeInTheDocument();
   });
 });

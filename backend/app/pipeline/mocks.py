@@ -109,9 +109,15 @@ class _MockStage:
     model_id: str = MOCK_MODEL_ID
     prompt_version: str = MOCK_PROMPT_VERSION
 
-    def __init__(self, config: PipelineConfig, behavior: MockLLMBehavior) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        behavior: MockLLMBehavior,
+        slow_delay_s: float = MOCK_SLOW_DELAY_S,
+    ) -> None:
         self.config = config
         self.behavior = behavior
+        self.slow_delay_s = slow_delay_s
         self.last_latency_ms = 0
         # Attempt counts, so `flaky` can fail the first attempt at a given call
         # and succeed on the retry. Keyed and counted only under `flaky`; see
@@ -120,7 +126,11 @@ class _MockStage:
 
     @classmethod
     def from_settings(cls, settings: Settings, deps: "PipelineDeps") -> "_MockStage":
-        return cls(config=deps.config, behavior=settings.mock_llm_behavior)
+        return cls(
+            config=deps.config,
+            behavior=settings.mock_llm_behavior,
+            slow_delay_s=settings.mock_slow_delay_s,
+        )
 
     @contextmanager
     def _measured(self) -> Iterator[None]:
@@ -170,7 +180,7 @@ class _MockStage:
                 )
 
         if behavior is MockLLMBehavior.SLOW:
-            sleep(min(MOCK_SLOW_DELAY_S, self.config.timeout_s))
+            sleep(min(self.slow_delay_s, self.config.timeout_s))
 
     def reset_attempts(self) -> None:
         """Forget the `flaky` attempt counts. For tests, and for a worker restart."""

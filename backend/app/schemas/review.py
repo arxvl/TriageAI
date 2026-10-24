@@ -357,17 +357,28 @@ class FailureOut(BaseModel):
     actually sitting on that failure — see `CaseService._failure`.
 
     `reason_code` is a plain `str`, not the pipeline's `FailureReason` enum. The
-    schema layer must not import `app.pipeline` (CLAUDE.md §7), and the codes are
-    renamed in P07 §7.1, so a client that does not recognise one has to fall back
-    to a general sentence rather than print a code at a clinician (IR-05).
+    schema layer must not import `app.pipeline` (CLAUDE.md §7).
 
-    TODO(P07): §7.1 adds the plain-language text for each code to
-    `app/pipeline/messages.py`; this response then carries the sentence and the
-    client's own map of codes goes away.
+    `message` is the sentence the banner prints, built on the server from
+    `app.pipeline.messages` so the client holds no list of codes and an
+    unrecognised one still reads as a sentence, never as a code (IR-05, P07 §7.1).
     """
 
     reason_code: str
+    message: str
     failed_at: datetime
+
+
+class RetryAccepted(BaseModel):
+    """202 for `POST /cases/{id}/retry`: the pipeline has been queued again.
+
+    `status` is `SUBMITTED`, as for a new case; the client polls
+    `GET /cases/{id}/status` from there (IR-22).
+    """
+
+    id: uuid.UUID
+    case_no: str
+    status: CaseStatus
 
 
 class PermissionsOut(BaseModel):
@@ -379,11 +390,15 @@ class PermissionsOut(BaseModel):
     refuse the request whatever these flags said (SR-05, BR-02).
 
     `can_regenerate` is always false in this subphase: the regenerate backend is
-    P07, and W-04 shows the button disabled until then.
+    P07 §7.2, and W-04 shows the button disabled until then.
+
+    `can_retry` is true for a reviewer on a case sitting in
+    `MANUAL_TRIAGE_REQUIRED`, which is when W-06's Retry button is live (P07 §7.1).
     """
 
     can_decide: bool
     can_regenerate: bool
+    can_retry: bool
     can_close: bool
 
 

@@ -51,6 +51,7 @@ next (CLAUDE.md §8).
 """
 
 import logging
+import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -136,27 +137,32 @@ _T = TypeVar("_T")
 
 
 class FailureReason(StrEnum):
-    """Why a run ended in `MANUAL_TRIAGE_REQUIRED` (NFR-09).
+    """Why a run ended in `MANUAL_TRIAGE_REQUIRED` (NFR-09, P07 §7.1 task 1).
 
     Codes, not prose. They go into `jobs.last_error`, into the `PIPELINE_FAILED`
-    audit entry and — in P07 — into the W-06 banner and the retry endpoint's
-    decision about whether retrying could help. None of them may contain a model
-    response, a prompt or an owner description (CLAUDE.md §9).
+    audit entry and into the W-06 banner, whose wording lives in
+    `app.pipeline.messages`. None of them may contain a model response, a prompt
+    or an owner description (CLAUDE.md §9).
+
+    The `LLM_*` codes say what the model call did, whichever stage made it: a
+    reviewer deciding whether to retry needs to know the model did not answer, not
+    which of two stages was waiting. What a code does not say stays in the log,
+    as identifiers and timings — `INTERNAL_ERROR` covers a bug here and the two
+    preconditions a deployment can get wrong (no description row, no knowledge-base
+    version).
     """
 
-    CASE_NOT_FOUND = "CASE_NOT_FOUND"
-    DESCRIPTION_MISSING = "DESCRIPTION_MISSING"
-    EXTRACTION_INVALID_OUTPUT = "EXTRACTION_INVALID_OUTPUT"
-    EXTRACTION_TIMEOUT = "EXTRACTION_TIMEOUT"
-    EXTRACTION_UNAVAILABLE = "EXTRACTION_UNAVAILABLE"
-    EXTRACTION_FAILED = "EXTRACTION_FAILED"
-    KB_VERSION_MISSING = "KB_VERSION_MISSING"
+    LLM_TIMEOUT = "LLM_TIMEOUT"
+    LLM_UNAVAILABLE = "LLM_UNAVAILABLE"
+    LLM_INVALID_OUTPUT = "LLM_INVALID_OUTPUT"
     RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
-    GENERATION_INVALID_OUTPUT = "GENERATION_INVALID_OUTPUT"
-    GENERATION_TIMEOUT = "GENERATION_TIMEOUT"
-    GENERATION_UNAVAILABLE = "GENERATION_UNAVAILABLE"
     GENERATION_FAILED = "GENERATION_FAILED"
-    UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+    # Fails closed: the run stops before any stage that could send text anywhere
+    # (IR-20, ADR-10).
+    DEIDENTIFICATION_FAILED = "DEIDENTIFICATION_FAILED"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+    # Returned without touching a case, so it never reaches a reviewer.
+    CASE_NOT_FOUND = "CASE_NOT_FOUND"
 
 
 class ActionsFailureReason(StrEnum):
@@ -192,17 +198,23 @@ class ActionsFailureReason(StrEnum):
 # schema is as transient as an extraction that does not, while a timeout under load
 # is not transient and retrying one would spend the job's budget waiting (FR-15,
 # IR-19). First match wins, so the stage's own error is listed last.
+#
+# A stage's own failure comes last, and `_reason_for` reads the cause chain before
+# it falls back to it: a real stage raises `ExtractionFailed from LLMTimeout`, and
+# the timeout is what the reviewer needs to hear. A bare `ExtractionFailed` is the
+# stage saying it could not produce a usable extraction, which from outside is
+# unusable output.
 _EXTRACTION_REASONS: tuple[tuple[type[Exception], "FailureReason"], ...] = (
-    (LLMInvalidOutput, FailureReason.EXTRACTION_INVALID_OUTPUT),
-    (LLMTimeout, FailureReason.EXTRACTION_TIMEOUT),
-    (LLMUnavailable, FailureReason.EXTRACTION_UNAVAILABLE),
-    (ExtractionFailed, FailureReason.EXTRACTION_FAILED),
+    (LLMInvalidOutput, FailureReason.LLM_INVALID_OUTPUT),
+    (LLMTimeout, FailureReason.LLM_TIMEOUT),
+    (LLMUnavailable, FailureReason.LLM_UNAVAILABLE),
+    (ExtractionFailed, FailureReason.LLM_INVALID_OUTPUT),
 )
 
 _GENERATION_REASONS: tuple[tuple[type[Exception], "FailureReason"], ...] = (
-    (LLMInvalidOutput, FailureReason.GENERATION_INVALID_OUTPUT),
-    (LLMTimeout, FailureReason.GENERATION_TIMEOUT),
-    (LLMUnavailable, FailureReason.GENERATION_UNAVAILABLE),
+    (LLMInvalidOutput, FailureReason.LLM_INVALID_OUTPUT),
+    (LLMTimeout, FailureReason.LLM_TIMEOUT),
+    (LLMUnavailable, FailureReason.LLM_UNAVAILABLE),
     (GenerationFailed, FailureReason.GENERATION_FAILED),
 )
 
@@ -278,9 +290,14 @@ def _reason_for(
     """The reason code for this error, or None if the stage did not raise one of
     its declared failures — which is a bug, and must not be disguised as a
     pipeline failure."""
-    for error_type, reason in reasons:
-        if isinstance(error, error_type):
-            return reason
+    # The error itself, then what it was raised from. Each is checked against the
+    # whole table in order, so a transport cause wins over the stage's own wrapper.
+    for candidate in (error, error.__cause__):
+        for error_type, reason in reasons[:-1]:
+            if isinstance(candidate, error_type):
+                return reason
+    if isinstance(error, reasons[-1][0]):
+        return reasons[-1][1]
     return None
 
 
@@ -295,6 +312,15 @@ class _StageFailure(Exception):
     def __init__(self, reason: FailureReason) -> None:
         super().__init__(str(reason))
         self.reason = reason
+
+
+class _Cancelled(Exception):
+    """Internal: the worker gave up on this run and failed the case itself.
+
+    Raised at a checkpoint when the job's cancel event is set, so a run that
+    outlived its budget stops without writing a recommendation over the failure
+    the worker already recorded (P07 §7.1 task 5). Never raised out of `run`.
+    """
 
 
 class _ActionsFailure(Exception):
@@ -344,19 +370,44 @@ class TriagePipeline:
             )
         )
 
-    def run(self, case_id: uuid.UUID, *, job_id: uuid.UUID | None = None) -> PipelineRunResult:
+    def run(
+        self,
+        case_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+        cancel: threading.Event | None = None,
+    ) -> PipelineRunResult:
         """Triage one case, end to end. Never raises.
 
         `job_id` is optional so the pipeline can be driven without the queue — the
         evaluation harness does that (M7) — and when it is given, each step's
         progress is recorded on the job for `GET /cases/{id}/status` (IR-22).
 
+        `cancel` is set by the worker when the job has run past its budget and the
+        worker has already failed the case. The run checks it between steps and
+        stops without writing anything more (P07 §7.1 task 5). A call that is
+        blocked inside a stage cannot be interrupted; it is bounded by the
+        provider's own `timeout_s`, and its result is discarded at the next check.
+
         A session is opened here rather than passed in, because a run commits
         several times and must not be inside anybody else's transaction. It comes
         from `deps.session_factory`, which the registry accepts an override for.
         """
         with self.deps.session_factory() as session:
-            return _TriageRun(self, session, case_id, job_id).execute()
+            return _TriageRun(self, session, case_id, job_id, cancel).execute()
+
+    def fail_timed_out(
+        self, case_id: uuid.UUID, *, job_id: uuid.UUID | None = None
+    ) -> PipelineRunResult:
+        """Take the failure path for a run the worker has given up waiting for.
+
+        The same path every other failure takes — `MANUAL_TRIAGE_REQUIRED`, audit
+        `PIPELINE_FAILED` — so a job that exceeded `2 × timeout_s + 10` leaves the
+        case exactly where a model timeout would (NFR-09, P07 §7.1 task 5). Never
+        raises.
+        """
+        with self.deps.session_factory() as session:
+            return _TriageRun(self, session, case_id, job_id).fail(FailureReason.LLM_TIMEOUT)
 
     def run_actions(
         self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
@@ -389,6 +440,7 @@ class _TriageRun:
         session: Session,
         case_id: uuid.UUID,
         job_id: uuid.UUID | None,
+        cancel: threading.Event | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._config = pipeline.config
@@ -398,6 +450,10 @@ class _TriageRun:
         self._jobs = JobQueue(session)
         self._case_id = case_id
         self._job_id = job_id
+        self._cancel = cancel
+        # How many times the stage that failed was called, for the banner's
+        # "after 2 attempts". None until a model stage has been called.
+        self._attempts: int | None = None
         # Per-stage wall time, as `params.stage_ms` on the recommendation (FR-68
         # computes p50/p95 from these).
         self._stage_ms: dict[str, int] = {}
@@ -407,6 +463,14 @@ class _TriageRun:
     def execute(self) -> PipelineRunResult:
         try:
             return self._run()
+        except _Cancelled:
+            # The worker has recorded the failure; writing anything now would
+            # overwrite it. Whatever this run had not committed is dropped.
+            self._session.rollback()
+            logger.warning("triage pipeline cancelled after its budget", extra=self._log_context())
+            return PipelineRunResult(
+                self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED, FailureReason.LLM_TIMEOUT
+            )
         except _StageFailure as failure:
             return self._fail(failure.reason)
         except Exception:
@@ -415,7 +479,11 @@ class _TriageRun:
             # to it, so the net is `Exception` and the traceback goes to the log,
             # not to the case.
             logger.exception("triage pipeline raised", extra=self._log_context())
-            return self._fail(FailureReason.UNEXPECTED_ERROR)
+            return self._fail(FailureReason.INTERNAL_ERROR)
+
+    def fail(self, reason: FailureReason) -> PipelineRunResult:
+        """The failure path on its own, for `TriagePipeline.fail_timed_out`."""
+        return self._fail(reason)
 
     def _run(self) -> PipelineRunResult:
         case = self._repo.case_for_run(self._case_id)
@@ -438,7 +506,7 @@ class _TriageRun:
             # Nothing to retrieve from means nothing to cite, and FR-22 requires a
             # citation. `scripts/seed.py` creates version 0 for exactly this.
             logger.warning("triage pipeline: no knowledge base version", extra=self._log_context())
-            raise _StageFailure(FailureReason.KB_VERSION_MISSING)
+            raise _StageFailure(FailureReason.INTERNAL_ERROR)
 
         passages = self._retrieve(extraction, kb_version_id)
         draft = self._generate(extraction, passages)
@@ -475,13 +543,30 @@ class _TriageRun:
         The owner reference is read inside the call expression and bound to
         nothing: there is no local here holding an owner's name or number, so no
         later step can reach one (DR-04).
+
+        **Any** exception from the stage is a de-identification failure, not only
+        `DeidentificationFailed`: a bug in the de-identifier is as unsafe as a
+        refusal, and the run must stop before the screener, the extractor and the
+        model either way.
         """
         self._stage(JobStage.DEIDENTIFY)
         stage = self._pipeline.deidentifier
-        text = stage.deidentify(
-            case.description,
-            *self._repo.owner_reference_for_deidentification(self._case_id),
-        )
+        try:
+            text = stage.deidentify(
+                case.description,
+                *self._repo.owner_reference_for_deidentification(self._case_id),
+            )
+        except Exception as error:
+            self._measured("deidentify", stage)
+            # Fail closed, whatever was raised: if the text may not be clean, no
+            # later stage may see it (IR-20, ADR-10). The class name is logged and
+            # nothing else — a de-identifier's message or traceback can quote the
+            # very text it failed to clean (CLAUDE.md §9).
+            logger.warning(
+                "de-identification failed; the run stops before any other stage",
+                extra={**self._log_context(), "error_type": type(error).__name__},
+            )
+            raise _StageFailure(FailureReason.DEIDENTIFICATION_FAILED) from None
         self._measured("deidentify", stage)
         return text
 
@@ -526,6 +611,16 @@ class _TriageRun:
         """Step 4: extract, retrying unusable output only (FR-15, IR-19)."""
         self._stage(JobStage.EXTRACT)
         stage = self._pipeline.extractor
+        phrase = self._config.demo_force_failure_phrase
+        if phrase is not None and phrase.lower() in text.lower():
+            # The PD8 demo toggle (P07 §7.1 task 7). Taken before the stage is
+            # called, so no model call is made, and after the screen has
+            # committed, so a red-flag alert still reaches the queue. The config
+            # carries a phrase only in `APP_ENV=dev`.
+            logger.warning(
+                "demo failure phrase matched; forcing a timeout", extra=self._log_context()
+            )
+            raise _StageFailure(FailureReason.LLM_TIMEOUT)
         return self._attempt(
             "extract",
             stage,
@@ -543,6 +638,7 @@ class _TriageRun:
         offsets later (FR-13, ADR-10). It is the de-identified string and never
         the raw one: raw text does not leave the de-identifier.
         """
+        self._checkpoint()
         stage = self._pipeline.extractor
         known = self._repo.known_complaint_codes(
             [complaint.code for complaint in extraction.presenting_complaints] + ["OTHER"]
@@ -608,6 +704,7 @@ class _TriageRun:
         last_reason = reasons[-1][1]
 
         for attempt in range(1, attempts + 1):
+            self._attempts = attempt
             try:
                 value = call()
             except Exception as error:
@@ -650,6 +747,7 @@ class _TriageRun:
         final: FinalRecommendation,
     ) -> uuid.UUID:
         """Steps 7 and 8: the recommendation, its references and its provenance."""
+        self._checkpoint()
         stage = self._pipeline.generator
         recommendation = self._repo.insert_recommendation(
             case_id=self._case_id,
@@ -694,6 +792,7 @@ class _TriageRun:
         recommendation's latency budget on something a reviewer does not have to
         wait for (NFR-29, ADR-18 §3).
         """
+        self._checkpoint()
         self._repo.set_status(self._case_id, CaseStatus.AWAITING_REVIEW)
         self._repo.set_actions_status(recommendation_id, ActionsStatus.PENDING)
         self._record(
@@ -751,6 +850,9 @@ class _TriageRun:
         still returned so the job is marked `FAILED`.
         """
         self._session.rollback()
+        if self._cancel is not None and self._cancel.is_set():
+            # The worker has already recorded a failure for this run.
+            return PipelineRunResult(self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED, reason)
         try:
             self._repo.set_status(self._case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED)
             self._record(
@@ -758,6 +860,7 @@ class _TriageRun:
                 {
                     "status": CaseStatus.MANUAL_TRIAGE_REQUIRED.value,
                     "reason": str(reason),
+                    "attempts": self._attempts,
                     "failed_at": datetime.now(UTC).isoformat(),
                 },
             )
@@ -803,8 +906,17 @@ class _TriageRun:
         """
         self._stage_ms[name] = int(getattr(stage, "last_latency_ms", 0) or 0)
 
+    def _checkpoint(self) -> None:
+        """Stop here if the worker has already failed this run (P07 §7.1 task 5)."""
+        if self._cancel is not None and self._cancel.is_set():
+            raise _Cancelled
+
     def _stage(self, stage: JobStage) -> None:
-        """Record progress on the job, for `GET /cases/{id}/status` (IR-22)."""
+        """Record progress on the job, for `GET /cases/{id}/status` (IR-22).
+
+        Also the checkpoint every step passes through before it starts.
+        """
+        self._checkpoint()
         if self._job_id is not None:
             self._jobs.set_stage(self._job_id, stage)
 

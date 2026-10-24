@@ -46,6 +46,7 @@ LABELS: dict[str, str] = {
     EXTRACTION_STORED: "Extraction stored",
     AuditAction.RECOMMENDATION_CREATED: "Recommendation created",
     AuditAction.PIPELINE_FAILED: "AI processing failed",
+    AuditAction.PIPELINE_RETRY: "AI processing retried",
     AuditAction.ACTIONS_SUGGESTED: "Suggested actions ready",
     AuditAction.ACTIONS_FAILED: "Suggested actions unavailable",
     AuditAction.DECISION_RECORDED: "Decision recorded",

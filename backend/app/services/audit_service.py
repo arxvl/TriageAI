@@ -48,6 +48,10 @@ class AuditAction(StrEnum):
     RED_FLAG_ALERT = "RED_FLAG_ALERT"
     RECOMMENDATION_CREATED = "RECOMMENDATION_CREATED"
     PIPELINE_FAILED = "PIPELINE_FAILED"
+    # A reviewer re-queued a case the pipeline gave up on (P07 §7.1 task 3). Unlike
+    # the pipeline's own entries this one has a person: the user and role are set.
+    # The payload is the previous reason code and the new status — nothing else.
+    PIPELINE_RETRY = "PIPELINE_RETRY"
     # The suggested-actions job (P05b §5b.3, ADR-18 §3). Counts and reason codes
     # only: action text is untrusted model output and the log cannot be
     # corrected (SR-17, FR-43).

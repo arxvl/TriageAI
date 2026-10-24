@@ -31,7 +31,7 @@ from sqlalchemy import Row
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.core.errors import CaseNotFound, SpeciesOutOfScope
+from app.core.errors import CaseNotFound, InvalidCaseTransition, SpeciesOutOfScope
 from app.core.vtl import TARGET_MINUTES, is_overdue, target_minutes
 from app.jobs.queue import STAGE_KEY, JobQueue, JobStage
 from app.models import (
@@ -52,6 +52,7 @@ from app.models import (
     VTLCategory,
 )
 from app.pipeline.action_validator import baseline_actions
+from app.pipeline.messages import failure_message
 from app.repositories.case_repository import (
     CaseRepository,
     OwnerReferenceValues,
@@ -86,6 +87,7 @@ from app.schemas.review import (
     PermissionsOut,
     RecommendationOut,
     ReferenceOut,
+    RetryAccepted,
     SafetyFloorRuleOut,
 )
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
@@ -199,6 +201,56 @@ class CaseService:
 
         self._session.commit()
         return created
+
+    # --- Retry (P07 §7.1) --------------------------------------------------
+
+    def retry_pipeline(self, case_id: uuid.UUID, user: User) -> RetryAccepted:
+        """Queue the pipeline again for a case it gave up on (UC-08, NFR-09).
+
+        Allowed only for a case in `MANUAL_TRIAGE_REQUIRED` that no reviewer has
+        decided. The status check is the real guard; the decision check is
+        belt-and-braces for a case whose row and decision disagree.
+
+        The case goes back to `SUBMITTED` in the same transaction as the new job,
+        so it cannot be decided by hand while the retry is queued — the run would
+        write `AWAITING_REVIEW` over that decision — and a second press of Retry
+        finds the status already moved and answers 409. Nothing is deleted: the
+        earlier `PIPELINE_FAILED` entry stays in the log (ADR-12) and the run
+        versions its outputs as it always does (ADR-14).
+        """
+        current = self._reviews.status_of(case_id)
+        if current is None:
+            raise CaseNotFound()
+        if current is not CaseStatus.MANUAL_TRIAGE_REQUIRED:
+            raise InvalidCaseTransition("Only a case waiting for manual triage can be retried.")
+        if self._reviews.latest_decision(case_id) is not None:
+            raise InvalidCaseTransition(
+                "This case already has a decision, so it cannot be retried."
+            )
+
+        previous = self._reviews.latest_audit_entry(case_id, AuditAction.PIPELINE_FAILED)
+        previous_reason = (previous.after or {}).get("reason") if previous is not None else None
+
+        if not self._reviews.reopen_for_retry(case_id):
+            # Somebody else moved the case between the read above and the update.
+            self._session.rollback()
+            raise InvalidCaseTransition("Only a case waiting for manual triage can be retried.")
+
+        self._jobs.enqueue(JobType.PIPELINE_RUN, case_id=case_id)
+        self._audit.record(
+            action=AuditAction.PIPELINE_RETRY,
+            entity_type=CASE_ENTITY,
+            entity_id=str(case_id),
+            user_id=user.id,
+            role=user.role,
+            before={"status": CaseStatus.MANUAL_TRIAGE_REQUIRED.value, "reason": previous_reason},
+            after={"status": CaseStatus.SUBMITTED.value},
+        )
+        accepted = self._reviews.header_row(case_id)
+        self._session.commit()
+        if accepted is None:  # pragma: no cover - the row was read a moment ago
+            raise CaseNotFound()
+        return RetryAccepted(id=case_id, case_no=accepted.case_no, status=CaseStatus.SUBMITTED)
 
     # --- Triage Queue -----------------------------------------------------
 
@@ -526,8 +578,11 @@ class CaseService:
         is_reviewer = user.role is UserRole.VETERINARY_REVIEWER
         return PermissionsOut(
             can_decide=is_reviewer and status is not CaseStatus.CLOSED,
-            # The regenerate backend is P07; W-04 shows the button disabled.
+            # The regenerate backend is P07 §7.2; W-04 shows the button disabled.
             can_regenerate=False,
+            # W-06's Retry (P07 §7.1): only a reviewer, only while the case is
+            # waiting on a failed run. `retry_pipeline` enforces the same rule.
+            can_retry=is_reviewer and status is CaseStatus.MANUAL_TRIAGE_REQUIRED,
             can_close=is_reviewer and status in DECIDED_STATUSES,
         )
 
@@ -560,8 +615,17 @@ class CaseService:
         if not isinstance(reason, str) or reason == "":
             return None
 
+        failed_at = _parse_iso(payload.get("failed_at")) or entry.ts
+        attempts = payload.get("attempts")
         return FailureOut(
-            reason_code=reason, failed_at=_parse_iso(payload.get("failed_at")) or entry.ts
+            reason_code=reason,
+            message=failure_message(
+                reason,
+                attempts=attempts if isinstance(attempts, int) else None,
+                failed_at=failed_at,
+                tz=str(self._display_timezone),
+            ),
+            failed_at=failed_at,
         )
 
     def _actions(self, case_id: uuid.UUID, row: Row, user: User) -> CaseActionsOut:

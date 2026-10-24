@@ -34,6 +34,7 @@ from app.schemas.review import (
     DecisionOut,
     NoteCreate,
     NoteOut,
+    RetryAccepted,
 )
 from app.services.case_service import CaseService
 from app.services.review_service import ReviewService
@@ -116,6 +117,19 @@ def record_decision(
     by sending `amends_id`; the original is never edited (FR-48).
     """
     return ReviewService(db).record_decision(case_id, payload, user)
+
+
+@router.post("/{case_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def retry_pipeline(case_id: uuid.UUID, db: DbSession, user: ReviewerUser) -> RetryAccepted:
+    """Run the AI pipeline again for a case it gave up on (UC-08, NFR-09, W-06).
+
+    Answers 202: a new `PIPELINE_RUN` job is queued and the case returns to
+    `SUBMITTED`; the client polls `GET /cases/{id}/status` for the outcome.
+    Answers 409 unless the case is in `MANUAL_TRIAGE_REQUIRED` with no decision,
+    which also means a second press of the button while the first retry is
+    running is refused rather than queued twice.
+    """
+    return CaseService(db).retry_pipeline(case_id, user)
 
 
 @router.post("/{case_id}/notes")

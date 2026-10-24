@@ -99,7 +99,41 @@ Two settings deserve attention:
   model families recommend their own default and may ignore a lower value. Set `0` only for a
   provider that honours it. Reproducibility is measured rather than assumed (NFR-23).
 - **`MOCK_LLM_BEHAVIOR`** (`ok`, `invalid_json`, `timeout`, `flaky`, `slow`) exercises every
-  failure path without a network call.
+  failure path without a network call. `slow` delays each model stage by `MOCK_SLOW_DELAY_S`
+  (12 s by default), so a full mocked run takes about 24 s.
+
+## Failures, retry and the demo toggle
+
+Every pipeline failure ends the same way: the case moves to `MANUAL_TRIAGE_REQUIRED`, nothing is
+lost, and a reviewer sees one of these reasons on W-06 (NFR-09). The code is stored in
+`jobs.last_error` and the `PIPELINE_FAILED` audit entry; the sentence comes from
+`backend/app/pipeline/messages.py`.
+
+| Code | Meaning |
+|---|---|
+| `LLM_TIMEOUT` | The model did not answer within `PIPELINE_TIMEOUT_S`, or the whole job passed `2 × timeout + 10` seconds |
+| `LLM_UNAVAILABLE` | The model could not be reached or refused the request |
+| `LLM_INVALID_OUTPUT` | The model's answer was unusable after one retry |
+| `RETRIEVAL_FAILED` | The knowledge base could not be searched |
+| `GENERATION_FAILED` | The recommendation step did not finish |
+| `DEIDENTIFICATION_FAILED` | The text could not be de-identified; the run stops before any other stage (ADR-10) |
+| `INTERNAL_ERROR` | Anything else, including a missing knowledge-base version |
+
+A Veterinary Reviewer can press **Retry AI processing** on W-06, or call
+`POST /api/v1/cases/{id}/retry`. It is allowed only for a case in `MANUAL_TRIAGE_REQUIRED` with no
+decision, answers 202, puts the case back to `SUBMITTED`, queues a new `PIPELINE_RUN` job and
+audits `PIPELINE_RETRY`. The earlier failure stays in the audit log.
+
+**Showing the fallback in the PD8 demo.** Set `DEMO_FORCE_FAILURE_CASE_TEXT` in `.env` to an invented
+phrase, restart the backend, and enter a case whose description contains it. The case fails as
+`LLM_TIMEOUT` after the red-flag pre-screen has run, so any alert still reaches the queue. It works
+only with `APP_ENV=dev`. Retrying the same text fails again: to show a successful retry, clear the
+setting and restart the backend first. To check restart safety, use `MOCK_LLM_BEHAVIOR=slow`,
+submit a case, run `docker compose kill backend`, then `docker compose up -d backend`. The
+startup sweep returns a job to the queue only once it has been `RUNNING` for
+`JOB_STALE_AFTER_MINUTES` (2 by default, so a second process's live job is never taken), so
+either wait that long before restarting or set `JOB_STALE_AFTER_MINUTES=0` for the check. The
+case is then triaged and never stays in `PROCESSING` (NFR-13).
 
 The application **refuses to start** if a real LLM provider is selected while de-identification is
 still mocked, so raw owner text cannot leave the server (ADR-10).

@@ -41,6 +41,15 @@ class LLMInvalidOutput(PipelineError):
     """The provider answered, but not with JSON matching the requested schema."""
 
 
+class DeidentificationFailed(PipelineError):
+    """The de-identifier could not produce text that is safe to send onward.
+
+    Raised by a de-identifier, and also what the orchestrator turns *any*
+    exception from that stage into: the run fails closed and no later stage sees
+    the description (IR-20, ADR-10).
+    """
+
+
 class ExtractionFailed(PipelineError):
     """The extraction stage could not produce an `ExtractionOutput`."""
 

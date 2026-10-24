@@ -435,6 +435,7 @@ def test_a_reviewer_may_decide_but_not_regenerate_or_close_yet(
     assert permissions == {
         "can_decide": True,
         "can_regenerate": False,
+        "can_retry": False,
         "can_close": False,
     }
 
@@ -469,7 +470,7 @@ def test_a_case_the_pipeline_gave_up_on_reports_why_and_when(
     failure = read(reviewer_client, failed_case).json()["failure"]
 
     assert failure is not None
-    assert failure["reason_code"] == FailureReason.EXTRACTION_TIMEOUT.value
+    assert failure["reason_code"] == FailureReason.LLM_TIMEOUT.value
     assert failure["failed_at"]
 
 

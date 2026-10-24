@@ -811,6 +811,10 @@ MOCK_PIPELINE: dict[str, object] = {
     "pipeline_generator": GeneratorOption.MOCK,
     "pipeline_actions": ActionsOption.MOCK,
     "mock_llm_behavior": MockLLMBehavior.OK,
+    # `slow` is 12 s by default so a demo can show the processing state; the
+    # tests only need it to be measurable.
+    "mock_slow_delay_s": 0.05,
+    "demo_force_failure_case_text": "",
 }
 
 

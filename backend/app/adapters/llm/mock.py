@@ -26,13 +26,18 @@ class MockLLMProvider:
     name = "mock"
     model_id = "mock"
 
-    def __init__(self, behavior: MockLLMBehavior = MockLLMBehavior.OK) -> None:
+    def __init__(
+        self,
+        behavior: MockLLMBehavior = MockLLMBehavior.OK,
+        slow_delay_s: float = MOCK_SLOW_DELAY_S,
+    ) -> None:
         self.behavior = behavior
+        self.slow_delay_s = slow_delay_s
         self.calls = 0
 
     @classmethod
     def from_settings(cls, settings: Settings, deps: "PipelineDeps") -> "MockLLMProvider":
-        return cls(behavior=settings.mock_llm_behavior)
+        return cls(behavior=settings.mock_llm_behavior, slow_delay_s=settings.mock_slow_delay_s)
 
     def complete_json(self, *, system: str, user: str, json_schema: dict, timeout_s: float) -> dict:
         """Return an empty object, or raise what `MOCK_LLM_BEHAVIOR` asks for.
@@ -65,6 +70,6 @@ class MockLLMProvider:
             )
 
         if self.behavior is MockLLMBehavior.SLOW:
-            sleep(min(MOCK_SLOW_DELAY_S, timeout_s))
+            sleep(min(self.slow_delay_s, timeout_s))
 
         return {}

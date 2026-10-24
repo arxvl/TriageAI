@@ -19,6 +19,15 @@ with `UNEXPECTED_ERROR` and the loop continues. The alternative — a thread tha
 dies on the first unhandled exception — would leave every later case stuck in
 `SUBMITTED` with nothing in the log to say why.
 
+**A triage job has a time budget** — `2 × timeout_s + 10` seconds
+(`PipelineConfig.job_timeout_s`, IR-19). A `PIPELINE_RUN` runs on its own thread
+and the worker waits for it that long. If it has not finished, the worker sets
+the run's cancel event and takes the ordinary failure path itself, so the case
+reaches `MANUAL_TRIAGE_REQUIRED` and the job `FAILED` exactly as for a model
+timeout (NFR-09, P07 §7.1 task 5). A Python thread cannot be killed; the
+abandoned run stops at its next checkpoint without writing, and a provider call
+already in flight is bounded by the provider's own timeout.
+
 Three job types are dispatched. `PIPELINE_RUN` triages a case;
 `SUGGEST_ACTIONS` suggests actions for one stored recommendation, and its failure
 is recorded on that recommendation and never on the case (FR-77, ADR-18 §3);
@@ -43,7 +52,7 @@ from app.pipeline.orchestrator import ACTIONS_JOB_RECOMMENDATION_KEY
 from app.services.kb_indexing import kb_index_job_target, run_kb_index
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from app.pipeline.orchestrator import TriagePipeline
+    from app.pipeline.orchestrator import PipelineRunResult, TriagePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +72,9 @@ __all__ = [
 DEFAULT_POLL_INTERVAL_S = 0.5
 
 UNSUPPORTED_JOB_TYPE = "UNSUPPORTED_JOB_TYPE"
-UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+# The same code a pipeline bug reports (`FailureReason.INTERNAL_ERROR`), so a job
+# that raised and a run that raised read alike in `last_error` (P07 §7.1 task 1).
+UNEXPECTED_ERROR = "INTERNAL_ERROR"
 MISSING_CASE_ID = "MISSING_CASE_ID"
 MISSING_RECOMMENDATION_ID = "MISSING_RECOMMENDATION_ID"
 MISSING_ENTRY_ID = "MISSING_ENTRY_ID"
@@ -84,8 +95,54 @@ def _recommendation_id(job: Job) -> uuid.UUID | None:
         return None
 
 
-def run_job(session: Session, pipeline: "TriagePipeline", job: Job) -> None:
+def _run_with_budget(
+    pipeline: "TriagePipeline", job: Job, budget_s: float | None
+) -> "PipelineRunResult":
+    """Run a triage job on a watchdog thread; fail the case if it overruns.
+
+    The ids are read off the job before the thread starts: the `Job` belongs to
+    the worker's session, and the run opens its own.
+    """
+    case_id, job_id = job.case_id, job.id
+    budget = pipeline.config.job_timeout_s if budget_s is None else budget_s
+    cancel = threading.Event()
+    outcome: dict[str, object] = {}
+
+    def target() -> None:
+        try:
+            outcome["result"] = pipeline.run(case_id, job_id=job_id, cancel=cancel)
+        except BaseException as error:  # noqa: BLE001 - handed back to the worker thread
+            outcome["error"] = error
+
+    thread = threading.Thread(target=target, name=f"triageai-run-{job_id}", daemon=True)
+    thread.start()
+    thread.join(timeout=budget)
+
+    if thread.is_alive():
+        cancel.set()
+        logger.error(
+            "triage job exceeded its time budget",
+            extra={"job_id": str(job_id), "case_id": str(case_id), "budget_s": budget},
+        )
+        return pipeline.fail_timed_out(case_id, job_id=job_id)
+
+    error = outcome.get("error")
+    if isinstance(error, BaseException):
+        raise error
+    return outcome["result"]  # type: ignore[return-value]
+
+
+def run_job(
+    session: Session,
+    pipeline: "TriagePipeline",
+    job: Job,
+    *,
+    budget_s: float | None = None,
+) -> None:
     """Dispatch one claimed job and set its final state.
+
+    `budget_s` overrides the triage job's time budget; the default is
+    `pipeline.config.job_timeout_s`. Tests pass a small one.
 
     The run's own failure path has already put the *case* where it belongs
     (NFR-09) — or, for `SUGGEST_ACTIONS`, has recorded the failure on the
@@ -102,7 +159,7 @@ def run_job(session: Session, pipeline: "TriagePipeline", job: Job) -> None:
                 logger.error("PIPELINE_RUN job without a case", extra=context)
                 queue.fail(job, MISSING_CASE_ID)
                 return
-            result = pipeline.run(job.case_id, job_id=job.id)
+            result = _run_with_budget(pipeline, job, budget_s)
 
         elif job.type is JobType.KB_INDEX:
             entry_id, approver_id = kb_index_job_target(job)
@@ -146,6 +203,7 @@ def run_pending_jobs_once(
     pipeline: "TriagePipeline",
     *,
     max_jobs: int | None = None,
+    budget_s: float | None = None,
 ) -> int:
     """Run every job that is ready now, in this thread; returns how many.
 
@@ -160,7 +218,7 @@ def run_pending_jobs_once(
             job = queue.claim_next()
             if job is None:
                 break
-            run_job(session, pipeline, job)
+            run_job(session, pipeline, job, budget_s=budget_s)
             ran += 1
     return ran
 
@@ -179,9 +237,11 @@ class JobWorker:
         pipeline: "TriagePipeline",
         *,
         poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
+        budget_s: float | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._pipeline = pipeline
+        self._budget_s = budget_s
         self._poll_interval_s = poll_interval_s
         self._stopping = threading.Event()
         self._thread: threading.Thread | None = None
@@ -204,7 +264,9 @@ class JobWorker:
     def _loop(self) -> None:
         while not self._stopping.is_set():
             try:
-                ran = run_pending_jobs_once(self._session_factory, self._pipeline)
+                ran = run_pending_jobs_once(
+                    self._session_factory, self._pipeline, budget_s=self._budget_s
+                )
             except Exception:
                 # A database that has gone away must not kill the thread; the next
                 # poll reconnects through the pool's pre-ping.

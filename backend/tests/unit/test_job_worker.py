@@ -12,6 +12,7 @@ The pipeline's own behaviour is proved end to end in
 All data here is fictitious (CLAUDE.md §9).
 """
 
+import threading
 import uuid
 
 import pytest
@@ -24,6 +25,7 @@ from app.jobs.worker import (
     run_pending_jobs_once,
 )
 from app.models import ActionsStatus, CaseStatus, JobStatus, JobType
+from app.pipeline.config import PipelineConfig
 from app.pipeline.orchestrator import (
     ACTIONS_JOB_RECOMMENDATION_KEY,
     ActionsFailureReason,
@@ -54,11 +56,34 @@ class _StubPipeline:
         self.calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
         self.actions_calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
 
-    def run(self, case_id: uuid.UUID, *, job_id: uuid.UUID | None = None) -> object:
+    config = PipelineConfig()
+
+    # What the watchdog test needs: a run that does not come back until released,
+    # and a record of the cancel event and of the worker taking the failure path.
+    block: threading.Event | None = None
+    cancel_seen: threading.Event | None = None
+    timed_out: list[uuid.UUID] = []
+
+    def run(
+        self,
+        case_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+        cancel: threading.Event | None = None,
+    ) -> object:
         self.calls.append((case_id, job_id))
+        if self.block is not None:
+            self.cancel_seen = cancel
+            self.block.wait(timeout=10)
         if self._raises is not None:
             raise self._raises
         return self._result or PipelineRunResult(case_id, CaseStatus.AWAITING_REVIEW)
+
+    def fail_timed_out(self, case_id: uuid.UUID, *, job_id: uuid.UUID | None = None) -> object:
+        self.timed_out = [*self.timed_out, case_id]
+        return PipelineRunResult(
+            case_id, CaseStatus.MANUAL_TRIAGE_REQUIRED, FailureReason.LLM_TIMEOUT
+        )
 
     def run_actions(
         self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
@@ -92,9 +117,7 @@ def test_a_failed_run_fails_the_job_with_the_reason_code(
     case = make_case(db_session)
     job = make_job(db_session, case=case)
     pipeline = _StubPipeline(
-        PipelineRunResult(
-            case.id, CaseStatus.MANUAL_TRIAGE_REQUIRED, FailureReason.EXTRACTION_TIMEOUT
-        )
+        PipelineRunResult(case.id, CaseStatus.MANUAL_TRIAGE_REQUIRED, FailureReason.LLM_TIMEOUT)
     )
 
     assert run_pending_jobs_once(app_session_factory, pipeline) == 1
@@ -102,7 +125,7 @@ def test_a_failed_run_fails_the_job_with_the_reason_code(
     db_session.refresh(job)
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
-    assert job.last_error.startswith(FailureReason.EXTRACTION_TIMEOUT.value)
+    assert job.last_error.startswith(FailureReason.LLM_TIMEOUT.value)
 
 
 def test_an_unexpected_exception_is_contained(
@@ -270,3 +293,63 @@ def test_an_actions_run_that_raises_is_contained(
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
     assert job.last_error.startswith(UNEXPECTED_ERROR)
+
+
+# --- The job time budget (P07 §7.1 task 5, IR-19) ---------------------------
+
+
+def test_the_job_budget_is_twice_the_stage_timeout_plus_ten_seconds() -> None:
+    assert PipelineConfig(timeout_s=30).job_timeout_s == 70
+    assert PipelineConfig(timeout_s=5.5).job_timeout_s == 21
+    # The recovery sweep must not mistake a job inside its budget for a dead one.
+    assert PipelineConfig().job_timeout_s < 2 * 60
+
+
+def test_a_run_that_outlives_its_budget_is_failed_through_the_failure_path(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    case = make_case(db_session)
+    job = make_job(db_session, case=case)
+    pipeline = _StubPipeline()
+    pipeline.block = threading.Event()
+
+    try:
+        ran = run_pending_jobs_once(app_session_factory, pipeline, budget_s=0.2)
+    finally:
+        pipeline.block.set()
+
+    assert ran == 1
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(FailureReason.LLM_TIMEOUT.value)
+    assert pipeline.timed_out == [case.id]
+    # The abandoned run was told to stop writing.
+    assert pipeline.cancel_seen is not None and pipeline.cancel_seen.is_set()
+
+
+def test_a_run_inside_its_budget_is_left_alone(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    case = make_case(db_session)
+    job = make_job(db_session, case=case)
+    pipeline = _StubPipeline()
+
+    run_pending_jobs_once(app_session_factory, pipeline, budget_s=5)
+
+    db_session.refresh(job)
+    assert job.status is JobStatus.DONE
+    assert pipeline.timed_out == []
+
+
+def test_an_exception_on_the_run_thread_still_reaches_the_workers_containment(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    case = make_case(db_session)
+    job = make_job(db_session, case=case)
+
+    run_pending_jobs_once(app_session_factory, _StubPipeline(raises=RuntimeError("boom")))
+
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None and job.last_error.startswith(UNEXPECTED_ERROR)

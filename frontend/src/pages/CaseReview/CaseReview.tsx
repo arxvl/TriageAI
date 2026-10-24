@@ -30,16 +30,19 @@
  * both require the second, and the banner says which of the two it is.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
   CASE_PENDING_POLL_INTERVAL_MS,
   CASE_POLL_INTERVAL_MS,
+  CASE_STATUS_POLL_INTERVAL_MS,
   addCaseNote,
   closeCase,
   readCase,
+  readCaseStatus,
   recordDecision,
+  retryCase,
   type CaseAlert,
   type CaseDetail,
   type CaseStatus,
@@ -259,6 +262,26 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
     },
   });
 
+  // W-06's Retry (UC-08, P07 §7.1). Success is not the end of it: the case goes
+  // back to SUBMITTED, so the re-read below turns this screen into the progress
+  // view until the run settles one way or the other.
+  const retry = useMutation({
+    mutationFn: () => retryCase(detail.id),
+    onSuccess: () => {
+      clearErrors();
+      void queryClient.invalidateQueries({ queryKey: ["cases"] });
+    },
+    onError: (error: unknown) => {
+      clearErrors();
+      if (isApiError(error) && error.code === ApiErrorCode.invalidTransition) {
+        onStale();
+        setActionError(copy.errors.retryConflict);
+        return;
+      }
+      setActionError(copy.errors.retryFailed);
+    },
+  });
+
   function toggleRow(key: string) {
     setRows((previous) =>
       previous.map((row) => (row.key === key ? { ...row, isKept: !row.isKept } : row)),
@@ -285,7 +308,18 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
       {/* The deterministic pre-screen's own finding, by rule label only (DR-04). */}
       <RedFlagBanner alerts={detail.alerts.map(toBannerAlert)} />
 
-      {isManualMode && <ManualTriageBanner detail={detail} isByChoice={isManualChosen} />}
+      {(detail.status === "SUBMITTED" || detail.status === "PROCESSING") && (
+        <ProcessingBanner caseId={detail.id} />
+      )}
+
+      {isManualMode && (
+        <ManualTriageBanner
+          detail={detail}
+          isByChoice={isManualChosen}
+          isRetrying={retry.isPending}
+          onRetry={() => retry.mutate()}
+        />
+      )}
 
       <div className={styles.panels}>
         <DescriptionPanel description={detail.description} extraction={detail.extraction} />
@@ -526,11 +560,21 @@ function Header({ detail, isDecided }: { detail: CaseDetail; isDecided: boolean 
  * case with a sound recommendation already knows why they are here, and telling
  * them "AI unavailable" would simply be untrue.
  *
- * The reason arrives as a code and is never shown as one: an unrecognised code
- * falls back to a general sentence rather than printing itself at a clinician
- * (IR-05).
+ * The reason arrives as a sentence the server wrote, time included; the code
+ * behind it is never shown (IR-05). Retry is live when the server says this
+ * reviewer may use it (P07 §7.1).
  */
-function ManualTriageBanner({ detail, isByChoice }: { detail: CaseDetail; isByChoice: boolean }) {
+function ManualTriageBanner({
+  detail,
+  isByChoice,
+  isRetrying,
+  onRetry,
+}: {
+  detail: CaseDetail;
+  isByChoice: boolean;
+  isRetrying: boolean;
+  onRetry: () => void;
+}) {
   const manual = copy.manualTriage;
 
   if (isByChoice && detail.status !== "MANUAL_TRIAGE_REQUIRED") {
@@ -543,30 +587,56 @@ function ManualTriageBanner({ detail, isByChoice }: { detail: CaseDetail; isByCh
         !
       </span>
       <span>
-        {manual.aiUnavailable} {failureSentence(detail)} {manual.safeToTriage}
+        {manual.aiUnavailable} {detail.failure?.message ?? manual.safeToTriage}
       </span>
-      {/* P07 §7.1 adds POST /cases/{id}/retry and enables this. */}
-      <button type="button" className={styles.button} disabled title={copy.availableInP07}>
-        {manual.retry}
+      <button
+        type="button"
+        className={styles.button}
+        disabled={!detail.permissions.can_retry || isRetrying}
+        onClick={onRetry}
+      >
+        {isRetrying ? manual.retrying : manual.retry}
       </button>
     </div>
   );
 }
 
-/** "The language model did not respond in time. (09:20)", or nothing. */
-function failureSentence(detail: CaseDetail): string {
-  const failure = detail.failure;
-  if (failure === null) {
-    return "";
-  }
+/**
+ * Progress while a run is in progress (IR-22, P07 §7.1).
+ *
+ * Polls `GET /cases/{id}/status`, which is cheap and names the stage, and tells
+ * the page to re-read the whole case the moment the status leaves
+ * `SUBMITTED`/`PROCESSING` — whether the run succeeded or fell back to manual
+ * triage, the same re-read shows which. A backgrounded tab stops asking.
+ */
+function ProcessingBanner({ caseId }: { caseId: string }) {
+  const queryClient = useQueryClient();
+  const progress = useQuery({
+    queryKey: ["cases", "status", caseId],
+    queryFn: () => readCaseStatus(caseId),
+    refetchInterval: CASE_STATUS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+  });
 
-  const reasons: Record<string, string> = copy.failureReasons;
-  const reason = reasons[failure.reason_code] ?? copy.failureReasonFallback;
-  const time = formatDisplayTime(failure.failed_at);
+  const settled =
+    progress.data !== undefined &&
+    progress.data.status !== "SUBMITTED" &&
+    progress.data.status !== "PROCESSING";
 
-  return time === null
-    ? reason
-    : copy.manualTriage.failureDetail.replace("{reason}", reason).replace("{time}", time);
+  useEffect(() => {
+    if (settled) {
+      void queryClient.invalidateQueries({ queryKey: ["cases", "detail", caseId] });
+    }
+  }, [settled, queryClient, caseId]);
+
+  const stage = progress.data?.pipeline_stage ?? "queued";
+
+  return (
+    <div className={styles.noticeBanner} role="status">
+      <p>{copy.processing.title}</p>
+      <p>{copy.processing.stages[stage]}</p>
+    </div>
+  );
 }
 
 /**

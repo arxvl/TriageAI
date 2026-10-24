@@ -280,10 +280,19 @@ export interface CaseStatusOut {
   updated_at: string;
 }
 
-// `GET /cases/{id}/status` has no caller yet. The queue's own 15-second poll is
-// what W-02 refreshes from (IR-22), and the per-case polling this response is for
-// belongs to the Case Review screen in P06. The types above are the contract, kept
-// here with the rest of the endpoint's shapes.
+/**
+ * How often the Case Review screen asks how far a run has got (IR-22).
+ *
+ * Only while the case is `SUBMITTED` or `PROCESSING`, which is after a case is
+ * entered or after Retry (P07 §7.1). Faster than the 5-second case re-read
+ * because it is the progress the reviewer is watching.
+ */
+export const CASE_STATUS_POLL_INTERVAL_MS = 2_000;
+
+/** How far the newest pipeline run on a case has got (IR-22). */
+export async function readCaseStatus(caseId: string): Promise<CaseStatusOut> {
+  return apiFetch<CaseStatusOut>(`/cases/${caseId}/status`);
+}
 
 /* --- The Case Review screen (W-04..W-07, P06 §6.1) ---------------------- */
 
@@ -484,11 +493,14 @@ export interface CaseAlert {
  *
  * Null unless the case is `MANUAL_TRIAGE_REQUIRED` — the one status that means
  * the pipeline stopped and nobody has decided yet. `reason_code` is a stable
- * code, never shown as itself: the screen maps it to a sentence and falls back to
- * a general one for a code it does not know (IR-05).
+ * code and is never shown; `message` is the sentence the server wrote for it
+ * (`backend/app/pipeline/messages.py`), including the time in the clinic's zone,
+ * so this build holds no list of codes and an unknown one still reads as a
+ * sentence (IR-05, P07 §7.1).
  */
 export interface CaseFailure {
   reason_code: string;
+  message: string;
   /** ISO-8601 UTC. */
   failed_at: string;
 }
@@ -519,12 +531,14 @@ export interface CaseNote {
  * What this caller may do with this case, as the server sees it.
  *
  * For hiding controls, never for allowing them: the server refuses the request
- * whatever these say (SR-05, BR-02). `can_regenerate` is false until P07, where
- * W-04 shows the button disabled.
+ * whatever these say (SR-05, BR-02). `can_regenerate` is false until P07 §7.2,
+ * where W-04 shows the button disabled. `can_retry` is true for a reviewer on a
+ * case that is waiting on a failed run (P07 §7.1).
  */
 export interface CasePermissions {
   can_decide: boolean;
   can_regenerate: boolean;
+  can_retry: boolean;
   can_close: boolean;
 }
 
@@ -652,6 +666,18 @@ export async function recordDecision(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/** The 202 that follows a retry: the case is back to `SUBMITTED`. */
+export interface CaseRetryAccepted {
+  id: string;
+  case_no: string;
+  status: CaseStatus;
+}
+
+/** Run the AI pipeline again for a case it gave up on. Reviewers only (UC-08). */
+export async function retryCase(caseId: string): Promise<CaseRetryAccepted> {
+  return apiFetch<CaseRetryAccepted>(`/cases/${caseId}/retry`, { method: "POST" });
 }
 
 /** Attach a clinical note to a case. Reviewers only (FR-37). */
