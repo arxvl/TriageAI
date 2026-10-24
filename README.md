@@ -159,6 +159,24 @@ never changed by regeneration (NFR-11). Nothing is edited in place:
 The application **refuses to start** if a real LLM provider is selected while de-identification is
 still mocked, so raw owner text cannot leave the server (ADR-10).
 
+## Suggested actions follow a changed category
+
+When a reviewer decides on a category other than the recommended one (FR-78), the case detail
+returns the **baseline actions of the new category** at once and flags the tailored rows
+`is_outdated`. W-04 shows those rows greyed with "Suggested for \<old category\> – review before
+keeping" and no checkbox, so they cannot be recorded as kept.
+
+**Regenerate suggestions** calls `POST /api/v1/cases/{id}/actions/regenerate` (reviewer only,
+answers 202). It queues a `SUGGEST_ACTIONS` job for the case's current category and sets
+`actions_status` back to `PENDING`; it changes no decision, finalized action or case status. The
+result is stored as a **later set** (`action_suggestions.generation`) and the earlier set is kept.
+It answers 409 while a job is already running, before a category is settled, and on a closed case.
+
+If the job fails, `actions_status` is `FAILED` with a reason code (`ACTIONS_TIMEOUT`,
+`ACTIONS_UNAVAILABLE`, `ACTIONS_INVALID_OUTPUT`, `ACTIONS_ALL_REJECTED`) and the screen shows the
+plain-language line from `app/pipeline/messages.py`. Try it with `MOCK_LLM_BEHAVIOR=timeout`: the
+decision and the case stay exactly as they were. Run `alembic upgrade head` once for the new column.
+
 ## Knowledge base workflow
 
 Clinical content is curated, not fetched: nothing becomes retrievable until an account holding the

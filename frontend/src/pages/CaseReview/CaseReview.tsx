@@ -44,6 +44,7 @@ import {
   readCaseStatus,
   readRecommendationVersion,
   recordDecision,
+  regenerateActions,
   retryCase,
   type CaseAlert,
   type CaseDetail,
@@ -311,6 +312,26 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
     },
   });
 
+  // "Regenerate suggestions" (FR-78). It changes neither the decision nor the case
+  // status: the re-read shows `actions_status` PENDING, which the screen already
+  // polls for, and the new set replaces the outdated rows when it lands.
+  const regenerateActionsMutation = useMutation({
+    mutationFn: () => regenerateActions(detail.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cases"] });
+    },
+    // A toast rather than `actionError`: that one is shown inside the decision
+    // dialogs, and nothing of the kind is open when this button is pressed.
+    onError: (error: unknown) => {
+      if (isApiError(error) && error.code === ApiErrorCode.invalidTransition) {
+        onStale();
+        showToast(copy.errors.regenerateActionsConflict);
+        return;
+      }
+      showToast(copy.errors.regenerateActionsFailed);
+    },
+  });
+
   // Save and regenerate (UC-09, FR-27). Success is not the end of it: the case
   // goes to PROCESSING, so the re-read turns the screen into the progress view
   // until the new version arrives or the attempt fails.
@@ -440,9 +461,15 @@ function CaseReviewScreen({ detail, onStale }: { detail: CaseDetail; onStale: ()
             <ActionChecklist
               rows={rows}
               status={detail.actions.status}
-              category={detail.actions.generated_for_category ?? detail.category}
+              category={detail.category ?? detail.actions.generated_for_category}
               rejectedCount={detail.actions.rejected_count}
               isEditable={isChecklistEditable}
+              outdated={detail.actions.tailored.filter((action) => action.is_outdated)}
+              outdatedCategory={detail.actions.generated_for_category}
+              failureMessage={detail.actions.failure_message}
+              canRegenerate={detail.permissions.can_regenerate_actions}
+              isRegenerating={regenerateActionsMutation.isPending}
+              onRegenerate={() => regenerateActionsMutation.mutate()}
               onToggle={toggleRow}
               onEdit={editRow}
               onAdd={addRow}
@@ -581,6 +608,7 @@ function useChecklist(
   const signature = [
     actions.status,
     actions.generated_for_category,
+    actions.is_outdated,
     actions.baseline.join("|"),
     actions.tailored.map((action) => action.text).join("|"),
   ].join("::");

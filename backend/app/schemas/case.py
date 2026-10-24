@@ -298,6 +298,10 @@ class SuggestedActionOut(BaseModel):
     text: str
     cited_ranks: list[int]
     source: ActionSource
+    # True when a decision settled on a category this action was not generated
+    # for (FR-78). Kept on the row as well as on `CaseActionsOut`, so a client
+    # that renders one action never has to look elsewhere to grey it out.
+    is_outdated: bool = False
 
 
 class CaseActionsOut(BaseModel):
@@ -322,6 +326,10 @@ class CaseActionsOut(BaseModel):
     `is_outdated` is true when a reviewer has settled on a category other than
     the one these actions were generated for (FR-78; the UI for it is P07).
 
+    `failure_message` is the plain-language line for a failed actions job, built
+    from the stored reason code (`app.pipeline.messages`); None unless `status`
+    is `FAILED` (FR-77).
+
     `rejected_count` is how many tailored actions the validator dropped. Surfaced
     so a high rejection rate reads as a prompt problem to fix in M6b, never as a
     reason to loosen a rule (ADR-18 §4).
@@ -333,6 +341,7 @@ class CaseActionsOut(BaseModel):
     tailored: list[SuggestedActionOut]
     rejected_count: int
     is_outdated: bool
+    failure_message: str | None = None
 
 
 class CaseDetail(BaseModel):

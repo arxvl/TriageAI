@@ -270,6 +270,7 @@ def test_a_closed_case_is_still_readable(
     assert body["permissions"] == {
         "can_decide": False,
         "can_regenerate": False,
+        "can_regenerate_actions": False,
         "can_retry": False,
         "can_close": False,
     }

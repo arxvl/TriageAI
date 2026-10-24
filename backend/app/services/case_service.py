@@ -52,7 +52,11 @@ from app.models import (
     VTLCategory,
 )
 from app.pipeline.action_validator import baseline_actions
-from app.pipeline.messages import failure_message, regeneration_failure_message
+from app.pipeline.messages import (
+    actions_failure_message,
+    failure_message,
+    regeneration_failure_message,
+)
 from app.repositories.case_repository import (
     CaseRepository,
     OwnerReferenceValues,
@@ -93,7 +97,10 @@ from app.schemas.review import (
     SafetyFloorRuleOut,
 )
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
-from app.services.case_transitions import DECIDED_STATUSES
+from app.services.case_transitions import (
+    ACTIONS_REGENERATION_BLOCKED_STATUSES,
+    DECIDED_STATUSES,
+)
 from app.services.evidence_spans import locate
 
 Clock = Callable[[], datetime]
@@ -359,6 +366,7 @@ class CaseService:
         extraction = self._reviews.latest_extraction(case_id)
         recommendation = self._reviews.latest_recommendation(case_id)
         references = [] if recommendation is None else self._reviews.references(recommendation.id)
+        actions = self._actions(case_id, row, user)
 
         return CaseDetail(
             id=row.id,
@@ -370,7 +378,7 @@ class CaseService:
             confirmed_category=_as_category(row.confirmed_category),
             has_red_flag=row.has_red_flag,
             created_at=row.created_at,
-            actions=self._actions(case_id, row, user),
+            actions=actions,
             header=self._header(header_row, _as_category(row.category), now),
             description=self._description(case_id, extraction),
             extraction=None if extraction is None else self._extraction(extraction),
@@ -410,7 +418,7 @@ class CaseService:
                 )
                 for note in self._reviews.notes(case_id)
             ],
-            permissions=self._permissions(status, user),
+            permissions=self._permissions(status, user, actions_status=actions.status),
             failure=self._failure(case_id, status),
             recommendation_versions=self._recommendation_versions(case_id),
             regeneration_failure=self._regeneration_failure(
@@ -606,7 +614,9 @@ class CaseService:
             status=status,
         )
 
-    def _permissions(self, status: CaseStatus, user: User) -> PermissionsOut:
+    def _permissions(
+        self, status: CaseStatus, user: User, *, actions_status: ActionsStatus | None
+    ) -> PermissionsOut:
         """What this caller may do with this case (BR-02, SR-05).
 
         A description of the server's rules so the screen can hide controls
@@ -627,6 +637,15 @@ class CaseService:
             # W-06's Retry (P07 §7.1): only a reviewer, only while the case is
             # waiting on a failed run. `retry_pipeline` enforces the same rule.
             can_retry=is_reviewer and status is CaseStatus.MANUAL_TRIAGE_REQUIRED,
+            # P07 §7.2b: there must be a recommendation (`actions_status` is None
+            # without one), the case must have settled on a category, and no
+            # actions job may be running. `regenerate_actions` enforces the same.
+            can_regenerate_actions=(
+                is_reviewer
+                and status not in ACTIONS_REGENERATION_BLOCKED_STATUSES
+                and actions_status is not None
+                and actions_status is not ActionsStatus.PENDING
+            ),
             can_close=is_reviewer and status in DECIDED_STATUSES,
         )
 
@@ -751,6 +770,12 @@ class CaseService:
             None if recommendation is None else _as_category(recommendation.category),
         )
         confirmed = _as_category(row.confirmed_category)
+        # FR-78: a decision on another category leaves the tailored list
+        # describing an urgency the case no longer has. Every row of a set is
+        # generated for the same category, so the flag is one value per response.
+        is_outdated = (
+            confirmed is not None and generated_for is not None and confirmed is not generated_for
+        )
 
         return CaseActionsOut(
             status=(
@@ -766,6 +791,7 @@ class CaseService:
                         text=suggestion.text,
                         cited_ranks=_cited_ranks(suggestion.cited_chunk_ids),
                         source=ActionSource(suggestion.source),
+                        is_outdated=is_outdated,
                     )
                     for suggestion in suggestions
                     if ActionSource(suggestion.source) is not ActionSource.BASELINE
@@ -774,14 +800,25 @@ class CaseService:
                 else []
             ),
             rejected_count=(0 if recommendation is None else recommendation.actions_rejected_count),
-            # FR-78: a decision on another category leaves the tailored list
-            # describing an urgency the case no longer has.
-            is_outdated=(
-                confirmed is not None
-                and generated_for is not None
-                and confirmed is not generated_for
-            ),
+            is_outdated=is_outdated,
+            failure_message=self._actions_failure_message(recommendation),
         )
+
+    @staticmethod
+    def _actions_failure_message(recommendation: Row | None) -> str | None:
+        """The plain-language line for a failed actions job, or None (FR-77).
+
+        The reason code is stored on the recommendation and the sentence is made
+        here, as for a failed pipeline run (`failure_message`), so every screen
+        says the same thing. Only a `FAILED` status has one: a job that is
+        pending or finished has nothing to apologise for.
+        """
+        if recommendation is None or ActionsStatus(recommendation.actions_status) is not (
+            ActionsStatus.FAILED
+        ):
+            return None
+        code = recommendation.actions_error
+        return actions_failure_message(code if isinstance(code, str) else "")
 
     def _baseline(self, category: VTLCategory | None, recommendation: Row | None) -> list[str]:
         """The baseline actions for one category (FR-71, FR-72).

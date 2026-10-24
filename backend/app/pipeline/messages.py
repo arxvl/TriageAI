@@ -14,13 +14,16 @@ owner's description — only the code, the number of attempts and the time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.pipeline.orchestrator import FailureReason
+from app.pipeline.orchestrator import ActionsFailureReason, FailureReason
 
 __all__ = [
+    "ACTIONS_FALLBACK_MESSAGE",
+    "BASELINE_ONLY",
     "FALLBACK_MESSAGE",
     "REGENERATION_FALLBACK_MESSAGE",
     "SAFE_TO_TRIAGE",
     "STILL_NEEDS_DECISION",
+    "actions_failure_message",
     "failure_message",
     "regeneration_failure_message",
 ]
@@ -118,3 +121,56 @@ def regeneration_failure_message(
     if head is None:
         return REGENERATION_FALLBACK_MESSAGE
     return f"{head}. {STILL_NEEDS_DECISION}"
+
+
+# What a reviewer needs to hear when the *suggested actions* could not be made
+# (P07 §7.2b, FR-77, ADR-18 §3): the case-specific list is missing, nothing else
+# is. The baseline set is read from the knowledge base and is on screen, and the
+# category and any decision are exactly as they were.
+BASELINE_ONLY = "The baseline actions are shown; the category and your decision are unchanged."
+
+ACTIONS_FALLBACK_MESSAGE = f"Case-specific suggestions could not be made. {BASELINE_ONLY}"
+
+_ACTIONS_MESSAGES: dict[str, str] = {
+    ActionsFailureReason.ACTIONS_TIMEOUT: (
+        "The language model did not respond with suggested actions"
+    ),
+    ActionsFailureReason.ACTIONS_UNAVAILABLE: (
+        "The language model could not be reached for suggested actions"
+    ),
+    ActionsFailureReason.ACTIONS_INVALID_OUTPUT: (
+        "The language model’s suggested actions could not be read"
+    ),
+    ActionsFailureReason.ACTIONS_ALL_REJECTED: (
+        "None of the suggested actions passed the safety checks"
+    ),
+    ActionsFailureReason.ACTIONS_INPUT_UNUSABLE: (
+        "The stored extraction could not be read to suggest actions"
+    ),
+    ActionsFailureReason.ACTIONS_UNEXPECTED_ERROR: (
+        "An unexpected error stopped the suggested actions"
+    ),
+}
+
+
+def actions_failure_message(
+    code: str,
+    *,
+    failed_at: datetime | None = None,
+    tz: str = "Asia/Manila",
+) -> str:
+    """The sentence for one suggested-actions reason code.
+
+    "The language model did not respond with suggested actions (09:20:41). The
+    baseline actions are shown; the category and your decision are unchanged."
+
+    No attempt count: the actions stage is called once, by design (ADR-18 §3).
+    An unrecognised code gets `ACTIONS_FALLBACK_MESSAGE`, as `failure_message`
+    does, and for the same reason. Never carries action text (SR-17).
+    """
+    head = _ACTIONS_MESSAGES.get(code)
+    if head is None:
+        return ACTIONS_FALLBACK_MESSAGE
+    if failed_at is not None:
+        head += f" ({failed_at.astimezone(ZoneInfo(tz)).strftime('%H:%M:%S')})"
+    return f"{head}. {BASELINE_ONLY}"

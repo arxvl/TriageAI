@@ -63,7 +63,7 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, TypeVar
@@ -72,7 +72,15 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import JobQueue, JobStage
-from app.models import ActionSource, ActionsStatus, CaseStatus, JobType, Recommendation, Species
+from app.models import (
+    ActionSource,
+    ActionsStatus,
+    CaseStatus,
+    JobType,
+    Recommendation,
+    Species,
+    VTLCategory,
+)
 from app.pipeline.action_validator import baseline_actions
 from app.pipeline.action_validator import validate as validate_actions
 from app.pipeline.config import PipelineConfig
@@ -105,6 +113,7 @@ from app.pipeline.types import (
     SuggestedAction,
 )
 from app.repositories.pipeline_repository import (
+    FIRST_ACTION_GENERATION,
     ActionsRunInput,
     ActionSuggestionValues,
     CaseRunInput,
@@ -118,6 +127,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ACTIONS_JOB_CATEGORY_KEY",
+    "ACTIONS_JOB_GENERATION_KEY",
     "ACTIONS_JOB_RECOMMENDATION_KEY",
     "BASELINE_MODEL_ID",
     "BASELINE_PROMPT_VERSION",
@@ -141,6 +152,14 @@ BASELINE_PROMPT_VERSION = "kb"
 # payload rather than a column: `jobs` points at a case or a vignette, and this
 # job is about one *version* of that case's recommendation (ADR-14).
 ACTIONS_JOB_RECOMMENDATION_KEY = "recommendation_id"
+
+# A regeneration for a changed category (P07 §7.2b, FR-78) also carries the
+# category the reviewer settled on and the number of the set it will store. Both
+# are chosen when the job is enqueued, so a re-run after a crash replaces its own
+# set rather than adding another. The first run sends neither: it is for the
+# recommendation's own category, as generation 1.
+ACTIONS_JOB_CATEGORY_KEY = "category"
+ACTIONS_JOB_GENERATION_KEY = "generation"
 
 _T = TypeVar("_T")
 
@@ -453,7 +472,12 @@ class TriagePipeline:
             )
 
     def run_actions(
-        self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
+        self,
+        recommendation_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+        category: VTLCategory | None = None,
+        generation: int = FIRST_ACTION_GENERATION,
     ) -> ActionsRunResult:
         """Suggest actions for one stored recommendation. Never raises.
 
@@ -465,9 +489,16 @@ class TriagePipeline:
 
         `job_id` is optional for the same reason as in `run` — the evaluation
         harness drives the pipeline without the queue (M7).
+
+        `category` is set when a reviewer asked for suggestions for a category
+        other than the one the recommendation was made for (FR-78); the actions
+        are then generated for it and stored as set number `generation`, beside
+        the earlier set.
         """
         with self.deps.session_factory() as session:
-            return _ActionsRun(self, session, recommendation_id, job_id).execute()
+            return _ActionsRun(
+                self, session, recommendation_id, job_id, category=category, generation=generation
+            ).execute()
 
 
 class _TriageRun:
@@ -1228,6 +1259,9 @@ class _ActionsRun:
         session: Session,
         recommendation_id: uuid.UUID,
         job_id: uuid.UUID | None,
+        *,
+        category: VTLCategory | None = None,
+        generation: int = FIRST_ACTION_GENERATION,
     ) -> None:
         self._pipeline = pipeline
         self._config = pipeline.config
@@ -1236,6 +1270,8 @@ class _ActionsRun:
         self._audit = AuditService(session)
         self._recommendation_id = recommendation_id
         self._job_id = job_id
+        self._category = category
+        self._generation = generation
         self._latency_ms: int | None = None
 
     # --- Entry point -------------------------------------------------------
@@ -1252,8 +1288,21 @@ class _ActionsRun:
             logger.exception("actions run raised", extra=self._log_context())
             return self._fail(ActionsFailureReason.ACTIONS_UNEXPECTED_ERROR)
 
-    def _run(self) -> ActionsRunResult:
+    def _read_input(self) -> ActionsRunInput | None:
+        """The stored inputs, aimed at the category this run is for.
+
+        A regeneration asked for a category other than the recommendation's
+        (FR-78). Everything downstream — the baseline lookup, the stage call, the
+        plan, the stored rows and the audit entry — reads `category` from the
+        input, so overriding it here is the one place the difference lives.
+        """
         stored = self._repo.actions_run_input(self._recommendation_id)
+        if stored is not None and self._category is not None:
+            stored = replace(stored, category=self._category)
+        return stored
+
+    def _run(self) -> ActionsRunResult:
+        stored = self._read_input()
         if stored is None:
             # The recommendation was removed between the enqueue and now, which
             # the single-transaction enqueue in `_TriageRun._finish` should make
@@ -1392,6 +1441,7 @@ class _ActionsRun:
             category=plan.category,
             kb_version_id=stored.kb_version_id,
             rows=rows,
+            generation=self._generation,
         )
 
     def _finish(
@@ -1423,6 +1473,7 @@ class _ActionsRun:
                 "actions_status": status.value,
                 "reason": None if reason is None else str(reason),
                 "generated_for_category": plan.category.value,
+                "generation": self._generation,
                 "baseline_count": len(plan.baseline),
                 "tailored_count": len(plan.tailored),
                 "rejected_count": plan.rejected_count,
@@ -1465,7 +1516,7 @@ class _ActionsRun:
         the second failure is logged and the reason is still returned.
         """
         self._session.rollback()
-        stored = self._repo.actions_run_input(self._recommendation_id)
+        stored = self._read_input()
         try:
             self._repo.set_actions_status(
                 self._recommendation_id, ActionsStatus.FAILED, error=str(reason)
@@ -1478,6 +1529,7 @@ class _ActionsRun:
                         "actions_status": ActionsStatus.FAILED.value,
                         "reason": str(reason),
                         "generated_for_category": stored.category.value,
+                        "generation": self._generation,
                         "failed_at": datetime.now(UTC).isoformat(),
                     },
                 )

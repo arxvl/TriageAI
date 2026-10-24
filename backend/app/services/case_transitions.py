@@ -28,6 +28,18 @@ DECIDED_STATUSES: frozenset[CaseStatus] = frozenset(
     {CaseStatus.CONFIRMED, CaseStatus.ADJUSTED, CaseStatus.MANUALLY_TRIAGED}
 )
 
+# The statuses in which suggested actions cannot be regenerated (P07 §7.2b): no
+# category has been settled on yet (still being processed, or waiting for manual
+# triage), or the case has left the working list.
+ACTIONS_REGENERATION_BLOCKED_STATUSES: frozenset[CaseStatus] = frozenset(
+    {
+        CaseStatus.SUBMITTED,
+        CaseStatus.PROCESSING,
+        CaseStatus.MANUAL_TRIAGE_REQUIRED,
+        CaseStatus.CLOSED,
+    }
+)
+
 # Where a first decision of each type may be made from.
 #
 # CONFIRM and ADJUST both speak about a recommendation — one accepts it, the

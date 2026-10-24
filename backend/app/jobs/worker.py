@@ -50,8 +50,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.jobs.queue import REGENERATE_EXTRACTION_KEY, JobQueue
-from app.models import Job, JobType
-from app.pipeline.orchestrator import ACTIONS_JOB_RECOMMENDATION_KEY
+from app.models import Job, JobType, VTLCategory
+from app.pipeline.orchestrator import (
+    ACTIONS_JOB_CATEGORY_KEY,
+    ACTIONS_JOB_GENERATION_KEY,
+    ACTIONS_JOB_RECOMMENDATION_KEY,
+)
+from app.repositories.pipeline_repository import FIRST_ACTION_GENERATION
 from app.services.kb_indexing import kb_index_job_target, run_kb_index
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -61,6 +66,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_POLL_INTERVAL_S",
+    "INVALID_ACTIONS_TARGET",
     "MISSING_CASE_ID",
     "MISSING_ENTRY_ID",
     "MISSING_EXTRACTION_ID",
@@ -83,6 +89,9 @@ MISSING_CASE_ID = "MISSING_CASE_ID"
 MISSING_RECOMMENDATION_ID = "MISSING_RECOMMENDATION_ID"
 MISSING_ENTRY_ID = "MISSING_ENTRY_ID"
 MISSING_EXTRACTION_ID = "MISSING_EXTRACTION_ID"
+# A `SUGGEST_ACTIONS` payload names a category or a generation that cannot be
+# read: a job somebody built by hand (P07 §7.2b).
+INVALID_ACTIONS_TARGET = "INVALID_ACTIONS_TARGET"
 
 
 def _recommendation_id(job: Job) -> uuid.UUID | None:
@@ -98,6 +107,29 @@ def _recommendation_id(job: Job) -> uuid.UUID | None:
         return uuid.UUID(str(raw))
     except (TypeError, ValueError):
         return None
+
+
+def _actions_target(job: Job) -> tuple[VTLCategory | None, int] | None:
+    """The category and set number a `SUGGEST_ACTIONS` job is for, or None if unreadable.
+
+    Both are absent on the first run, which is for the recommendation's own
+    category as set 1. A regeneration carries both (FR-78); a payload that has
+    one but not the other, or a value that does not parse, is a job built by hand
+    and is refused rather than guessed at.
+    """
+    payload = job.payload or {}
+    raw_category = payload.get(ACTIONS_JOB_CATEGORY_KEY)
+    raw_generation = payload.get(ACTIONS_JOB_GENERATION_KEY)
+    if raw_category is None and raw_generation is None:
+        return None, FIRST_ACTION_GENERATION
+    try:
+        category = VTLCategory(raw_category)
+        generation = int(raw_generation)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(raw_generation, bool) or generation < FIRST_ACTION_GENERATION:
+        return None
+    return category, generation
 
 
 def _extraction_id(job: Job) -> uuid.UUID | None:
@@ -217,7 +249,15 @@ def run_job(
                 logger.error("SUGGEST_ACTIONS job without a recommendation", extra=context)
                 queue.fail(job, MISSING_RECOMMENDATION_ID)
                 return
-            result = pipeline.run_actions(recommendation_id, job_id=job.id)
+            target = _actions_target(job)
+            if target is None:
+                logger.error("SUGGEST_ACTIONS job with an unreadable target", extra=context)
+                queue.fail(job, INVALID_ACTIONS_TARGET)
+                return
+            category, generation = target
+            result = pipeline.run_actions(
+                recommendation_id, job_id=job.id, category=category, generation=generation
+            )
 
         else:
             logger.error("job type not supported by this worker", extra=context)

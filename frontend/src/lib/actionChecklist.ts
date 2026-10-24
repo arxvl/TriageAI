@@ -48,6 +48,11 @@ export interface ChecklistRow {
  *
  * Everything starts ticked. The reviewer's job is to take things off a list that
  * reflects the case, not to build one from nothing.
+ *
+ * **Outdated tailored rows are left out.** They were suggested for a category
+ * the case no longer has (FR-78), so they must never be sent as `KEPT`: the
+ * screen shows them separately, greyed, and the reviewer asks for new ones
+ * instead of approving these.
  */
 export function initialChecklist(
   baseline: readonly string[],
@@ -63,6 +68,9 @@ export function initialChecklist(
   }));
 
   tailored.forEach((action, index) => {
+    if (action.is_outdated) {
+      return;
+    }
     rows.push({
       key: `tailored-${index}`,
       text: action.text,

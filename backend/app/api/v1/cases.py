@@ -28,6 +28,7 @@ from app.schemas.case import (
     CaseStatusOut,
 )
 from app.schemas.review import (
+    ActionsRegenerationAccepted,
     AuditTimeline,
     CaseClosed,
     CorrectionAccepted,
@@ -133,6 +134,21 @@ def retry_pipeline(case_id: uuid.UUID, db: DbSession, user: ReviewerUser) -> Ret
     running is refused rather than queued twice.
     """
     return CaseService(db).retry_pipeline(case_id, user)
+
+
+@router.post("/{case_id}/actions/regenerate", status_code=status.HTTP_202_ACCEPTED)
+def regenerate_actions(
+    case_id: uuid.UUID, db: DbSession, user: ReviewerUser
+) -> ActionsRegenerationAccepted:
+    """Suggest actions again for the category the case now has (FR-78, W-04).
+
+    Answers 202: a `SUGGEST_ACTIONS` job is queued and `actions_status` goes back
+    to `PENDING`; the client polls the case for the result. The earlier
+    suggestions are kept as an earlier set, and no decision, finalized action or
+    case status changes. Answers 409 when the case has no recommendation or has
+    not settled on a category, is closed, or already has an actions job running.
+    """
+    return ReviewService(db).regenerate_actions(case_id, user)
 
 
 @router.patch("/{case_id}/extraction", status_code=status.HTTP_202_ACCEPTED)

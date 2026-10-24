@@ -641,7 +641,10 @@ def test_a_rerun_of_the_same_job_after_a_crash_adds_nothing(
     triaged.status = CaseStatus.PROCESSING
     db_session.flush()
 
-    regenerate(app_session_factory, pipeline)
+    # Two jobs are queued: this one and the SUGGEST_ACTIONS job its first run
+    # enqueued. Both were created in one transaction, so which is claimed first is
+    # not defined; allowing two makes the test about the re-run, not the order.
+    run_pending_jobs_once(app_session_factory, pipeline, max_jobs=2)
 
     db_session.expire_all()
     assert len(recommendations(db_session, triaged)) == 2

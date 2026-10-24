@@ -44,6 +44,7 @@ from app.core.vtl import TARGET_MINUTES
 from app.jobs.queue import REGENERATE_EXTRACTION_KEY, JobQueue
 from app.models import (
     ActionSource,
+    ActionsStatus,
     ActionStatus,
     AdjustReason,
     CaseStatus,
@@ -52,11 +53,17 @@ from app.models import (
     User,
     VTLCategory,
 )
+from app.pipeline.orchestrator import (
+    ACTIONS_JOB_CATEGORY_KEY,
+    ACTIONS_JOB_GENERATION_KEY,
+    ACTIONS_JOB_RECOMMENDATION_KEY,
+)
 from app.pipeline.types import OTHER_COMPLAINT, ExtractedComplaint, ExtractionOutput
 from app.repositories.case_repository import CaseRepository
 from app.repositories.pipeline_repository import PipelineRepository
 from app.repositories.review_repository import FinalActionValues, ReviewRepository
 from app.schemas.review import (
+    ActionsRegenerationAccepted,
     AuditTimeline,
     CaseClosed,
     CorrectionAccepted,
@@ -69,11 +76,12 @@ from app.schemas.review import (
 )
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
 from app.services.case_transitions import (
-    direction as compute_direction,
-)
-from app.services.case_transitions import (
+    ACTIONS_REGENERATION_BLOCKED_STATUSES,
     require_closable,
     require_decision_allowed,
+)
+from app.services.case_transitions import (
+    direction as compute_direction,
 )
 from app.services.timeline import build_timeline
 
@@ -353,21 +361,22 @@ class ReviewService:
         would lose that (FR-76).
 
         **The tailored actions are dropped when the category moved.** They were
-        generated for the recommendation's category, and FR-78 says a changed
-        category makes them outdated. A reviewer who adjusts ORANGE to RED and
-        does not open the checklist has approved nothing case-specific, so
-        recording ORANGE's suggestions as actions they kept would put approval
-        in the permanent record that they never gave. They stay in
-        `action_suggestions`, where the screen can still show them flagged as
-        outdated (P07 §7.2b).
+        generated for another category, and FR-78 says a changed category makes
+        them outdated. A reviewer who adjusts ORANGE to RED and does not open the
+        checklist has approved nothing case-specific, so recording ORANGE's
+        suggestions as actions they kept would put approval in the permanent
+        record that they never gave. They stay in `action_suggestions`, where the
+        screen can still show them flagged as outdated (P07 §7.2b).
+
+        What counts is the category the newest set was generated *for*, not the
+        recommendation's: once suggestions have been regenerated for the decided
+        category, an amendment accepts that set.
         """
         rows = [
             FinalActionValues(text=text, source=ActionSource.BASELINE, status=ActionStatus.KEPT)
             for text in self._baseline(final_category, recommendation)
         ]
         if recommendation is None:
-            return rows
-        if VTLCategory(recommendation.category) is not final_category:
             return rows
         rows += [
             FinalActionValues(
@@ -377,6 +386,7 @@ class ReviewService:
                 suggestion_id=suggestion.id,
             )
             for suggestion in self._reviews.tailored_suggestions(recommendation.id)
+            if VTLCategory(suggestion.generated_for_category) is final_category
         ]
         return rows
 
@@ -395,6 +405,82 @@ class ReviewService:
         if kb_version_id is None:
             return []
         return baseline_actions(self._session, category, kb_version_id)
+
+    # --- Regenerating suggested actions (FR-78, P07 §7.2b) -----------------
+
+    def regenerate_actions(self, case_id: uuid.UUID, user: User) -> ActionsRegenerationAccepted:
+        """Queue new suggested actions for the category the case now has. One transaction.
+
+        For a reviewer who changed the category and found the tailored list
+        outdated (ADR-18 §6). The new suggestions are a **later set**: the
+        earlier rows stay in `action_suggestions`, and the set number is chosen
+        here so a re-run of the job after a crash replaces its own set.
+
+        **Nothing that is a decision is written.** No decision, no
+        `final_actions` row and no status change: this adds a job and flips the
+        recommendation's `actions_status` to `PENDING`, which is the field the
+        screen polls (NFR-29). If the job fails, `actions_status` becomes
+        `FAILED` and the case is exactly where it was (FR-77).
+
+        Refused with 409 when there is no recommendation to suggest against, when
+        the case is not in a state that has settled on a category (still being
+        processed, waiting for manual triage, or closed), and while an actions
+        job is already running — which also makes a second press of the button
+        harmless.
+        """
+        status = self._reviews.status_of(case_id)
+        if status is None:
+            raise CaseNotFound()
+        if status in ACTIONS_REGENERATION_BLOCKED_STATUSES:
+            raise InvalidCaseTransition(
+                "Suggested actions cannot be regenerated for this case now."
+            )
+
+        recommendation = self._cases.latest_recommendation_actions(case_id)
+        if recommendation is None:
+            raise InvalidCaseTransition("This case has no recommendation to suggest actions for.")
+        if ActionsStatus(recommendation.actions_status) is ActionsStatus.PENDING:
+            raise InvalidCaseTransition("Suggested actions are already being prepared.")
+
+        decision = self._reviews.latest_decision(case_id)
+        category = VTLCategory(
+            recommendation.category if decision is None else decision.final_category
+        )
+        generation = self._pipeline_rows.next_action_generation(recommendation.id)
+
+        self._pipeline_rows.set_actions_status(recommendation.id, ActionsStatus.PENDING)
+        self._jobs.enqueue(
+            JobType.SUGGEST_ACTIONS,
+            case_id=case_id,
+            payload={
+                ACTIONS_JOB_RECOMMENDATION_KEY: str(recommendation.id),
+                ACTIONS_JOB_CATEGORY_KEY: category.value,
+                ACTIONS_JOB_GENERATION_KEY: generation,
+            },
+        )
+        self._audit.record(
+            action=AuditAction.ACTIONS_REGENERATION_REQUESTED,
+            entity_type=CASE_ENTITY,
+            entity_id=str(case_id),
+            user_id=user.id,
+            role=user.role,
+            after={
+                "category": category.value,
+                "generation": generation,
+                "recommendation_id": str(recommendation.id),
+            },
+        )
+        header = self._reviews.header_row(case_id)
+        self._session.commit()
+        if header is None:  # pragma: no cover - the row was read a moment ago
+            raise CaseNotFound()
+        return ActionsRegenerationAccepted(
+            id=case_id,
+            case_no=header.case_no,
+            category=category,
+            generation=generation,
+            actions_status=ActionsStatus.PENDING,
+        )
 
     # --- Extraction correction and regeneration (FR-27, UC-09) ------------
 

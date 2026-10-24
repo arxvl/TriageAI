@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from app.models.enums import (
     ActionSource,
+    ActionsStatus,
     ActionStatus,
     AdjustReason,
     AgeUnit,
@@ -450,6 +451,22 @@ class RetryAccepted(BaseModel):
     status: CaseStatus
 
 
+class ActionsRegenerationAccepted(BaseModel):
+    """202 for `POST /cases/{id}/actions/regenerate`: new suggestions are queued.
+
+    `category` is the category the suggestions are being made for (FR-78) and
+    `generation` the number of the set that will hold them. The case status is
+    not part of the answer because it does not change; the client polls
+    `GET /cases/{id}/status` for `actions_status`.
+    """
+
+    id: uuid.UUID
+    case_no: str
+    category: VTLCategory
+    generation: int
+    actions_status: ActionsStatus
+
+
 class CorrectionAccepted(BaseModel):
     """202 for `PATCH /cases/{id}/extraction`: the regeneration has been queued.
 
@@ -508,10 +525,15 @@ class PermissionsOut(BaseModel):
 
     `can_retry` is true for a reviewer on a case sitting in
     `MANUAL_TRIAGE_REQUIRED`, which is when W-06's Retry button is live (P07 §7.1).
+
+    `can_regenerate_actions` is true for a reviewer on a case that has a
+    recommendation and is not closed or still being processed, while no actions
+    job is already running — the "Regenerate suggestions" button (P07 §7.2b).
     """
 
     can_decide: bool
     can_regenerate: bool
+    can_regenerate_actions: bool
     can_retry: bool
     can_close: bool
 

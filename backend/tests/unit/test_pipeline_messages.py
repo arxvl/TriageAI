@@ -10,17 +10,29 @@ from datetime import UTC, datetime
 import pytest
 
 from app.pipeline.messages import (
+    ACTIONS_FALLBACK_MESSAGE,
+    BASELINE_ONLY,
     FALLBACK_MESSAGE,
     REGENERATION_FALLBACK_MESSAGE,
     SAFE_TO_TRIAGE,
     STILL_NEEDS_DECISION,
+    actions_failure_message,
     failure_message,
     regeneration_failure_message,
 )
-from app.pipeline.orchestrator import FailureReason
+from app.pipeline.orchestrator import ActionsFailureReason, FailureReason
 
 # 01:20:41 UTC is 09:20:41 in Asia/Manila (UTC+8, no daylight saving).
 FAILED_AT = datetime(2026, 10, 24, 1, 20, 41, tzinfo=UTC)
+
+# The codes a failed actions job can leave on `recommendations.actions_error`.
+# `RECOMMENDATION_NOT_FOUND` is reported to the worker only: there is no
+# recommendation to record it on (P05b §5b.3).
+ACTIONS_SHOWN_TO_REVIEWERS = [
+    reason
+    for reason in ActionsFailureReason
+    if reason is not ActionsFailureReason.RECOMMENDATION_NOT_FOUND
+]
 
 SHOWN_TO_REVIEWERS = [
     reason for reason in FailureReason if reason is not FailureReason.CASE_NOT_FOUND
@@ -117,3 +129,48 @@ def test_an_unknown_regeneration_code_never_reaches_the_screen() -> None:
 
     assert message == REGENERATION_FALLBACK_MESSAGE
     assert "SOMETHING" not in message
+
+
+# --- Failed suggested actions (P07 §7.2b, FR-77) ---------------------------
+
+
+def test_the_four_actions_codes_the_prompt_names_are_all_worded() -> None:
+    for code in (
+        "ACTIONS_TIMEOUT",
+        "ACTIONS_UNAVAILABLE",
+        "ACTIONS_INVALID_OUTPUT",
+        "ACTIONS_ALL_REJECTED",
+    ):
+        assert actions_failure_message(code) != ACTIONS_FALLBACK_MESSAGE, code
+
+
+@pytest.mark.parametrize("reason", ACTIONS_SHOWN_TO_REVIEWERS, ids=lambda reason: reason.value)
+def test_every_actions_code_has_its_own_sentence_that_ends_with_the_baseline_line(
+    reason: ActionsFailureReason,
+) -> None:
+    message = actions_failure_message(reason.value)
+
+    assert message != ACTIONS_FALLBACK_MESSAGE
+    assert message.endswith(BASELINE_ONLY)
+    assert reason.value not in message
+
+
+def test_an_actions_failure_does_not_claim_the_case_goes_to_manual_triage() -> None:
+    message = actions_failure_message("ACTIONS_TIMEOUT")
+
+    assert SAFE_TO_TRIAGE not in message
+    assert "manual" not in message.lower()
+
+
+def test_an_actions_failure_reports_the_clinic_time() -> None:
+    assert actions_failure_message("ACTIONS_TIMEOUT", failed_at=FAILED_AT).startswith(
+        "The language model did not respond with suggested actions (09:20:41). "
+    )
+
+
+def test_an_unknown_actions_code_never_reaches_the_screen() -> None:
+    message = actions_failure_message("SOMETHING_FROM_A_NEWER_BUILD")
+
+    assert message == ACTIONS_FALLBACK_MESSAGE
+    assert "SOMETHING" not in message
+    assert actions_failure_message("") == ACTIONS_FALLBACK_MESSAGE

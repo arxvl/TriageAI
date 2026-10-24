@@ -52,6 +52,7 @@ LABELS: dict[str, str] = {
     AuditAction.PIPELINE_RETRY: "AI processing retried",
     AuditAction.ACTIONS_SUGGESTED: "Suggested actions ready",
     AuditAction.ACTIONS_FAILED: "Suggested actions unavailable",
+    AuditAction.ACTIONS_REGENERATION_REQUESTED: "Suggested actions requested again",
     AuditAction.DECISION_RECORDED: "Decision recorded",
     AuditAction.ACTIONS_FINALIZED: "Action list finalized",
     AuditAction.NOTE_ADDED: "Note added",
@@ -177,6 +178,10 @@ def _details(
 
     if action in (AuditAction.ACTIONS_SUGGESTED, AuditAction.ACTIONS_FAILED):
         return _actions_details(after)
+
+    if action == AuditAction.ACTIONS_REGENERATION_REQUESTED:
+        category = after.get("category")
+        return None if category is None else f"For category {category}"
 
     if action == AuditAction.NOTE_ADDED:
         return "Recorded with the decision" if after.get("with_decision") else None

@@ -20,15 +20,18 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.jobs.queue import REGENERATE_EXTRACTION_KEY
 from app.jobs.worker import (
+    INVALID_ACTIONS_TARGET,
     MISSING_EXTRACTION_ID,
     MISSING_RECOMMENDATION_ID,
     UNEXPECTED_ERROR,
     UNSUPPORTED_JOB_TYPE,
     run_pending_jobs_once,
 )
-from app.models import ActionsStatus, CaseStatus, JobStatus, JobType
+from app.models import ActionsStatus, CaseStatus, JobStatus, JobType, VTLCategory
 from app.pipeline.config import PipelineConfig
 from app.pipeline.orchestrator import (
+    ACTIONS_JOB_CATEGORY_KEY,
+    ACTIONS_JOB_GENERATION_KEY,
     ACTIONS_JOB_RECOMMENDATION_KEY,
     ActionsFailureReason,
     ActionsRunResult,
@@ -57,6 +60,7 @@ class _StubPipeline:
         self._actions_result = actions_result
         self.calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
         self.actions_calls: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+        self.actions_targets: list[tuple[VTLCategory | None, int]] = []
         self.regenerate_calls: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None]] = []
 
     config = PipelineConfig()
@@ -112,9 +116,15 @@ class _StubPipeline:
         )
 
     def run_actions(
-        self, recommendation_id: uuid.UUID, *, job_id: uuid.UUID | None = None
+        self,
+        recommendation_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
+        category: VTLCategory | None = None,
+        generation: int = 1,
     ) -> object:
         self.actions_calls.append((recommendation_id, job_id))
+        self.actions_targets.append((category, generation))
         if self._raises is not None:
             raise self._raises
         return self._actions_result or ActionsRunResult(recommendation_id, ActionsStatus.READY)
@@ -300,7 +310,9 @@ def test_a_pipeline_run_job_with_no_case_fails(
 # --- SUGGEST_ACTIONS (P05b §5b.3, ADR-18 §3) -----------------------------
 
 
-def actions_job(db_session: Session, recommendation_id: object) -> object:
+def actions_job(
+    db_session: Session, recommendation_id: object, extra: dict | None = None
+) -> object:
     """A `SUGGEST_ACTIONS` job carrying `recommendation_id` in its payload."""
     return make_job(
         db_session,
@@ -308,7 +320,7 @@ def actions_job(db_session: Session, recommendation_id: object) -> object:
         job_type=JobType.SUGGEST_ACTIONS,
         payload=None
         if recommendation_id is None
-        else {ACTIONS_JOB_RECOMMENDATION_KEY: str(recommendation_id)},
+        else {ACTIONS_JOB_RECOMMENDATION_KEY: str(recommendation_id), **(extra or {})},
     )
 
 
@@ -327,6 +339,60 @@ def test_an_actions_job_is_dispatched_with_its_recommendation(
     db_session.refresh(job)
     assert job.status is JobStatus.DONE
     assert job.last_error is None
+
+
+def test_a_first_actions_job_runs_for_the_recommendations_own_category(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    """No category and no generation in the payload: set 1, no override."""
+    actions_job(db_session, uuid.uuid4())
+    pipeline = _StubPipeline()
+
+    run_pending_jobs_once(app_session_factory, pipeline)
+
+    assert pipeline.actions_targets == [(None, 1)]
+
+
+def test_a_regeneration_job_passes_its_category_and_set_number(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    """P07 §7.2b, FR-78."""
+    actions_job(
+        db_session,
+        uuid.uuid4(),
+        {ACTIONS_JOB_CATEGORY_KEY: "RED", ACTIONS_JOB_GENERATION_KEY: 2},
+    )
+    pipeline = _StubPipeline()
+
+    run_pending_jobs_once(app_session_factory, pipeline)
+
+    assert pipeline.actions_targets == [(VTLCategory.RED, 2)]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {ACTIONS_JOB_CATEGORY_KEY: "PURPLE", ACTIONS_JOB_GENERATION_KEY: 2},
+        {ACTIONS_JOB_CATEGORY_KEY: "RED"},
+        {ACTIONS_JOB_GENERATION_KEY: 2},
+        {ACTIONS_JOB_CATEGORY_KEY: "RED", ACTIONS_JOB_GENERATION_KEY: "two"},
+        {ACTIONS_JOB_CATEGORY_KEY: "RED", ACTIONS_JOB_GENERATION_KEY: 0},
+        {ACTIONS_JOB_CATEGORY_KEY: "RED", ACTIONS_JOB_GENERATION_KEY: True},
+    ],
+)
+def test_an_actions_job_with_an_unreadable_target_fails_without_running(
+    db_session: Session, app_session_factory: sessionmaker, extra: dict
+) -> None:
+    job = actions_job(db_session, uuid.uuid4(), extra)
+    pipeline = _StubPipeline()
+
+    assert run_pending_jobs_once(app_session_factory, pipeline) == 1
+
+    assert pipeline.actions_calls == []
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(INVALID_ACTIONS_TARGET)
 
 
 def test_a_failed_actions_run_fails_the_job_with_the_reason_code(

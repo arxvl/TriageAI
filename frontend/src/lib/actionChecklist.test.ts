@@ -17,7 +17,12 @@ const BASELINE: readonly string[] = [
 ];
 
 const TAILORED: readonly SuggestedAction[] = [
-  { text: "Ask the owner when the cat last passed any urine.", cited_ranks: [1], source: "AI" },
+  {
+    text: "Ask the owner when the cat last passed any urine.",
+    cited_ranks: [1],
+    source: "AI",
+    is_outdated: false,
+  },
 ];
 
 describe("initialChecklist", () => {
@@ -40,6 +45,17 @@ describe("initialChecklist", () => {
     const rows = initialChecklist(BASELINE, TAILORED);
 
     expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length);
+  });
+
+  // FR-78. An outdated row was suggested for another category; if it were in the
+  // checklist it would be sent as KEPT and recorded as approved.
+  it("leaves out tailored actions suggested for another category", () => {
+    const outdated: SuggestedAction = { ...TAILORED[0], is_outdated: true };
+
+    const rows = initialChecklist(BASELINE, [outdated]);
+
+    expect(rows.map((row) => row.source)).toEqual(["BASELINE", "BASELINE"]);
+    expect(toFinalActions(rows).map((action) => action.text)).toEqual([...BASELINE]);
   });
 
   it("is empty when the case has no actions at all", () => {

@@ -397,6 +397,14 @@
   border-style: dashed;
 }
 
+/* FR-78: suggested for a category the case no longer has. Greyed and never
+   ticked; the note above the group says why, so grey is not the only cue. */
+.actionOutdated {
+  color: var(--color-text-muted);
+  background: transparent;
+  border-style: dotted;
+}
+
 .actionRemoved {
   color: var(--color-text-muted);
   text-decoration: line-through;

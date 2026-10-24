@@ -341,12 +341,22 @@ class CaseRepository:
         return self._session.execute(statement).one_or_none()
 
     def action_suggestions(self, recommendation_id: uuid.UUID) -> list[Row]:
-        """One recommendation's stored suggestions, in display order (IR-23).
+        """One recommendation's newest set of suggestions, in display order (IR-23).
+
+        Only the highest generation that has rows: an older set is kept in the
+        table (FR-78) but is not what the screen works from. A regeneration that
+        is still running or that failed has no rows yet, so the previous set stays
+        the newest one.
 
         Ordered by rank, which the orchestrator writes as one sequence over both
         layers with the baseline set first — so `order by rank` is the order W-04
         shows them in.
         """
+        newest = (
+            select(func.max(ActionSuggestion.generation))
+            .where(ActionSuggestion.recommendation_id == recommendation_id)
+            .scalar_subquery()
+        )
         statement = (
             select(
                 ActionSuggestion.id,
@@ -356,7 +366,10 @@ class CaseRepository:
                 ActionSuggestion.cited_chunk_ids,
                 ActionSuggestion.generated_for_category,
             )
-            .where(ActionSuggestion.recommendation_id == recommendation_id)
+            .where(
+                ActionSuggestion.recommendation_id == recommendation_id,
+                ActionSuggestion.generation == newest,
+            )
             .order_by(ActionSuggestion.rank)
         )
         return list(self._session.execute(statement).all())

@@ -66,6 +66,9 @@ class AuditAction(StrEnum):
     # corrected (SR-17, FR-43).
     ACTIONS_SUGGESTED = "ACTIONS_SUGGESTED"
     ACTIONS_FAILED = "ACTIONS_FAILED"
+    # A reviewer asked for new suggested actions for the category they settled on
+    # (P07 §7.2b, FR-78). The category and the set number, nothing else.
+    ACTIONS_REGENERATION_REQUESTED = "ACTIONS_REGENERATION_REQUESTED"
     # The human-in-the-loop decision (P06 §6.1). `DECISION_RECORDED` carries the
     # before and after **category and status only** — never the reviewer's
     # reason text, which is clinical free text and lives on the decision row

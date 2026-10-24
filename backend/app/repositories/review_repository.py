@@ -358,15 +358,29 @@ class ReviewRepository:
         return list(self._session.execute(statement).all())
 
     def tailored_suggestions(self, recommendation_id: uuid.UUID) -> list[Row]:
-        """The stored non-baseline suggestions, in display order (FR-76).
+        """The newest set's non-baseline suggestions, in display order (FR-76).
 
         Read when a reviewer finalizes without touching the checklist, so the
-        list they are recorded as having accepted is the one they were shown.
+        list they are recorded as having accepted is the one they were shown —
+        the newest generation, which is the one the review screen reads
+        (FR-78). Each row says which category it was generated for, so the caller
+        can tell whether the set still describes the decided category.
         """
+        newest = (
+            select(func.max(ActionSuggestion.generation))
+            .where(ActionSuggestion.recommendation_id == recommendation_id)
+            .scalar_subquery()
+        )
         statement = (
-            select(ActionSuggestion.id, ActionSuggestion.text, ActionSuggestion.source)
+            select(
+                ActionSuggestion.id,
+                ActionSuggestion.text,
+                ActionSuggestion.source,
+                ActionSuggestion.generated_for_category,
+            )
             .where(
                 ActionSuggestion.recommendation_id == recommendation_id,
+                ActionSuggestion.generation == newest,
                 ActionSuggestion.source != ActionSource.BASELINE,
             )
             .order_by(ActionSuggestion.rank)

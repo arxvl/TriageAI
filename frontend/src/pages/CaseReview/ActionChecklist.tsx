@@ -27,7 +27,7 @@
  */
 import { useState } from "react";
 
-import type { ActionsStatus, ActionSource, VTLCategory } from "../../api/cases";
+import type { ActionsStatus, ActionSource, SuggestedAction, VTLCategory } from "../../api/cases";
 import { strings } from "../../i18n/strings";
 import { statusOf, type ChecklistRow } from "../../lib/actionChecklist";
 import styles from "./CaseReview.module.css";
@@ -42,6 +42,20 @@ export interface ActionChecklistProps {
   rejectedCount: number;
   /** FR-79: the controls exist only for a reviewer on an undecided case. */
   isEditable: boolean;
+  /**
+   * Tailored rows suggested for a category the case no longer has (FR-78). Shown
+   * greyed and read-only, and not part of `rows`, so they cannot be recorded as
+   * kept by accident.
+   */
+  outdated: readonly SuggestedAction[];
+  /** The category the outdated rows were suggested for. */
+  outdatedCategory: VTLCategory | null;
+  /** The server's plain-language line for a failed actions job (FR-77). */
+  failureMessage: string | null;
+  /** `permissions.can_regenerate_actions`: a reviewer, a recommendation, no job running. */
+  canRegenerate: boolean;
+  isRegenerating: boolean;
+  onRegenerate: () => void;
   onToggle: (key: string) => void;
   onEdit: (key: string, text: string) => void;
   onAdd: (text: string) => void;
@@ -53,6 +67,12 @@ export function ActionChecklist({
   category,
   rejectedCount,
   isEditable,
+  outdated,
+  outdatedCategory,
+  failureMessage,
+  canRegenerate,
+  isRegenerating,
+  onRegenerate,
   onToggle,
   onEdit,
   onAdd,
@@ -60,6 +80,10 @@ export function ActionChecklist({
   const baseline = rows.filter((row) => row.source === "BASELINE");
   const tailored = rows.filter((row) => row.source !== "BASELINE");
   const categoryName = category === null ? "" : strings.vtl.names[category];
+  const outdatedName = outdatedCategory === null ? "" : strings.vtl.names[outdatedCategory];
+  // The button is offered when there is something to replace: rows suggested for
+  // another category, or a job that failed. Not on a current, healthy list.
+  const wantsRegeneration = outdated.length > 0 || status === "FAILED";
 
   return (
     <section className={styles.actions}>
@@ -94,11 +118,52 @@ export function ActionChecklist({
         />
       ))}
 
+      {/* FR-78. The rows stay visible so the reviewer can compare, but they are
+          greyed, carry no checkbox, and are not in the list a decision records. */}
+      {outdated.length > 0 && (
+        <div>
+          <p className={styles.aiActionsHeading}>
+            {copy.outdatedNote.replace("{category}", outdatedName)}
+          </p>
+          {outdated.map((action, index) => (
+            <div
+              key={`outdated-${index}`}
+              className={`${styles.action} ${styles.actionOutdated}`}
+              data-outdated="true"
+              title={copy.outdatedTitle}
+            >
+              <span className={styles.actionText}>
+                {action.text}
+                <Citation ranks={action.cited_ranks} />
+              </span>
+              <span className={styles.actionSource} title={copy.sourceTitles[action.source]}>
+                {sourceLabel(action.source)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {status === "PENDING" && <p className={styles.actionsIntro}>{copy.pending}</p>}
 
       {/* One line, never a dialog: the baseline actions are what matter and they
-          are already on screen (FR-77). */}
-      {status === "FAILED" && <p className={styles.actionsIntro}>{copy.failed}</p>}
+          are already on screen (FR-77). The wording comes from the server, which
+          knows which reason code stopped the job. */}
+      {status === "FAILED" && (
+        <p className={styles.actionsIntro}>{failureMessage ?? copy.failed}</p>
+      )}
+
+      {canRegenerate && wantsRegeneration && (
+        <button
+          type="button"
+          className={`${styles.button} ${styles.buttonSmall}`}
+          aria-label={copy.regenerateLabel.replace("{category}", categoryName)}
+          disabled={isRegenerating}
+          onClick={onRegenerate}
+        >
+          {isRegenerating ? copy.regenerating : copy.regenerate}
+        </button>
+      )}
 
       {rows.length === 0 && status !== "PENDING" && (
         <p className={styles.actionsIntro}>{copy.empty}</p>

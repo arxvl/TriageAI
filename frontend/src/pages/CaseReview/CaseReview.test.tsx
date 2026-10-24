@@ -40,11 +40,17 @@ const BASELINE_ACTIONS: readonly string[] = [
 ];
 
 const TAILORED_ACTIONS: readonly SuggestedAction[] = [
-  { text: "Ask the owner when the cat last passed any urine.", cited_ranks: [1], source: "AI" },
+  {
+    text: "Ask the owner when the cat last passed any urine.",
+    cited_ranks: [1],
+    source: "AI",
+    is_outdated: false,
+  },
   {
     text: "Check for a firm, painful bladder when the veterinarian examines.",
     cited_ranks: [1],
     source: "AI",
+    is_outdated: false,
   },
 ];
 
@@ -101,6 +107,7 @@ function makeCaseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
       tailored: [...TAILORED_ACTIONS],
       rejected_count: 1,
       is_outdated: false,
+      failure_message: null,
     },
 
     header: {
@@ -185,7 +192,13 @@ function makeCaseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
 
     decision: null,
     notes: [],
-    permissions: { can_decide: true, can_regenerate: false, can_retry: false, can_close: false },
+    permissions: {
+      can_decide: true,
+      can_regenerate: false,
+      can_regenerate_actions: false,
+      can_retry: false,
+      can_close: false,
+    },
     failure: null,
     recommendation_versions: [
       { version: 1, category: "ORANGE", created_at: "2026-10-01T01:36:14Z", is_current: true },
@@ -239,13 +252,20 @@ function manualTriageCase(overrides: Partial<CaseDetail> = {}): CaseDetail {
       tailored: [],
       rejected_count: 0,
       is_outdated: false,
+      failure_message: null,
     },
     failure: {
       reason_code: "LLM_TIMEOUT",
       message: FAILURE_MESSAGE,
       failed_at: "2026-10-01T01:20:41Z",
     },
-    permissions: { can_decide: true, can_regenerate: false, can_retry: true, can_close: false },
+    permissions: {
+      can_decide: true,
+      can_regenerate: false,
+      can_regenerate_actions: false,
+      can_retry: true,
+      can_close: false,
+    },
     recommendation_versions: [],
     ...overrides,
   });
@@ -477,7 +497,13 @@ const COMPLAINT_OPTIONS = [
 
 function regenerable(overrides: Partial<CaseDetail> = {}): CaseDetail {
   return makeCaseDetail({
-    permissions: { can_decide: true, can_regenerate: true, can_retry: false, can_close: false },
+    permissions: {
+      can_decide: true,
+      can_regenerate: true,
+      can_regenerate_actions: false,
+      can_retry: false,
+      can_close: false,
+    },
     ...overrides,
   });
 }
@@ -706,6 +732,7 @@ describe("CaseReview while a correction is being regenerated (FR-27)", () => {
         permissions: {
           can_decide: true,
           can_regenerate: false,
+          can_regenerate_actions: false,
           can_retry: false,
           can_close: false,
         },
@@ -967,6 +994,7 @@ describe("CaseReview panel 3 — the recommendation", () => {
         permissions: {
           can_decide: false,
           can_regenerate: false,
+          can_regenerate_actions: false,
           can_retry: false,
           can_close: false,
         },
@@ -1028,6 +1056,7 @@ describe("CaseReview suggested actions", () => {
         permissions: {
           can_decide: false,
           can_regenerate: false,
+          can_regenerate_actions: false,
           can_retry: false,
           can_close: false,
         },
@@ -1143,6 +1172,7 @@ describe("CaseReview decision bar", () => {
         permissions: {
           can_decide: false,
           can_regenerate: false,
+          can_regenerate_actions: false,
           can_retry: false,
           can_close: false,
         },
@@ -1415,6 +1445,7 @@ describe("CaseReview manual triage (W-06)", () => {
         permissions: {
           can_decide: true,
           can_regenerate: false,
+          can_regenerate_actions: false,
           can_retry: false,
           can_close: false,
         },
@@ -1563,7 +1594,13 @@ describe("CaseReview notes (FR-37)", () => {
     renderCase({
       ...confirmedCase(),
       status: "CLOSED",
-      permissions: { can_decide: false, can_regenerate: false, can_retry: false, can_close: false },
+      permissions: {
+        can_decide: false,
+        can_regenerate: false,
+        can_regenerate_actions: false,
+        can_retry: false,
+        can_close: false,
+      },
     });
 
     expect(await screen.findByText(copy.decisionBar.readOnly)).toBeInTheDocument();
@@ -1578,7 +1615,13 @@ describe("CaseReview closing a case (FR-38)", () => {
   function closable(): CaseDetail {
     return {
       ...confirmedCase(),
-      permissions: { can_decide: true, can_regenerate: false, can_retry: false, can_close: true },
+      permissions: {
+        can_decide: true,
+        can_regenerate: false,
+        can_regenerate_actions: false,
+        can_retry: false,
+        can_close: true,
+      },
     };
   }
 
@@ -1652,6 +1695,7 @@ describe("CaseReview decision controls and role", () => {
           permissions: {
             can_decide: false,
             can_regenerate: false,
+            can_regenerate_actions: false,
             can_retry: false,
             can_close: false,
           },
@@ -1737,5 +1781,157 @@ describe("CaseReview while a run is in progress (IR-22)", () => {
 
     await screen.findByText("C-0142", { exact: false });
     expect(screen.queryByText(copy.processing.title)).not.toBeInTheDocument();
+  });
+});
+
+// FR-78, P07 §7.2b: a decision on another category swaps the baseline set at once
+// and leaves the tailored rows on screen, greyed, until new ones are asked for.
+describe("CaseReview actions after the category changed", () => {
+  const RED_BASELINE = [
+    "Alert the veterinarian now.",
+    "Prepare the treatment area for immediate assessment.",
+  ];
+
+  function adjustedToRed(overrides: Partial<CaseDetail["actions"]> = {}): CaseDetail {
+    const base = confirmedCase();
+    return makeCaseDetail({
+      status: "ADJUSTED",
+      category: "RED",
+      confirmed_category: "RED",
+      decision: { ...base.decision!, type: "ADJUST", final_category: "RED", status: "ADJUSTED" },
+      permissions: {
+        can_decide: true,
+        can_regenerate: false,
+        can_regenerate_actions: true,
+        can_retry: false,
+        can_close: true,
+      },
+      actions: {
+        status: "READY",
+        generated_for_category: "ORANGE",
+        baseline: RED_BASELINE,
+        tailored: TAILORED_ACTIONS.map((action) => ({ ...action, is_outdated: true })),
+        rejected_count: 0,
+        is_outdated: true,
+        failure_message: null,
+        ...overrides,
+      },
+    });
+  }
+
+  const regenerateButton = () =>
+    screen.queryByRole("button", { name: new RegExp(copy.actions.regenerate, "i") });
+
+  it("shows the new category's baseline and greys the old suggestions with a note", async () => {
+    renderCase(adjustedToRed());
+
+    await screen.findByText(RED_BASELINE[0], { exact: false });
+    const note = copy.actions.outdatedNote.replace("{category}", strings.vtl.names.ORANGE);
+    expect(screen.getByText(note)).toBeInTheDocument();
+    for (const action of TAILORED_ACTIONS) {
+      const row = screen.getByText(action.text, { exact: false }).closest("[data-outdated]");
+      expect(row).not.toBeNull();
+    }
+  });
+
+  it("gives the outdated rows no checkbox, so they cannot be kept", async () => {
+    renderCase(adjustedToRed());
+
+    await screen.findByText(RED_BASELINE[0], { exact: false });
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  });
+
+  it("asks the server for new suggestions and refreshes", async () => {
+    const { mock } = renderCase(adjustedToRed(), {
+      routes: {
+        "/actions/regenerate": {
+          status: 202,
+          body: {
+            id: CASE_ID,
+            case_no: "C-0142",
+            category: "RED",
+            generation: 2,
+            actions_status: "PENDING",
+          },
+        },
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Regenerate suggestions/i }));
+
+    await waitFor(() => {
+      const post = mock.mock.calls.find((entry) =>
+        String(entry[0]).endsWith(`/cases/${CASE_ID}/actions/regenerate`),
+      );
+      expect(post?.[1]?.method).toBe("POST");
+    });
+  });
+
+  it("offers the button only when the server says it is allowed", async () => {
+    const detail = adjustedToRed();
+    renderCase({
+      ...detail,
+      permissions: { ...detail.permissions, can_regenerate_actions: false },
+    });
+
+    await screen.findByText(RED_BASELINE[0], { exact: false });
+    expect(regenerateButton()).not.toBeInTheDocument();
+  });
+
+  it("offers no button on a current, healthy list", async () => {
+    renderCase(
+      makeCaseDetail({
+        permissions: { ...makeCaseDetail().permissions, can_regenerate_actions: true },
+      }),
+    );
+
+    await screen.findByText(copy.actions.title);
+    expect(regenerateButton()).not.toBeInTheDocument();
+  });
+
+  it("shows the server's wording for a failed job and offers another try", async () => {
+    const message =
+      "The language model did not respond with suggested actions (09:20:41). " +
+      "The baseline actions are shown; the category and your decision are unchanged.";
+    renderCase(adjustedToRed({ status: "FAILED", failure_message: message }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(regenerateButton()).toBeInTheDocument();
+  });
+
+  it("falls back to the generic line when a failed job has no message", async () => {
+    renderCase(adjustedToRed({ status: "FAILED", failure_message: null }));
+
+    expect(await screen.findByText(copy.actions.failed)).toBeInTheDocument();
+  });
+
+  it("says so, and refreshes, when the server refuses with a conflict", async () => {
+    renderCase(adjustedToRed(), {
+      routes: {
+        "/actions/regenerate": {
+          status: 409,
+          body: errorBody("INVALID_TRANSITION", "Suggested actions are already being prepared."),
+        },
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Regenerate suggestions/i }));
+
+    expect(await screen.findByText(copy.errors.regenerateActionsConflict)).toBeInTheDocument();
+  });
+
+  it("shows the preparing line, and no button, while the new set is pending", async () => {
+    renderCase(
+      (() => {
+        const detail = adjustedToRed({ status: "PENDING" });
+        return {
+          ...detail,
+          permissions: { ...detail.permissions, can_regenerate_actions: false },
+        };
+      })(),
+    );
+
+    expect(await screen.findByText(copy.actions.pending)).toBeInTheDocument();
+    expect(regenerateButton()).not.toBeInTheDocument();
   });
 });

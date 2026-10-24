@@ -667,6 +667,7 @@ def test_the_actions_of_a_case_still_being_triaged_are_pending(
         "tailored": [],
         "rejected_count": 0,
         "is_outdated": False,
+        "failure_message": None,
     }
 
 

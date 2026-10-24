@@ -56,6 +56,10 @@ class ActionSuggestion(Base, UUIDPKMixin, CreatedAtMixin):
     prompt_version: Mapped[str] = mapped_column(String(50), nullable=False)
     kb_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("kb_versions.id"))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # Which set of the recommendation's suggestions this row belongs to. The
+    # first run is 1; a regeneration for a changed category is a later number and
+    # the earlier set is kept (FR-78, ADR-18 §6).
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     __table_args__ = (
         # The same rule as `recommendations`: a suggestion belongs to a case or
@@ -64,9 +68,14 @@ class ActionSuggestion(Base, UUIDPKMixin, CreatedAtMixin):
             "(case_id IS NULL) <> (vignette_id IS NULL)",
             name="ck_action_suggestions_case_xor_vignette",
         ),
-        # Not unique: the actions job may be retried, and a retry replaces the
-        # previous rows rather than being rejected by a constraint.
-        Index("ix_action_suggestions_recommendation_id_rank", "recommendation_id", "rank"),
+        # Not unique: the actions job may be retried, and a retry replaces its
+        # own generation's rows rather than being rejected by a constraint.
+        Index(
+            "ix_action_suggestions_recommendation_id_generation_rank",
+            "recommendation_id",
+            "generation",
+            "rank",
+        ),
     )
 
 

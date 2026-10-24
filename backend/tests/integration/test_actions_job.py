@@ -590,6 +590,7 @@ def test_the_audit_trail_records_counts_and_never_action_text(
         "actions_status": ActionsStatus.READY.value,
         "reason": None,
         "generated_for_category": VTLCategory.ORANGE.value,
+        "generation": 1,
         "baseline_count": len(SEEDED_BASELINE[VTLCategory.ORANGE]),
         "tailored_count": len(demo_cases()["DEMO_1"]["mock_actions"]),
         "rejected_count": 0,

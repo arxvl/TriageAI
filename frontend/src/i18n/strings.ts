@@ -475,6 +475,15 @@ export const strings = {
       // FR-77. One quiet line, never an error dialog: nothing about the case is
       // wrong, and the baseline actions are the ones that matter.
       failed: "Case-specific suggestions unavailable – baseline actions shown",
+      // FR-78. Rows suggested for a category the case no longer has stay on
+      // screen, greyed, and are never part of what a decision records.
+      // {category} is the category they were suggested for.
+      outdatedNote: "Suggested for {category} – review before keeping",
+      outdatedTitle: "Suggested for a category this case no longer has",
+      regenerate: "Regenerate suggestions",
+      // {category} is the category the new suggestions are for.
+      regenerateLabel: "Regenerate suggestions for {category}",
+      regenerating: "Requesting…",
       // {count} is how many the deterministic validator dropped (FR-74).
       rejectedOne: "1 suggestion was withheld by the safety check.",
       rejectedMany: "{count} suggestions were withheld by the safety check.",
@@ -727,6 +736,12 @@ export const strings = {
         "This case can no longer be corrected: it has been decided, or a new " +
         "recommendation is already being made. The screen has been refreshed.",
       versionFailed: "That version could not be loaded right now. Please try again.",
+      regenerateActionsFailed:
+        "New suggestions could not be requested right now. Please try again.",
+      // A 409 on regenerate: another request is already running, or the case moved on.
+      regenerateActionsConflict:
+        "Suggestions cannot be regenerated for this case right now. The screen has " +
+        "been refreshed with the current state.",
       retryConflict:
         "This case is no longer waiting for a retry. The screen has been refreshed " +
         "with the current state.",

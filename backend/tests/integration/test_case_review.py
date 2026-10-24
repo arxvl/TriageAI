@@ -435,6 +435,8 @@ def test_a_reviewer_may_decide_and_regenerate_but_not_close_yet(
     assert permissions == {
         "can_decide": True,
         "can_regenerate": True,
+        # The recommendation exists and no actions job is running (P07 §7.2b).
+        "can_regenerate_actions": True,
         "can_retry": False,
         "can_close": False,
     }

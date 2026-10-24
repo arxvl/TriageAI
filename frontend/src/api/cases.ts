@@ -325,6 +325,8 @@ export interface SuggestedAction {
   /** `references[].rank` values, which is how a row sits beside its passage. */
   cited_ranks: number[];
   source: ActionSource;
+  /** A decision settled on a category this action was not generated for (FR-78). */
+  is_outdated: boolean;
 }
 
 /**
@@ -343,6 +345,8 @@ export interface CaseActions {
   rejected_count: number;
   /** A decision settled on a category these were not generated for (FR-78). */
   is_outdated: boolean;
+  /** Plain-language line for a failed actions job; null unless `status` is FAILED (FR-77). */
+  failure_message: string | null;
 }
 
 /** The W-04 header: who the patient is and how long they have waited. */
@@ -544,6 +548,8 @@ export interface CaseNote {
 export interface CasePermissions {
   can_decide: boolean;
   can_regenerate: boolean;
+  /** The "Regenerate suggestions" button: a recommendation exists and no actions job is running. */
+  can_regenerate_actions: boolean;
   can_retry: boolean;
   can_close: boolean;
 }
@@ -715,6 +721,29 @@ export interface CaseRetryAccepted {
 /** Run the AI pipeline again for a case it gave up on. Reviewers only (UC-08). */
 export async function retryCase(caseId: string): Promise<CaseRetryAccepted> {
   return apiFetch<CaseRetryAccepted>(`/cases/${caseId}/retry`, { method: "POST" });
+}
+
+/** The 202 that follows a request for new suggested actions (FR-78). */
+export interface ActionsRegenerationAccepted {
+  id: string;
+  case_no: string;
+  /** The category the suggestions are being made for. */
+  category: VTLCategory;
+  /** The number of the set that will hold them; earlier sets are kept. */
+  generation: number;
+  actions_status: ActionsStatus;
+}
+
+/**
+ * Suggest actions again for the category the case now has. Reviewers only.
+ *
+ * Changes no decision and no case status: the case keeps being what it was and
+ * `actions_status` goes back to PENDING until the job lands.
+ */
+export async function regenerateActions(caseId: string): Promise<ActionsRegenerationAccepted> {
+  return apiFetch<ActionsRegenerationAccepted>(`/cases/${caseId}/actions/regenerate`, {
+    method: "POST",
+  });
 }
 
 /**

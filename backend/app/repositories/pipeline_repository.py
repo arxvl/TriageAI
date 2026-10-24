@@ -72,6 +72,7 @@ from app.models import (
 from app.pipeline.types import OTHER_COMPLAINT, ExtractionOutput, Passage, RedFlagHit
 
 __all__ = [
+    "FIRST_ACTION_GENERATION",
     "ActionSuggestionValues",
     "ActionsRunInput",
     "CaseRunInput",
@@ -108,6 +109,10 @@ class CaseRunInput:
     sex: str | None
     signalment: dict[str, str | None]
     description: str
+
+
+# The set the first actions run stores. A regeneration is a later number.
+FIRST_ACTION_GENERATION = 1
 
 
 @dataclass(frozen=True)
@@ -615,6 +620,21 @@ class PipelineRepository:
         if rejected_count is not None:
             recommendation.actions_rejected_count = rejected_count
 
+    def next_action_generation(self, recommendation_id: uuid.UUID) -> int:
+        """The number a regeneration's set will have: one past the newest stored.
+
+        Chosen when the job is enqueued and carried in its payload, so a re-run
+        of that job after a crash replaces its own set instead of adding another.
+        A failed regeneration stores nothing, so the next attempt gets the same
+        number again.
+        """
+        newest = self._session.scalar(
+            select(func.max(ActionSuggestion.generation)).where(
+                ActionSuggestion.recommendation_id == recommendation_id
+            )
+        )
+        return (newest or 0) + 1
+
     def replace_action_suggestions(
         self,
         *,
@@ -624,21 +644,28 @@ class PipelineRepository:
         category: VTLCategory,
         kb_version_id: uuid.UUID | None,
         rows: list[ActionSuggestionValues],
+        generation: int = FIRST_ACTION_GENERATION,
     ) -> list[ActionSuggestion]:
-        """Store this recommendation's suggestions, replacing any earlier ones.
+        """Store one generation of this recommendation's suggestions.
 
-        Delete-then-insert, because the actions job can be retried — by the
-        startup sweep after a crash (ADR-08) or by P07 — and a retry must leave
-        one set of rows rather than two overlapping ones. `action_suggestions` is
-        not append-only; `final_actions`, which records what a reviewer decided,
-        is (DR-09, ADR-12).
+        Delete-then-insert **within the generation**, because the actions job can
+        be retried — by the startup sweep after a crash (ADR-08) or by a
+        reviewer — and a retry must leave one set of rows rather than two
+        overlapping ones. Other generations are never touched: a regeneration
+        for a changed category adds a later set and keeps the earlier one
+        (FR-78, ADR-18 §6). `action_suggestions` is not append-only;
+        `final_actions`, which records what a reviewer decided, is (DR-09,
+        ADR-12).
 
         `generated_for_category` is written on every row, so a later change of
         category marks these outdated instead of silently re-labelling them
         (FR-78).
         """
         self._session.execute(
-            delete(ActionSuggestion).where(ActionSuggestion.recommendation_id == recommendation_id)
+            delete(ActionSuggestion).where(
+                ActionSuggestion.recommendation_id == recommendation_id,
+                ActionSuggestion.generation == generation,
+            )
         )
         stored = [
             ActionSuggestion(
@@ -646,6 +673,7 @@ class PipelineRepository:
                 vignette_id=vignette_id,
                 recommendation_id=recommendation_id,
                 generated_for_category=category,
+                generation=generation,
                 rank=values.rank,
                 text=values.text,
                 source=values.source,
