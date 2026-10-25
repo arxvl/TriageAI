@@ -1,0 +1,345 @@
+/* W-10. Structure follows docs/prototype/TriageAI_Prototype.html (#w10): the
+   header card, the metric cards, then the confusion matrix beside the
+   under-triaged list. The run list and progress bar are P09 9.3's own. */
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xl);
+}
+
+/* --- Mock banner ---------------------------------------------------------------- */
+
+/* Persistent and written out in words (ADR-17); the amber fill is only a
+   reinforcement, so the heavy border carries it in monochrome too. */
+.mockBanner {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-weight: bold;
+  color: var(--color-text);
+  background: var(--color-warning-bg);
+  border: var(--border-width-strong) solid var(--color-warning);
+  border-radius: var(--radius-md);
+}
+
+/* --- Header card ------------------------------------------------------------------ */
+
+.header {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.headerRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  margin-left: auto;
+}
+
+/* --- Panels ------------------------------------------------------------------------ */
+
+.panel {
+  flex: 1 1 360px;
+  min-width: 0;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.panelTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+}
+
+.runHeading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+}
+
+.lower {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+/* --- Fields ------------------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.input {
+  min-width: 140px;
+  max-width: 100%;
+  padding: var(--space-2) 10px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: 5px;
+}
+
+/* A field in error is flagged by the message beneath it and by a heavier border,
+   so it never rests on colour alone. */
+.input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  border-width: 2px;
+}
+
+.helper {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* Always rendered, so the message appears in place rather than shifting the form. */
+.fieldError {
+  min-height: 1.1em;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+/* --- Metric cards ----------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* A metric that could not be computed is drawn dashed, as well as written "n/a". */
+.card[data-status="n/a"] {
+  border-style: dashed;
+}
+
+.cardLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.cardValue {
+  font-size: var(--font-size-xl);
+}
+
+.cardTarget {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.cardMark {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+/* --- Tables --------------------------------------------------------------------------- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--color-ink);
+}
+
+.table td {
+  padding: 9px var(--space-2);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* The chosen run: a heavy left edge as well as aria-current on its button. */
+.selectedRow {
+  box-shadow: inset 4px 0 0 var(--color-ink);
+}
+
+.matrix {
+  border-collapse: collapse;
+}
+
+.matrix th,
+.matrix td {
+  min-width: 56px;
+  padding: var(--space-2);
+  text-align: center;
+  border: 1px solid var(--color-border);
+}
+
+.matrix th {
+  font-size: var(--font-size-sm);
+  background: var(--color-bg);
+}
+
+.matrix tbody th {
+  text-align: left;
+}
+
+.diagonal {
+  font-weight: bold;
+  background: var(--color-highlight);
+}
+
+/* Right of the diagonal: under-triage (NFR-14). A heavier border, not just a tint. */
+.underTriage {
+  border: var(--border-width-strong) dashed var(--color-line-strong);
+}
+
+/* --- Progress ---------------------------------------------------------------------- */
+
+.progress {
+  margin-bottom: var(--space-3);
+}
+
+.bar {
+  height: 12px;
+  overflow: hidden;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+}
+
+.barFill {
+  height: 100%;
+  background: var(--color-ink);
+  transition: width 0.3s ease;
+}
+
+/* --- Buttons --------------------------------------------------------------------------- */
+
+.primary,
+.secondary {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.primary {
+  font-weight: bold;
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+  border: var(--border-width) solid var(--color-ink);
+}
+
+.secondary {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* A button that reads as a link: a run's name, "Show all". */
+.link {
+  padding: 0;
+  font: inherit;
+  font-weight: bold;
+  color: var(--color-ink);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.exportRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* --- Messages ------------------------------------------------------------------------ */
+
+.notice {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.error {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border: var(--border-width) solid var(--color-danger);
+  border-radius: var(--radius-md);
+}
+
+.errorHeading {
+  margin: 0 0 var(--space-1);
+  font-weight: bold;
+}
+
+.warningText {
+  margin: var(--space-2) 0 var(--space-1);
+  font-weight: bold;
+}
+
+.messageList {
+  margin: 0;
+  padding-left: var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .headerActions {
+    margin-left: 0;
+  }
+
+  .input {
+    min-width: 0;
+  }
+}

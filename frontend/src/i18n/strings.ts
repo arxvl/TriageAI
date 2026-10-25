@@ -1208,6 +1208,146 @@ export const strings = {
     },
   },
 
+  // W-10 Evaluation Console (FR-64..FR-69, NFR-01, NFR-14, NFR-16, NFR-17, BR-05).
+  evaluation: {
+    title: "Evaluation Console",
+    loading: "Loading…",
+
+    // ADR-17: a number from the mock stages must never pass for a model result.
+    mockBanner: "MOCK MODE – results are not model results",
+
+    setLabel: "Vignette set",
+    // {name} is the set's name, {count} how many vignettes it holds.
+    setOption: "{name} – {count} vignettes",
+    noSets: "No vignette sets yet. Upload a CSV file to begin.",
+    upload: "Upload vignettes (CSV)",
+    start: "Start evaluation run",
+    starting: "Starting…",
+    startBlockedRunning: "A run is still in progress.",
+
+    // {model}, {prompt}, {kb}, {temperature} and {topK} come from the run's own
+    // configuration snapshot (NFR-23); {kb} is the first characters of its id.
+    configLine:
+      "Model: {model} · Prompt {prompt} · KB {kb} · temperature {temperature} · top-k {topK}",
+    configPending: "Start a run to record the configuration.",
+    configUnknown: "—",
+    temperatureDefault: "provider default",
+
+    runs: {
+      title: "Runs",
+      empty: "No evaluation runs yet.",
+      // {number} counts runs from the oldest.
+      name: "Run #{number}",
+      select: "Show run #{number}",
+      columns: {
+        run: "Run",
+        set: "Set",
+        status: "Status",
+        progress: "Vignettes",
+        started: "Created",
+      },
+      // {number}, {status}, {done} and {total}; W-10's "Run #3 · completed · 80 of 80".
+      heading: "Run #{number} · {status} · {done} of {total} vignettes",
+      status: {
+        QUEUED: "queued",
+        RUNNING: "running",
+        DONE: "completed",
+        FAILED: "failed",
+      },
+      progressLabel: "Evaluation progress",
+      progress: "{done} of {total} vignettes",
+      failedRun: "This run did not finish, so it has no metrics.",
+      noMetrics: "Metrics appear when the run completes.",
+      // {count} vignettes failed in the pipeline and are left out of every metric.
+      failedVignettes: "{count} vignette(s) failed and are excluded from the metrics.",
+    },
+
+    metrics: {
+      title: "Metrics against the SRS targets",
+      // The measure's name as the API reports it is shown; these are the words
+      // around a value.
+      target: "target {comparison} {threshold}",
+      atLeast: "≥",
+      atMost: "≤",
+      latencyTitle: "Latency p50 / p95",
+      // A target reads as data, not as a verdict: a miss is a valid result (NFR-16).
+      pass: "✓ target met",
+      fail: "✗ target not met",
+      notAvailable: "n/a – not computed",
+      valueUnavailable: "n/a",
+    },
+
+    matrix: {
+      title: "Confusion matrix (rows: reference, columns: predicted)",
+      reference: "Reference",
+      predicted: "Predicted",
+      note: "Cells to the right of the diagonal are under-triaged.",
+    },
+
+    underTriaged: {
+      title: "Under-triaged vignettes – forward to the veterinary reviewer (NFR-14)",
+      columns: {
+        vignette: "Vignette",
+        reference: "Reference",
+        predicted: "Predicted",
+        complaint: "Primary complaint",
+      },
+      none: "No under-triaged vignettes in this run.",
+      noComplaint: "—",
+      // {count} rows are folded away until asked for.
+      more: "+ {count} more",
+      showAll: "Show all",
+      showFewer: "Show fewer",
+    },
+
+    export: {
+      csv: "Export CSV",
+      json: "Export JSON",
+      exporting: "Exporting…",
+      unavailable: "The export is available once the run has finished.",
+      // {id} is the first characters of the run id; {format} is csv or json.
+      fileName: "evaluation-run-{id}.{format}",
+      failed: "The export could not be downloaded. Please try again.",
+    },
+
+    uploadDialog: {
+      title: "Upload vignettes",
+      nameLabel: "Set name",
+      fileLabel: "Vignette file (CSV)",
+      fileHelp:
+        "Columns: external_id, species, description, reference_category, relevant_entry_slugs.",
+      nameMissing: "Enter a name for the set.",
+      fileMissing: "Choose a CSV file.",
+      submit: "Upload",
+      submitting: "Uploading…",
+      cancel: "Cancel",
+      close: "Close",
+      nameInUse: "Another vignette set already has that name.",
+      rowsHeading: "Fix these rows and upload the file again:",
+      // {row} is the line in the file, counting the header as line 1.
+      row: "Row {row}: {message}",
+      rowField: "Row {row} ({field}): {message}",
+      // A problem with the whole file or the name carries row 0.
+      file: "{message}",
+      // {count} vignettes were stored.
+      imported: "{count} vignettes imported.",
+      warningsHeading: "The set was imported, but some knowledge-base entries were not found:",
+      toast: "Vignette set imported.",
+    },
+
+    toasts: {
+      started: "Evaluation run started.",
+    },
+
+    errors: {
+      unexpected: "The evaluation data could not be loaded right now. Please try again.",
+      startFailed: "The run could not be started. Please try again.",
+      uploadFailed: "The file could not be uploaded. Please try again.",
+      notFound: "That item could not be found. It may have been removed.",
+      forbidden: "You do not have permission to do that.",
+    },
+  },
+
   placeholder: {
     body: "Coming in a later phase.",
   },

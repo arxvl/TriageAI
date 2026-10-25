@@ -35,6 +35,7 @@ import { NotFound } from "./pages/NotFound/NotFound";
 import { Placeholder } from "./pages/Placeholder/Placeholder";
 import { TriageQueue } from "./pages/TriageQueue/TriageQueue";
 import { Users } from "./pages/Users/Users";
+import { Evaluation } from "./pages/Evaluation/Evaluation";
 
 const queryClient = new QueryClient();
 
@@ -92,10 +93,7 @@ function App() {
 
                       <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} />}>
                         <Route path="/admin/users" element={<Users />} />
-                        <Route
-                          path="/admin/evaluation"
-                          element={<Placeholder title={strings.nav.evaluation} />}
-                        />
+                        <Route path="/admin/evaluation" element={<Evaluation />} />
                         <Route
                           path="/admin/exports"
                           element={<Placeholder title={strings.nav.exports} />}

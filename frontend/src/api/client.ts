@@ -11,7 +11,7 @@
  *    instead of parsing JSON themselves.
  */
 import { readCookie } from "../lib/cookies";
-import { ApiError, ApiErrorCode, isSessionEnded } from "./errors";
+import { ApiError, ApiErrorCode, isSessionEnded, type ApiErrorRow } from "./errors";
 
 const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -37,10 +37,36 @@ export function setSessionEndedHandler(handler: SessionEndedHandler | null): voi
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await send(path, init);
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
+}
+
+/**
+ * Fetch a file the API sends as an attachment (the evaluation export, FR-69).
+ *
+ * Same cookie, CSRF and error handling as `apiFetch`; only the success body
+ * differs. The file name is not read from `Content-Disposition`: dev is
+ * cross-origin and the API does not expose that header, so the caller names the
+ * download itself.
+ */
+export async function apiFetchBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const response = await send(path, init);
+  return response.blob();
+}
+
+/** The request half shared by both: credentials, CSRF, and the error envelope. */
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
   const headers = new Headers(init?.headers);
 
-  if (!headers.has("Content-Type")) {
+  // A multipart body carries its own `Content-Type`, with the boundary only the
+  // browser knows. Setting JSON over it would make the server read no file.
+  if (!headers.has("Content-Type") && !(init?.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -76,11 +102,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw error;
   }
 
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
+  return response;
 }
 
 /**
@@ -94,12 +116,17 @@ async function toApiError(response: Response): Promise<ApiError> {
   let code = `HTTP_${response.status}`;
   let message = "Something went wrong. Please try again.";
   let field: string | null = null;
+  let rows: ApiErrorRow[] = [];
 
   try {
     const body: unknown = await response.json();
     const envelope =
       typeof body === "object" && body !== null
-        ? (body as { error?: { code?: unknown; message?: unknown; field?: unknown } }).error
+        ? (
+            body as {
+              error?: { code?: unknown; message?: unknown; field?: unknown; rows?: unknown };
+            }
+          ).error
         : undefined;
 
     if (typeof envelope?.code === "string") {
@@ -111,9 +138,29 @@ async function toApiError(response: Response): Promise<ApiError> {
     if (typeof envelope?.field === "string") {
       field = envelope.field;
     }
+    if (Array.isArray(envelope?.rows)) {
+      rows = envelope.rows
+        .filter(isErrorRow)
+        .map((entry) => ({ row: entry.row, field: entry.field ?? null, message: entry.message }));
+    }
   } catch {
     // An empty or non-JSON error body: keep the fallbacks above.
   }
 
-  return new ApiError(response.status, code, message, field);
+  return new ApiError(response.status, code, message, field, rows);
+}
+
+/** A row as the server sends it; `field` may be absent rather than null. */
+type RawErrorRow = Omit<ApiErrorRow, "field"> & { field?: string | null };
+
+function isErrorRow(value: unknown): value is RawErrorRow {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.row === "number" &&
+    typeof row.message === "string" &&
+    (row.field === undefined || row.field === null || typeof row.field === "string")
+  );
 }

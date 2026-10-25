@@ -42,10 +42,24 @@ export const ApiErrorCode = {
   lastAdministrator: "LAST_ADMINISTRATOR",
   /** 409, with `field: "email"`: another account has this address (FR-60). */
   emailAlreadyInUse: "EMAIL_ALREADY_IN_USE",
+  /** 409, with `field: "name"`: another vignette set has this name (FR-64). */
+  evaluationNameInUse: "EVALUATION_NAME_IN_USE",
+  /** 409: the run is still queued or running, so it has nothing to export (FR-69). */
+  evaluationNotFinished: "EVALUATION_NOT_FINISHED",
   internalError: "INTERNAL_ERROR",
   /** Set by the client itself when the request never reached the API. */
   networkError: "NETWORK_ERROR",
 } as const;
+
+/**
+ * One row of a file the server refused (FR-64). `row` is the line in the file,
+ * counting the header as line 1; 0 means the file or the set name as a whole.
+ */
+export interface ApiErrorRow {
+  row: number;
+  field: string | null;
+  message: string;
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -58,13 +72,25 @@ export class ApiError extends Error {
    * that wants every field checked at once has to do that itself.
    */
   readonly field: string | null;
+  /**
+   * The per-row problems of a refused file upload, in file order; empty for every
+   * other error. Only the vignette import sends them (`InvalidVignetteFile`).
+   */
+  readonly rows: ApiErrorRow[];
 
-  constructor(status: number, code: string, message: string, field: string | null = null) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    field: string | null = null,
+    rows: ApiErrorRow[] = [],
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.field = field;
+    this.rows = rows;
   }
 }
 

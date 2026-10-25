@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch, setSessionEndedHandler } from "./client";
+import { apiFetch, apiFetchBlob, setSessionEndedHandler } from "./client";
 import { ApiError } from "./errors";
 
 /** Build the minimal `Response` shape `apiFetch` touches. */
@@ -151,6 +151,87 @@ describe("apiFetch error mapping (IR-05)", () => {
     stub(204, undefined);
 
     await expect(apiFetch("/cases/1", { method: "DELETE" })).resolves.toBeUndefined();
+  });
+});
+
+describe("apiFetch multipart bodies (FR-64)", () => {
+  it("leaves Content-Type to the browser for FormData, so the boundary survives", async () => {
+    const mock = stub(201, { ok: true });
+    const body = new FormData();
+    body.append("name", "Set v1");
+
+    await apiFetch("/eval/sets", { method: "POST", body });
+
+    expect(headersOf(mock).has("Content-Type")).toBe(false);
+    expect(mock.mock.calls[0]?.[1]?.body).toBe(body);
+  });
+
+  it("still sends JSON for an ordinary body", async () => {
+    const mock = stub(200, { ok: true });
+
+    await apiFetch("/eval/runs", { method: "POST", body: "{}" });
+
+    expect(headersOf(mock).get("Content-Type")).toBe("application/json");
+  });
+});
+
+describe("apiFetchBlob (FR-69)", () => {
+  it("returns the response body as a blob, with the same cookie and CSRF handling", async () => {
+    document.cookie = "triageai_csrf=csrf-token-value; path=/";
+    const file = new Blob(["a,b"], { type: "text/csv" });
+    const mock = vi.fn<typeof fetch>(
+      async () => ({ ok: true, status: 200, blob: async () => file }) as Response,
+    );
+    vi.stubGlobal("fetch", mock);
+
+    const result = await apiFetchBlob("/eval/runs/1/export?format=csv");
+
+    expect(result).toBe(file);
+    expect(mock.mock.calls[0]?.[1]?.credentials).toBe("include");
+  });
+
+  it("raises the same typed error when the export is refused", async () => {
+    stub(409, { error: { code: "EVALUATION_NOT_FINISHED", message: "Not finished." } });
+
+    const error = (await apiFetchBlob("/eval/runs/1/export").catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.code).toBe("EVALUATION_NOT_FINISHED");
+  });
+});
+
+describe("apiFetch refused-file rows (FR-64)", () => {
+  it("keeps the per-row problems the vignette import reports", async () => {
+    stub(422, {
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "The vignette file has errors.",
+        rows: [
+          { row: 3, field: "species", message: "Must be DOG or CAT." },
+          { row: 0, message: "The file is empty." },
+          { nonsense: true },
+        ],
+      },
+    });
+
+    const error = (await apiFetch("/eval/sets", { method: "POST" }).catch(
+      (caught: unknown) => caught,
+    )) as ApiError;
+
+    expect(error.rows).toEqual([
+      { row: 3, field: "species", message: "Must be DOG or CAT." },
+      { row: 0, field: null, message: "The file is empty." },
+    ]);
+  });
+
+  it("has no rows on an ordinary error", async () => {
+    stub(404, { error: { code: "NOT_FOUND", message: "Not found." } });
+
+    const error = (await apiFetch("/eval/runs/1").catch((caught: unknown) => caught)) as ApiError;
+
+    expect(error.rows).toEqual([]);
   });
 });
 
