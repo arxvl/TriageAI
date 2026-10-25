@@ -362,6 +362,17 @@ class EvaluationNotFinished(AppError):
     message = "This evaluation run has not finished yet."
 
 
+class InvalidExportRange(AppError):
+    """422: the export's start date is after its end date (FR-47)."""
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+    message = "The start date must be on or before the end date."
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, "to")
+
+
 class CSRFFailed(AppError):
     code = "CSRF_FAILED"
     status_code = 403

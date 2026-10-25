@@ -1348,6 +1348,37 @@ export const strings = {
     },
   },
 
+  exports: {
+    title: "Exports",
+    // BR-08: said on the screen every time, not only in the documentation.
+    note: "Exports are de-identified and for academic evaluation only (BR-08).",
+    rangeLegend: "Date range",
+    rangeHelp: "Days are Asia/Manila days. Leave a date empty for no limit on that side.",
+    fromLabel: "From",
+    toLabel: "To",
+    rangeInvalid: "The start date must be on or before the end date.",
+    cases: {
+      heading: "Cases",
+      description:
+        "One row per case: AI and final category, decision, timing and action counts. No free text.",
+      button: "Download cases CSV",
+    },
+    audit: {
+      heading: "Audit log",
+      description:
+        "Audit entries with each person replaced by a role and a pseudonym such as REVIEWER-1.",
+      button: "Download audit CSV",
+    },
+    exporting: "Exporting…",
+    // {kind} is cases or audit.
+    done: "The {kind} export was downloaded.",
+    fileName: "triageai-{kind}-export.csv",
+    errors: {
+      forbidden: "You do not have permission to do that.",
+      failed: "The export could not be downloaded. Please try again.",
+    },
+  },
+
   placeholder: {
     body: "Coming in a later phase.",
   },

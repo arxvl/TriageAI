@@ -33,6 +33,9 @@ KB_VERSION_ENTITY = "kb_version"
 EVAL_SET_ENTITY = "evaluation_set"
 EVAL_RUN_ENTITY = "evaluation_run"
 
+# The entity a data export is about: `cases` or `audit` (P09 §9.4).
+EXPORT_ENTITY = "export"
+
 # Used when a login is attempted for an address that has no account, so the
 # failure is still auditable (SR-12).
 UNKNOWN_ENTITY_ID = "unknown"
@@ -118,6 +121,9 @@ class AuditAction(StrEnum):
     # administrator; payloads hold ids, names and counts, never a vignette.
     EVAL_SET_IMPORTED = "EVAL_SET_IMPORTED"
     EVAL_RUN_STARTED = "EVAL_RUN_STARTED"
+    # A de-identified export was downloaded (P09 §9.4, FR-47, BR-08, SR-12). The
+    # payload is the date range, the format and the row count — never a row.
+    DATA_EXPORTED = "DATA_EXPORTED"
 
 
 class AuditService:

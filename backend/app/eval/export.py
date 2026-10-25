@@ -15,12 +15,11 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from app.core.csv_safety import text_cell
 from app.core.vtl import URGENCY_ORDER
 from app.repositories.evaluation_repository import ResultRow
 
 __all__ = ["flatten_metrics", "rows_for_export", "to_csv", "to_json"]
-
-_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 FIXED_COLUMNS = (
     "external_id",
@@ -36,12 +35,6 @@ FIXED_COLUMNS = (
     "relevant_entry_ids",
     "error",
 )
-
-
-def _text(value: object) -> str:
-    """A cell that a spreadsheet will not run as a formula."""
-    cell = "" if value is None else str(value)
-    return f"'{cell}" if cell.startswith(_FORMULA_PREFIXES) else cell
 
 
 def _outcome(row: ResultRow) -> str:
@@ -129,7 +122,7 @@ def to_csv(rows: Sequence[dict[str, Any]], metrics: Mapping[str, Any] | None) ->
             if isinstance(value, list):
                 value = ";".join(str(item) for item in value)
             cells.append(
-                _text(value)
+                text_cell(value)
                 if column in {"external_id", "primary_complaint", "error"}
                 else ("" if value is None else value)
             )

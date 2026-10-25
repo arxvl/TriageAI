@@ -256,6 +256,21 @@ results.** The same runs are available to administrators under `/api/v1/eval` (u
 export CSV or JSON); a run started there is executed by a separate worker thread, so it never delays
 live triage.
 
+## De-identified exports
+
+Administrators download two CSV files from **Exports** (`/admin/exports`) or the API (FR-47, BR-08):
+
+- `GET /api/v1/exports/cases?from=&to=&format=csv` — one row per case: AI and final category,
+  decision type and reason code, the submission → recommendation and recommendation → decision
+  intervals, and suggested-action counts. The columns are a whitelist: no description, owner
+  reference, pet name, note, reason text, rationale, action text or reviewer.
+- `GET /api/v1/exports/audit?from=&to=` — the audit log with each person replaced by their role and
+  a pseudonym such as `REVIEWER-1`, with `before`/`after` kept and account ids and e-mail addresses
+  scrubbed. Pseudonyms are stable within one file and differ between files.
+
+`from` and `to` are optional dates, inclusive, read as Asia/Manila days. Every download writes a
+`DATA_EXPORTED` audit entry holding the range, format and row count, never a row.
+
 ## Running tests
 
 ```bash
