@@ -259,6 +259,63 @@ class VersionPublishConflict(AppError):
     )
 
 
+class UserNotFound(AppError):
+    """404: no account has that id (FR-60)."""
+
+    code = "NOT_FOUND"
+    status_code = 404
+    message = "That user account could not be found."
+
+
+class LastAdministrator(AppError):
+    """409: the change would leave the system with no active administrator.
+
+    Nobody could then create accounts, unlock anybody, or reset a password, and
+    only a database edit would recover it (FR-60). A conflict rather than a
+    validation error: the same request is fine once a second administrator is
+    active.
+    """
+
+    code = "LAST_ADMINISTRATOR"
+    status_code = 409
+    message = (
+        "This is the only active administrator. Add or reactivate another "
+        "administrator before changing this account."
+    )
+
+
+class EmailAlreadyInUse(AppError):
+    """409: another account already uses this e-mail address."""
+
+    code = "EMAIL_ALREADY_IN_USE"
+    status_code = 409
+    message = "Another account already uses that e-mail address."
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, "email")
+
+
+class InvalidUserUpdate(AppError):
+    """422: the account fields contradict each other.
+
+    Only the knowledge-base approval rule can do this today: the permission
+    belongs to a Veterinary Reviewer and to nobody else (BR-04, FR-58). Checked
+    in the service so the answer names the field instead of surfacing the
+    database constraint.
+    """
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+    message = "Some of the information for this account is not valid."
+
+    def __init__(self, message: str | None = None, *, field: str | None = None) -> None:
+        self.field = field
+        super().__init__(message)
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, self.field)
+
+
 class CSRFFailed(AppError):
     code = "CSRF_FAILED"
     status_code = 403

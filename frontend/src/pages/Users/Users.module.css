@@ -1,0 +1,260 @@
+/* W-09. Structure follows docs/prototype/TriageAI_Prototype.html (#w09): the
+   account table on the left and the "Add user" panel on the right. */
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xl);
+}
+
+.layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.listPanel {
+  flex: 1 1 560px;
+  min-width: 0;
+}
+
+.addPanel {
+  flex: 0 1 360px;
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.panelTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+}
+
+/* --- Search ------------------------------------------------------------- */
+
+.searchBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.input {
+  min-width: 140px;
+  padding: var(--space-2) 10px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: 5px;
+}
+
+/* A field in error is flagged by the message beneath it and by a heavier border,
+   so it never rests on colour alone. */
+.input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  border-width: 2px;
+}
+
+.password {
+  font-family: monospace;
+  font-size: var(--font-size-lg);
+  letter-spacing: 0.05em;
+}
+
+.checkbox {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--font-size-md);
+}
+
+.helper {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* Always rendered, so the message appears in place rather than shifting the form. */
+.fieldError {
+  min-height: 1.1em;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+.warning {
+  margin: var(--space-2) 0;
+  font-weight: bold;
+}
+
+/* --- Table ----------------------------------------------------------------- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--color-ink);
+}
+
+.table td {
+  padding: 9px var(--space-2);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.email {
+  overflow-wrap: anywhere;
+}
+
+/* A locked account: tint plus the written status, as W-09 draws it. */
+.locked {
+  background: var(--color-danger-bg);
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  border: 1.2px solid var(--color-line-strong);
+  border-radius: 12px;
+}
+
+.LOCKED {
+  font-weight: bold;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.DEACTIVATED {
+  color: var(--color-text-muted);
+}
+
+.ACTIVE {
+  color: var(--color-text);
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- Buttons ------------------------------------------------------------------ */
+
+.primary,
+.secondary,
+.danger,
+.small {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.primary {
+  font-weight: bold;
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+  border: var(--border-width) solid var(--color-ink);
+}
+
+.secondary {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+}
+
+.danger {
+  color: var(--color-danger);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-danger);
+}
+
+.small {
+  padding: 5px 10px;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-ink);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-ink);
+}
+
+.primary:disabled,
+.secondary:disabled,
+.danger:disabled,
+.small:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* --- Messages --------------------------------------------------------------- */
+
+.notice {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.error {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border: var(--border-width) solid var(--color-danger);
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 900px) {
+  .listPanel,
+  .addPanel {
+    flex-basis: 100%;
+  }
+
+  .input {
+    min-width: 0;
+  }
+}

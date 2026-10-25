@@ -11,9 +11,11 @@ from app.core.errors import WeakPassword
 from app.core.security import (
     JWT_ALGORITHM,
     MIN_PASSWORD_LENGTH,
+    TEMP_PASSWORD_LENGTH,
     InvalidSessionToken,
     create_session_token,
     decode_session_token,
+    generate_temporary_password,
     hash_password,
     validate_password_policy,
     verify_password,
@@ -161,3 +163,18 @@ def test_a_token_missing_a_required_claim_is_rejected() -> None:
 
     with pytest.raises(InvalidSessionToken):
         decode_session_token(incomplete)
+
+
+# --- Temporary passwords (FR-60) ------------------------------------------
+
+
+def test_a_temporary_password_is_sixteen_characters_and_meets_the_policy() -> None:
+    for _ in range(50):
+        password = generate_temporary_password()
+
+        assert len(password) == TEMP_PASSWORD_LENGTH == 16
+        validate_password_policy(password)
+
+
+def test_temporary_passwords_differ_on_every_call() -> None:
+    assert len({generate_temporary_password() for _ in range(50)}) == 50

@@ -34,6 +34,7 @@ import { Login } from "./pages/Login/Login";
 import { NotFound } from "./pages/NotFound/NotFound";
 import { Placeholder } from "./pages/Placeholder/Placeholder";
 import { TriageQueue } from "./pages/TriageQueue/TriageQueue";
+import { Users } from "./pages/Users/Users";
 
 const queryClient = new QueryClient();
 
@@ -90,10 +91,7 @@ function App() {
                       </Route>
 
                       <Route element={<ProtectedRoute allowedRoles={ADMIN_ROLES} />}>
-                        <Route
-                          path="/admin/users"
-                          element={<Placeholder title={strings.nav.users} />}
-                        />
+                        <Route path="/admin/users" element={<Users />} />
                         <Route
                           path="/admin/evaluation"
                           element={<Placeholder title={strings.nav.evaluation} />}

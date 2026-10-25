@@ -102,6 +102,14 @@ class AuditAction(StrEnum):
     RED_FLAG_RULE_UPDATED = "RED_FLAG_RULE_UPDATED"
     RED_FLAG_RULE_APPROVED = "RED_FLAG_RULE_APPROVED"
     RED_FLAG_RULE_RETIRED = "RED_FLAG_RULE_RETIRED"
+    # Account administration (P09 §9.1, FR-60, FR-63, SR-03). The actor is the
+    # administrator and the entity is the account that changed. Payloads hold
+    # the role, the approval flag and the active flag — never a password, a
+    # hash, or a temporary password, which the log could not take back.
+    USER_CREATED = "USER_CREATED"
+    USER_UPDATED = "USER_UPDATED"
+    USER_UNLOCKED = "USER_UNLOCKED"
+    USER_PASSWORD_RESET = "USER_PASSWORD_RESET"  # noqa: S105 - an audit action name
 
 
 class AuditService:

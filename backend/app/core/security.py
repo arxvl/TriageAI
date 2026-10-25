@@ -6,6 +6,7 @@ JWT carried only in an HttpOnly cookie — see `app/api/cookies.py`.
 """
 
 import re
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -31,6 +32,13 @@ MIN_PASSWORD_LENGTH = 12
 PASSWORD_POLICY_MESSAGE = (
     "Use at least 12 characters, including at least one letter and one number."  # noqa: S105
 )
+
+# FR-60: an administrator-issued password is random, 16 characters long, and
+# shown once. The alphabet leaves out characters that are easy to misread when
+# read aloud or copied by hand (0/O, 1/l/I).
+TEMP_PASSWORD_LENGTH = 16
+_TEMP_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_TEMP_NUMERALS = "23456789"
 
 _HAS_LETTER = re.compile(r"[A-Za-z]")
 _HAS_DIGIT = re.compile(r"\d")
@@ -66,6 +74,22 @@ def validate_password_policy(password: str) -> None:
         or _HAS_DIGIT.search(password) is None
     ):
         raise WeakPassword(PASSWORD_POLICY_MESSAGE)
+
+
+def generate_temporary_password() -> str:
+    """A random password that satisfies SR-02, for a new or reset account (FR-60).
+
+    One letter and one digit are placed first so the policy always holds, then
+    the whole string is shuffled so their position is not predictable.
+    """
+    alphabet = _TEMP_ALPHA + _TEMP_NUMERALS
+    characters = [
+        secrets.choice(_TEMP_ALPHA),
+        secrets.choice(_TEMP_NUMERALS),
+        *(secrets.choice(alphabet) for _ in range(TEMP_PASSWORD_LENGTH - 2)),
+    ]
+    secrets.SystemRandom().shuffle(characters)
+    return "".join(characters)
 
 
 def create_session_token(

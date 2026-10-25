@@ -300,6 +300,24 @@ MESSAGES: dict[str, dict[str, str]] = {
         "string_too_long": "The comments must be 2,000 characters or fewer. Shorten them.",
         ANY_ERROR: "Enter the comments explaining what has to change.",
     },
+    # --- User management, W-09 (FR-60, BR-04) -----------------------------
+    "full_name": {
+        "string_too_long": "The name can be at most 200 characters.",
+        ANY_ERROR: "Enter the person's full name.",
+    },
+    "email": {
+        "string_too_long": "The e-mail address can be at most 320 characters.",
+        ANY_ERROR: "Enter a valid e-mail address, e.g. name@clinic.example.",
+    },
+    "role": {
+        ANY_ERROR: "Choose a role: Intake Staff, Veterinary Reviewer, or Administrator.",
+    },
+    "can_approve_kb": {
+        ANY_ERROR: "Choose whether this person may approve knowledge base entries.",
+    },
+    "is_active": {
+        ANY_ERROR: "Choose whether the account is active.",
+    },
     # --- Red-flag rules, W-08 (FR-12, FR-23, NFR-08) ---------------------
     "code": {
         "string_pattern_mismatch": (

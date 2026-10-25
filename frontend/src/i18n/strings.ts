@@ -1114,6 +1114,100 @@ export const strings = {
     },
   },
 
+  // W-09 User Management (FR-60, FR-63, SR-03, BR-04, BR-05).
+  users: {
+    title: "User Management",
+    searchLabel: "Search users",
+    searchPlaceholder: "Name or e-mail",
+    searchButton: "Search",
+    clearSearch: "Clear",
+    loading: "Loading users…",
+    empty: "No users match that search.",
+    columns: {
+      name: "Name",
+      email: "E-mail",
+      role: "Role",
+      kbApproval: "KB approval",
+      status: "Status",
+      lastLogin: "Last login",
+      actions: "Actions",
+    },
+    kbApprovalYes: "Yes",
+    kbApprovalNo: "—",
+    statusActive: "Active",
+    statusDeactivated: "Deactivated",
+    // {time} is the unlock time in the clinic's timezone, HH:MM.
+    statusLockedUntil: "Locked until {time}",
+    neverSignedIn: "Never",
+    edit: "Edit",
+    unlock: "Unlock",
+    reactivate: "Reactivate",
+
+    add: {
+      title: "Add user",
+      fullName: "Full name",
+      email: "E-mail",
+      role: "Role",
+      kbApproval: "Grant knowledge base approval permission",
+      kbApprovalHelp: "Only for licensed veterinarians with the Veterinary Reviewer role (BR-04).",
+      temporaryPasswordNote:
+        "A temporary password is generated and must be changed at first login.",
+      submit: "Create account",
+      submitting: "Creating…",
+      fullNameMissing: "Enter the person's full name.",
+      emailInvalid: "Enter a valid e-mail address, e.g. name@clinic.example.",
+    },
+
+    editDialog: {
+      title: "Edit user",
+      fullName: "Full name",
+      email: "E-mail",
+      emailFixed: "The e-mail address cannot be changed.",
+      role: "Role",
+      kbApproval: "Grant knowledge base approval permission",
+      kbApprovalHelp: "Only for licensed veterinarians with the Veterinary Reviewer role (BR-04).",
+      active: "Account is active",
+      activeHelp: "A deactivated account cannot sign in.",
+      resetPassword: "Reset password",
+      resetPasswordHelp:
+        "Issues a new temporary password. Their current password stops working at once.",
+      resetPasswordConfirm: "Confirm reset",
+      save: "Save changes",
+      saving: "Saving…",
+      cancel: "Cancel",
+      fullNameMissing: "Enter the person's full name.",
+    },
+
+    temporaryPassword: {
+      title: "Temporary password",
+      // {name} is the account the password belongs to.
+      intro: "Give this temporary password to {name}. They must change it when they first sign in.",
+      label: "Temporary password",
+      warning: "This password is shown only once.",
+      copy: "Copy",
+      copied: "Password copied.",
+      copyFailed: "The password could not be copied. Select it and copy it by hand.",
+      done: "Done",
+    },
+
+    toasts: {
+      created: "Account created.",
+      updated: "Changes saved.",
+      unlocked: "Account unlocked.",
+      reactivated: "Account reactivated.",
+    },
+
+    errors: {
+      unexpected: "The users could not be loaded right now. Please try again.",
+      actionFailed: "That change could not be saved. Please try again.",
+      lastAdministrator:
+        "This is the only active administrator. Add or reactivate another administrator first.",
+      emailInUse: "Another account already uses that e-mail address.",
+      notFound: "That account could not be found. It may have been removed.",
+      forbidden: "You do not have permission to do that.",
+    },
+  },
+
   placeholder: {
     body: "Coming in a later phase.",
   },
