@@ -21,7 +21,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.jobs.queue import JobStage
 from app.models.enums import (
@@ -61,6 +61,11 @@ QUEUE_MAX_LIMIT = 500
 
 SEARCH_MAX_LENGTH = 100
 
+# Case History is an archive that is read a page at a time (W-07, FR-44), so its
+# default page is the 25 rows a screen shows. The ceiling is the queue's, which is
+# what lets `limit` keep one plain-language message for both scopes.
+HISTORY_DEFAULT_LIMIT = 25
+
 
 class SpeciesInput(StrEnum):
     """What the species control on W-03 can submit. See the module docstring."""
@@ -68,6 +73,13 @@ class SpeciesInput(StrEnum):
     DOG = "DOG"
     CAT = "CAT"
     OTHER = "OTHER"
+
+
+class CaseScope(StrEnum):
+    """Which list `GET /cases` returns: the open queue or the whole history."""
+
+    QUEUE = "queue"
+    HISTORY = "history"
 
 
 class QueueCategoryFilter(StrEnum):
@@ -164,6 +176,54 @@ class CaseQueueFilters(BaseModel):
         return value.strip() if isinstance(value, str) else value
 
 
+class CaseHistoryFilters(BaseModel):
+    """The W-07 filter bar (FR-44), as query parameters of `GET /cases?scope=history`.
+
+    `scope` is read before this model is built and is not a field of it, so a
+    history-only parameter sent without `scope=history` is refused by
+    `CaseQueueFilters` as an unknown one.
+
+    `ai_category` is the latest recommendation's and `final_category` the latest
+    decision's. `disagreement=true` keeps cases where both exist and differ: a
+    manually triaged case has no AI category to disagree with. `date_from` and
+    `date_to` are inclusive clinic calendar dates, as on the queue.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_no: str | None = Field(default=None, max_length=SEARCH_MAX_LENGTH)
+    date_from: date | None = None
+    date_to: date | None = None
+    species: Species | None = None
+    complaint_code: str | None = Field(default=None, max_length=40)
+    ai_category: VTLCategory | None = None
+    final_category: VTLCategory | None = None
+    status: CaseStatus | None = None
+    disagreement: bool = False
+
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=HISTORY_DEFAULT_LIMIT, ge=1, le=QUEUE_MAX_LIMIT)
+
+    @field_validator("case_no", "complaint_code", mode="before")
+    @classmethod
+    def _blank_is_absent(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("date_to")
+    @classmethod
+    def _range_is_ordered(cls, value: date | None, info: ValidationInfo) -> date | None:
+        started = info.data.get("date_from")
+        if value is not None and started is not None and value < started:
+            raise ValueError("date_to is before date_from")
+        return value
+
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.limit
+
+
 # --- Responses ------------------------------------------------------------
 
 
@@ -258,6 +318,48 @@ class CaseListResponse(BaseModel):
     red_flag_alerts: list[QueueRedFlagAlert]
     # Drives the "Updated N s ago, auto-refresh every 15 s" indicator (IR-22).
     generated_at: datetime
+
+
+class CaseHistoryItem(BaseModel):
+    """One row of Case History (W-07).
+
+    The AI's category and the final one are separate fields on purpose: the
+    screen shows them side by side so a disagreement can be seen (FR-44).
+    `final_category` is null until a reviewer has decided. `is_disagreement` is
+    derived here so the screen and the `disagreement` filter cannot differ.
+
+    No owner name and no contact number (FR-07, DR-04).
+    """
+
+    id: uuid.UUID
+    case_no: str
+    status: CaseStatus
+    created_at: datetime
+
+    species: Species
+    pet_name: str | None
+
+    primary_complaint_code: str | None
+    primary_complaint_name: str | None
+
+    ai_category: VTLCategory | None
+    final_category: VTLCategory | None
+    decision_type: DecisionType | None
+    is_disagreement: bool
+
+
+class CaseHistoryResponse(BaseModel):
+    items: list[CaseHistoryItem]
+    total: int
+    page: int
+    limit: int
+
+
+class ComplaintFilterOption(BaseModel):
+    """One choice in W-07's complaint filter. Reference data only."""
+
+    code: str
+    name: str
 
 
 class CaseStatusOut(BaseModel):

@@ -790,6 +790,86 @@ export const strings = {
     },
   },
 
+  // W-07 Case History (FR-44, FR-45, FR-46 · UC-11). Open to all three roles; it
+  // only reads, so nothing here assumes the viewer may decide a case.
+  caseHistory: {
+    title: "Case History",
+    filtersLabel: "Search cases",
+
+    caseNoLabel: "Case ID",
+    caseNoPlaceholder: "e.g. C-0137",
+    dateFromLabel: "From",
+    dateToLabel: "To",
+    speciesLabel: "Species",
+    complaintLabel: "Complaint",
+    aiCategoryLabel: "AI category",
+    finalCategoryLabel: "Final category",
+    statusLabel: "Status",
+    filterAll: "All",
+    disagreementLabel: "AI ≠ final",
+    search: "Search",
+    clear: "Clear",
+
+    species: {
+      DOG: "Dog",
+      CAT: "Cat",
+    },
+    status: {
+      SUBMITTED: "Submitted",
+      PROCESSING: "Processing",
+      AWAITING_REVIEW: "Awaiting review",
+      MANUAL_TRIAGE_REQUIRED: "Manual triage required",
+      CONFIRMED: "Confirmed",
+      ADJUSTED: "Adjusted",
+      MANUALLY_TRIAGED: "Manually triaged",
+      CLOSED: "Closed",
+    },
+
+    resultsLabel: "Matching cases",
+    columns: {
+      case: "Case",
+      date: "Date",
+      patient: "Patient",
+      ai: "AI",
+      final: "Final",
+      status: "Status",
+    },
+    // The AI category is a recommendation, never a settled one (IR-04), so the
+    // column header says what it is wherever there is room for it.
+    aiColumnHint: "AI recommendation",
+    finalColumnHint: "Reviewer's decision",
+    // {date} and {time} are the case's arrival in the clinic's timezone.
+    arrived: "{date} {time}",
+    patient: "{species} · {name}",
+    // Read out in place of the dash when a category has not been set.
+    noAiCategory: "No AI category",
+    notDecided: "Not decided yet",
+    disagreementMarker: "AI ≠ final",
+    // {caseNo} names the row for a screen reader; the row is otherwise a button.
+    selectRow: "Show the audit timeline for {caseNo}",
+    openCase: "Open case",
+
+    caption: "AI and final categories are shown side by side so disagreements are easy to review.",
+    colorNote: "Colors are always shown with the category name and target waiting time.",
+
+    // {from}–{to} is the rows on this page, {total} the matches.
+    range: "{from}–{to} of {total}",
+    // {page} and {pages} are 1-based.
+    pageOf: "Page {page} of {pages}",
+    previous: "Previous",
+    next: "Next",
+    paginationLabel: "Pages of results",
+
+    loading: "Loading cases…",
+    empty: "No cases have been recorded yet.",
+    emptyFiltered: "No cases match these filters.",
+    selectPrompt: "Select a case to see its audit timeline.",
+    errors: {
+      unexpected: "Case history could not be loaded right now. Please try again.",
+      badRange: "The end date cannot be before the start date.",
+    },
+  },
+
   // W-08 Knowledge Base (FR-49..FR-56, NFR-08, BR-04, ADR-14, ADR-18 · UC-13,
   // UC-14). One screen for two jobs: an administrator curates entries, and a
   // Veterinary Reviewer holding `can_approve_kb` approves them (BR-04). Both

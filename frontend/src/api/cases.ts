@@ -235,6 +235,90 @@ export async function listCases(filters: CaseQueueFilters = {}): Promise<CaseLis
   return apiFetch<CaseListResponse>(query === "" ? "/cases" : `/cases?${query}`);
 }
 
+/** The W-07 filter bar (FR-44), as query parameters of `GET /cases?scope=history`. */
+export interface CaseHistoryFilters {
+  case_no?: string;
+  /** Inclusive calendar dates, `YYYY-MM-DD`, read in the clinic's timezone. */
+  date_from?: string;
+  date_to?: string;
+  species?: Species;
+  complaint_code?: string;
+  ai_category?: VTLCategory;
+  final_category?: VTLCategory;
+  status?: CaseStatus;
+  /** Only cases where both categories exist and differ. */
+  disagreement?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+/** Rows per page on W-07 unless the caller asks for another size. */
+export const HISTORY_PAGE_SIZE = 25;
+
+/**
+ * One row of Case History (W-07).
+ *
+ * The AI's category and the final one are separate so the screen can put them
+ * side by side. `final_category` is null until a reviewer has decided, and
+ * `ai_category` is null for a case that was triaged by hand.
+ */
+export interface CaseHistoryItem {
+  id: string;
+  case_no: string;
+  status: CaseStatus;
+  /** ISO-8601 UTC; the screen shows it in the clinic's timezone. */
+  created_at: string;
+
+  species: Species;
+  pet_name: string | null;
+
+  primary_complaint_code: string | null;
+  primary_complaint_name: string | null;
+
+  ai_category: VTLCategory | null;
+  final_category: VTLCategory | null;
+  decision_type: DecisionType | null;
+  /** Both categories exist and differ. Decided by the server. */
+  is_disagreement: boolean;
+}
+
+export interface CaseHistoryResponse {
+  items: CaseHistoryItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/** One choice in W-07's complaint filter. */
+export interface ComplaintFilterOption {
+  code: string;
+  name: string;
+}
+
+/**
+ * Case History: every case, closed ones included, newest first (FR-44).
+ *
+ * Empty and `false` filters are left out of the query string, because the server
+ * forbids unknown and malformed parameters and treats an absent one as "any".
+ */
+export async function listCaseHistory(
+  filters: CaseHistoryFilters = {},
+): Promise<CaseHistoryResponse> {
+  const params = new URLSearchParams({ scope: "history" });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === "" || value === false) {
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  return apiFetch<CaseHistoryResponse>(`/cases?${params.toString()}`);
+}
+
+/** The presenting-complaint list for the history filter, open to every role. */
+export async function listComplaintOptions(): Promise<ComplaintFilterOption[]> {
+  return apiFetch<ComplaintFilterOption[]>("/cases/complaints");
+}
+
 /**
  * How far the triage pipeline has got on one case (IR-22, ADR-08).
  *

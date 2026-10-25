@@ -59,6 +59,7 @@ from app.pipeline.messages import (
 )
 from app.repositories.case_repository import (
     CaseRepository,
+    HistoryCriteria,
     OwnerReferenceValues,
     SignalmentValues,
 )
@@ -68,11 +69,15 @@ from app.schemas.case import (
     CaseCreate,
     CaseCreated,
     CaseDetail,
+    CaseHistoryFilters,
+    CaseHistoryItem,
+    CaseHistoryResponse,
     CaseListResponse,
     CaseQueueCounts,
     CaseQueueFilters,
     CaseQueueItem,
     CaseStatusOut,
+    ComplaintFilterOption,
     QueueCategoryFilter,
     QueueRedFlagAlert,
     SpeciesInput,
@@ -310,6 +315,40 @@ class CaseService:
             ],
             generated_at=now,
         )
+
+    def list_history(self, filters: CaseHistoryFilters) -> CaseHistoryResponse:
+        """Cases of every status, newest first, one page at a time (FR-44, W-07).
+
+        The AI and final categories come back separately and `is_disagreement`
+        is decided here, with the same rule the `disagreement` filter applies in
+        SQL: both categories exist and differ.
+        """
+        created_from, created_to = self._utc_bounds(filters.date_from, filters.date_to)
+        criteria = HistoryCriteria(
+            case_no=filters.case_no,
+            created_from=created_from,
+            created_to=created_to,
+            species=filters.species,
+            complaint_code=filters.complaint_code,
+            ai_category=filters.ai_category,
+            final_category=filters.final_category,
+            status=filters.status,
+            disagreement=filters.disagreement,
+        )
+        rows = self._cases.history_rows(criteria, limit=filters.limit, offset=filters.offset)
+        return CaseHistoryResponse(
+            items=[self._to_history_item(row) for row in rows],
+            total=self._cases.history_count(criteria),
+            page=filters.page,
+            limit=filters.limit,
+        )
+
+    def list_complaint_options(self) -> list[ComplaintFilterOption]:
+        """The complaint list for W-07's filter, readable by every role."""
+        return [
+            ComplaintFilterOption(code=row.code, name=row.name)
+            for row in self._cases.complaint_options()
+        ]
 
     def get_status(self, case_id: uuid.UUID) -> CaseStatusOut:
         """What a case looks like right now, for the polling clients (IR-22)."""
@@ -891,6 +930,28 @@ class CaseService:
             target_minutes=target_minutes(category),
             is_overdue=is_overdue(category, waiting_minutes),
             has_red_flag=row.has_red_flag,
+        )
+
+    def _to_history_item(self, row: Row) -> CaseHistoryItem:
+        ai_category = _as_category(row.ai_category)
+        final_category = _as_category(row.final_category)
+        return CaseHistoryItem(
+            id=row.id,
+            case_no=row.case_no,
+            status=CaseStatus(row.status),
+            created_at=row.created_at,
+            species=Species(row.species),
+            pet_name=row.pet_name,
+            primary_complaint_code=row.primary_complaint_code,
+            primary_complaint_name=row.primary_complaint_name,
+            ai_category=ai_category,
+            final_category=final_category,
+            decision_type=row.decision_type,
+            is_disagreement=(
+                ai_category is not None
+                and final_category is not None
+                and ai_category is not final_category
+            ),
         )
 
     def _queue_counts(self) -> CaseQueueCounts:

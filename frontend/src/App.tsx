@@ -25,6 +25,7 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import { ToastProvider } from "./components/ToastProvider";
 import { strings } from "./i18n/strings";
 import { CaseAudit } from "./pages/CaseAudit/CaseAudit";
+import { CaseHistory } from "./pages/CaseHistory/CaseHistory";
 import { CaseIntake } from "./pages/CaseIntake/CaseIntake";
 import { CaseReview } from "./pages/CaseReview/CaseReview";
 import { ChangePassword } from "./pages/ChangePassword/ChangePassword";
@@ -62,11 +63,11 @@ function App() {
                       <Route element={<ProtectedRoute allowedRoles={CASE_ROLES} />}>
                         <Route path="/queue" element={<TriageQueue />} />
                         <Route path="/cases/new" element={<CaseIntake />} />
-                        <Route
-                          path="/history"
-                          element={<Placeholder title={strings.nav.caseHistory} />}
-                        />
                       </Route>
+
+                      {/* Case History only reads, and the endpoint behind it is open
+                      to every role, so an administrator may search it too (FR-44). */}
+                      <Route path="/history" element={<CaseHistory />} />
 
                       {/* Administrators may read a case but never decide one (BR-02).
                       The screen hides the decision controls from them; the server

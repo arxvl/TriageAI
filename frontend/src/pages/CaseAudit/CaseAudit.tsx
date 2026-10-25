@@ -2,10 +2,10 @@
  * The audit timeline for one case — W-07's right-hand panel on a route of its own
  * (FR-42, FR-43, FR-45, FR-46, ADR-12 · UC-10).
  *
- * P07 builds the other half of W-07, the Case History search list, and shows this
- * same timeline beside a selected row. The panel is therefore a shared component
- * and this page is only the part P07 replaces: the fetch, the heading, and the way
- * back to the case.
+ * The other half of W-07, the Case History search list (`pages/CaseHistory`),
+ * shows this same timeline beside a selected row. The panel is therefore a shared
+ * component and this page is only the part that is its own: the fetch, the
+ * heading, and the way back to the case.
  *
  * Open to all three roles, matching the endpoint's own guard. An administrator may
  * never decide a case (BR-02) but may always read what was decided, and so may the

@@ -1,0 +1,245 @@
+/* W-07. Structure follows docs/prototype/TriageAI_Prototype.html (#w07): a filter
+   bar, the results table on the left and the audit timeline on the right. */
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xl);
+}
+
+/* --- Filter bar -------------------------------------------------------- */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.input {
+  min-width: 140px;
+  padding: var(--space-2) 10px;
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-line-strong);
+  border-radius: 5px;
+}
+
+/* A backwards date range is flagged by the message below the bar and by a heavier
+   border, so it never rests on colour. */
+.input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+  border-width: 2px;
+}
+
+.check {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding-bottom: var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.searchButton,
+.clearButton {
+  padding: var(--space-2) var(--space-3);
+  font-size: 13px;
+  font-weight: bold;
+  font-family: inherit;
+  cursor: pointer;
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: 6px;
+}
+
+.searchButton {
+  color: var(--color-ink-contrast);
+  background: var(--color-ink);
+}
+
+.searchButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.clearButton {
+  color: var(--color-ink);
+  background: var(--color-bg);
+}
+
+.fieldError {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+/* --- Results and timeline ---------------------------------------------- */
+
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.results {
+  flex: 1 1 560px;
+  min-width: 0;
+}
+
+.timeline {
+  flex: 0 1 500px;
+  min-width: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: var(--border-width) solid var(--color-ink);
+}
+
+.table td {
+  padding: 9px var(--space-2);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-surface);
+}
+
+/* The selected row: tint plus a heavy left edge, as W-07 greys it. */
+.selected,
+.selected:hover {
+  background: var(--color-surface);
+  box-shadow: inset 4px 0 0 var(--color-ink);
+}
+
+.caseButton {
+  padding: 0;
+  font-size: inherit;
+  font-weight: bold;
+  font-family: inherit;
+  color: var(--color-text);
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.none {
+  color: var(--color-text-muted);
+}
+
+/* A text marker, not a colour: the two badges beside it already own VTL colours. */
+.disagreement {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.pager button {
+  padding: 5px 10px;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  font-family: inherit;
+  color: var(--color-ink);
+  cursor: pointer;
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-ink);
+  border-radius: 6px;
+}
+
+.pager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.notice,
+.error {
+  margin: 0;
+  padding: var(--space-4);
+  text-align: center;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.notice {
+  color: var(--color-text-muted);
+}
+
+.error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+}
+
+.openCase {
+  display: inline-block;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+/* Below 900 px the timeline stacks under the table. */
+@media (max-width: 900px) {
+  .results,
+  .timeline {
+    flex-basis: 100%;
+  }
+
+  .input {
+    min-width: 0;
+  }
+}

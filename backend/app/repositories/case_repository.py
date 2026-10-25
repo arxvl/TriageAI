@@ -87,6 +87,26 @@ class OwnerReferenceValues:
     contact_number: str | None = None
 
 
+@dataclass(frozen=True)
+class HistoryCriteria:
+    """The W-07 filters, already converted to what the query compares (FR-44).
+
+    `created_from` and `created_to` are UTC instants, `created_to` exclusive, as
+    on the queue. `disagreement` keeps cases whose latest AI category and latest
+    final category both exist and differ.
+    """
+
+    case_no: str | None = None
+    created_from: datetime | None = None
+    created_to: datetime | None = None
+    species: Species | None = None
+    complaint_code: str | None = None
+    ai_category: VTLCategory | None = None
+    final_category: VTLCategory | None = None
+    status: CaseStatus | None = None
+    disagreement: bool = False
+
+
 class CaseRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -248,6 +268,56 @@ class CaseRepository:
             parts.rank_expression(), Case.created_at.asc(), Case.case_no.asc()
         )
         return list(self._session.execute(statement.limit(limit).offset(offset)).all())
+
+    def history_rows(self, criteria: HistoryCriteria, *, limit: int, offset: int) -> list[Row]:
+        """Cases of every status, newest first, one row per case (FR-44, W-07).
+
+        Unlike the queue this has no `CLOSED` exclusion and no urgency order: it
+        is an archive read by date. `case_no` breaks a tie between two cases
+        created in the same millisecond, so a page boundary is stable.
+        """
+        parts = _QueueParts()
+        statement = (
+            select(
+                Case.id,
+                Case.case_no,
+                Case.status,
+                Case.created_at,
+                Case.species,
+                Signalment.pet_name,
+                parts.complaint.c.code.label("primary_complaint_code"),
+                parts.complaint.c.name.label("primary_complaint_name"),
+                parts.recommendation.c.category.label("ai_category"),
+                parts.decision.c.final_category.label("final_category"),
+                parts.decision.c.type.label("decision_type"),
+            )
+            .select_from(Case)
+            .outerjoin(Signalment, Signalment.case_id == Case.id)
+        )
+        statement = _filter_history(parts.join_onto(statement), parts, criteria)
+        statement = statement.order_by(Case.created_at.desc(), Case.case_no.desc())
+        return list(self._session.execute(statement.limit(limit).offset(offset)).all())
+
+    def history_count(self, criteria: HistoryCriteria) -> int:
+        """How many cases the same criteria match, for the pager."""
+        parts = _QueueParts()
+        statement = select(func.count()).select_from(Case)
+        statement = _filter_history(parts.join_onto(statement), parts, criteria)
+        return int(self._session.execute(statement).scalar_one())
+
+    def complaint_options(self) -> list[Row]:
+        """The fixed complaint list in clinical order, for W-07's filter (FR-10).
+
+        Reference data with no case content, so every role may read it. The same
+        order W-08 offers it in: emergencies first, OTHER last.
+        """
+        return list(
+            self._session.execute(
+                select(PresentingComplaint.code, PresentingComplaint.name).order_by(
+                    PresentingComplaint.sort_order, PresentingComplaint.name
+                )
+            ).all()
+        )
 
     def queue_counts(self) -> list[Row]:
         """One row per (displayed category, status) over the whole open queue.
@@ -553,6 +623,42 @@ class _QueueParts:
         ]
         branches.append((self.effective_category.is_(None), QUEUE_RANK[None]))
         return sql_case(*branches, else_=UNRANKED)
+
+
+def _filter_history(statement: Select, parts: _QueueParts, criteria: HistoryCriteria) -> Select:
+    """Apply the W-07 filters. Shared by the page and the count, so they agree."""
+    if criteria.case_no:
+        statement = statement.where(
+            Case.case_no.ilike(f"%{_escape_like(criteria.case_no)}%", escape="\\")
+        )
+    if criteria.species is not None:
+        statement = statement.where(Case.species == criteria.species)
+    if criteria.status is not None:
+        statement = statement.where(Case.status == criteria.status)
+    if criteria.created_from is not None:
+        statement = statement.where(Case.created_at >= criteria.created_from)
+    if criteria.created_to is not None:
+        statement = statement.where(Case.created_at < criteria.created_to)
+    if criteria.complaint_code is not None:
+        # Any complaint on the latest extraction, not only the primary one.
+        statement = statement.where(
+            exists(
+                select(extraction_complaints.c.complaint_code).where(
+                    extraction_complaints.c.extraction_id == parts.extraction.c.id,
+                    extraction_complaints.c.complaint_code == criteria.complaint_code,
+                )
+            )
+        )
+    if criteria.ai_category is not None:
+        statement = statement.where(parts.recommendation.c.category == criteria.ai_category)
+    if criteria.final_category is not None:
+        statement = statement.where(parts.decision.c.final_category == criteria.final_category)
+    if criteria.disagreement:
+        # NULL on either side drops out: no AI category means no disagreement.
+        statement = statement.where(
+            parts.recommendation.c.category != parts.decision.c.final_category
+        )
+    return statement
 
 
 def _escape_like(value: str) -> str:

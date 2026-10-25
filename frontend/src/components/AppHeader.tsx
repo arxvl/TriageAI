@@ -23,6 +23,7 @@ function navItemsFor(user: AuthenticatedUser): NavItem[] {
   if (user.role === "ADMINISTRATOR") {
     return [
       { to: "/admin/users", label: strings.nav.users },
+      { to: "/history", label: strings.nav.caseHistory },
       { to: "/kb", label: strings.nav.knowledgeBase },
       { to: "/admin/evaluation", label: strings.nav.evaluation },
       { to: "/admin/exports", label: strings.nav.exports },

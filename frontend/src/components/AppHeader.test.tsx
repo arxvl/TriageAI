@@ -51,10 +51,18 @@ describe("AppHeader navigation per role (IR-02, FR-59)", () => {
     ]);
   });
 
-  it("shows an administrator only the administration links", () => {
+  // Case History is read-only and open to every role (FR-44); the administrator
+  // gets no queue or intake links, which are clinical work (BR-02).
+  it("shows an administrator Case History and the administration links", () => {
     renderWithAuth(<AppHeader user={makeUserWithRole("ADMINISTRATOR")} />);
 
-    expect(visibleNavLabels()).toEqual(["Users", "Knowledge Base", "Evaluation", "Exports"]);
+    expect(visibleNavLabels()).toEqual([
+      "Case History",
+      "Users",
+      "Knowledge Base",
+      "Evaluation",
+      "Exports",
+    ]);
   });
 
   it("hides navigation while a temporary password is still in force (FR-61)", () => {

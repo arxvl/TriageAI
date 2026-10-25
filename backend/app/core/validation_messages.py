@@ -93,7 +93,27 @@ MESSAGES: dict[str, dict[str, str]] = {
         ANY_ERROR: "Enter the start date as a calendar date, e.g. 2026-10-01.",
     },
     "date_to": {
+        # Case History only: the queue does not compare the two dates (W-07).
+        "value_error": "The end date cannot be before the start date.",
         ANY_ERROR: "Enter the end date as a calendar date, e.g. 2026-10-01.",
+    },
+    # --- Case History filters, W-07 (FR-44) -------------------------------
+    "case_no": {
+        "string_too_long": "The case number can be at most 100 characters.",
+        ANY_ERROR: "Enter the case number to search for.",
+    },
+    # `complaint_code` shares the knowledge-base entry's wording, further down.
+    "ai_category": {
+        ANY_ERROR: "Choose one of the five urgency categories.",
+    },
+    "disagreement": {
+        ANY_ERROR: "Choose whether to show only cases where the AI and final categories differ.",
+    },
+    "page": {
+        ANY_ERROR: "The page number must be 1 or more.",
+    },
+    "scope": {
+        ANY_ERROR: "Choose the queue or the history.",
     },
     "q": {
         "string_too_long": "The search text can be at most 100 characters.",

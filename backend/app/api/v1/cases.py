@@ -15,7 +15,9 @@ to remember to strip them (FR-07, DR-04).
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 from app.api.deps import DbSession, require_role
 from app.models import User, UserRole
@@ -23,9 +25,13 @@ from app.schemas.case import (
     CaseCreate,
     CaseCreated,
     CaseDetail,
+    CaseHistoryFilters,
+    CaseHistoryResponse,
     CaseListResponse,
     CaseQueueFilters,
+    CaseScope,
     CaseStatusOut,
+    ComplaintFilterOption,
 )
 from app.schemas.review import (
     ActionsRegenerationAccepted,
@@ -81,18 +87,67 @@ def create_case(payload: CaseCreate, db: DbSession, user: IntakeUser) -> CaseCre
     return CaseService(db).create_case(payload, user)
 
 
+def _list_filters(request: Request) -> CaseQueueFilters | CaseHistoryFilters:
+    """Pick the filter model for the requested `scope` and validate against it.
+
+    Two lists share `GET /cases` (FR-39, FR-44) and take different parameters, so
+    the model cannot be a single `Query()` annotation. Each one forbids unknown
+    parameters, which is what refuses a history-only filter on the queue. A
+    failure is re-raised as `RequestValidationError`, so it reaches the same 422
+    handler and plain wording as every other bad request (IR-05).
+    """
+    params = dict(request.query_params)
+    raw_scope = params.pop("scope", CaseScope.QUEUE.value)
+    try:
+        scope = CaseScope(raw_scope)
+    except ValueError:
+        raise RequestValidationError(
+            [{"type": "enum", "loc": ("query", "scope"), "msg": "Input should be a valid scope"}]
+        ) from None
+
+    model = CaseHistoryFilters if scope is CaseScope.HISTORY else CaseQueueFilters
+    try:
+        return model.model_validate(params)
+    except ValidationError as error:
+        raise RequestValidationError(
+            [{**item, "loc": ("query", *item["loc"])} for item in error.errors()]
+        ) from error
+
+
+ListFilters = Annotated[CaseQueueFilters | CaseHistoryFilters, Depends(_list_filters)]
+
+
 @router.get("")
 def list_cases(
-    filters: Annotated[CaseQueueFilters, Query()],
-    db: DbSession,
-    user: QueueReader,
-) -> CaseListResponse:
-    """The Triage Queue: open cases in urgency order, with the W-02 counters.
+    filters: ListFilters, db: DbSession, user: QueueReader
+) -> CaseListResponse | CaseHistoryResponse:
+    """The Triage Queue, or with `scope=history` the searchable Case History.
 
+    Queue (the default): open cases in urgency order, with the W-02 counters.
     Ordering is FR-29 and the counters always describe the whole open queue, so
     filtering the rows does not move the numbers.
+
+    History (`scope=history`, W-07, FR-44): cases of every status, closed ones
+    included, newest first, a page at a time, each with the AI category and the
+    final category side by side. Filters: `case_no`, `date_from`, `date_to`,
+    `species`, `complaint_code`, `ai_category`, `final_category`, `status`,
+    `disagreement`, `page`, `limit`. Read-only, so all three roles may call it.
     """
-    return CaseService(db).list_queue(filters)
+    service = CaseService(db)
+    if isinstance(filters, CaseHistoryFilters):
+        return service.list_history(filters)
+    return service.list_queue(filters)
+
+
+@router.get("/complaints")
+def list_complaint_options(db: DbSession, user: QueueReader) -> list[ComplaintFilterOption]:
+    """The presenting-complaint list, for W-07's complaint filter (FR-10, FR-44).
+
+    Reference data with no case content. `/kb/complaints` serves the same list to
+    the knowledge-base roles only, and Intake Staff, who search the history, are
+    not among them.
+    """
+    return CaseService(db).list_complaint_options()
 
 
 @router.get("/{case_id}/status")
