@@ -37,7 +37,7 @@ so an old case can be re-read exactly as it was produced (FR-26, NFR-23).
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from sqlalchemy import delete, func, select, update
@@ -65,6 +65,7 @@ from app.models import (
     RetrievedReference,
     Signalment,
     Species,
+    Vignette,
     VTLCategory,
     extraction_complaints,
     kb_version_entries,
@@ -77,6 +78,7 @@ __all__ = [
     "ActionsRunInput",
     "CaseRunInput",
     "PipelineRepository",
+    "VignetteRunInput",
 ]
 
 # The signalment fields handed to the extraction stage, in the order a clinician
@@ -109,6 +111,24 @@ class CaseRunInput:
     sex: str | None
     signalment: dict[str, str | None]
     description: str
+
+
+@dataclass(frozen=True)
+class VignetteRunInput:
+    """Everything an evaluation run needs about a vignette (P09 §9.2).
+
+    A vignette has no signalment, no sex and no owner: it is a description and a
+    species, which is why the pipeline can be handed it without reading anything
+    `owner_references` holds (DR-04). `description` is fictitious evaluation text
+    and is still never logged (CLAUDE.md §9).
+    """
+
+    vignette_id: uuid.UUID
+    species: Species
+    description: str
+    # Always empty: a vignette carries no signalment. Present so the extraction
+    # stage is called with the same arguments it is for a case.
+    signalment: dict[str, str | None] = field(default_factory=dict)
 
 
 # The set the first actions run stores. A regeneration is a later number.
@@ -215,6 +235,19 @@ class PipelineRepository:
                 field: _as_text(getattr(signalment, field, None)) for field in _SIGNALMENT_FIELDS
             },
             description=description,
+        )
+
+    def vignette_for_run(self, vignette_id: uuid.UUID) -> VignetteRunInput | None:
+        """The vignette's species and description, or None if there is no such row."""
+        row = self._session.execute(
+            select(Vignette.id, Vignette.species, Vignette.description).where(
+                Vignette.id == vignette_id
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return VignetteRunInput(
+            vignette_id=row.id, species=row.species, description=row.description
         )
 
     def case_exists(self, case_id: uuid.UUID) -> bool:
@@ -402,9 +435,20 @@ class PipelineRepository:
     def next_recommendation_version(self, case_id: uuid.UUID) -> int:
         return self._next_version(Recommendation, case_id)
 
-    def _next_version(self, model: type, case_id: uuid.UUID) -> int:
+    def next_vignette_extraction_version(self, vignette_id: uuid.UUID) -> int:
+        """One past the newest extraction of this vignette.
+
+        Each evaluation run adds a version rather than replacing the last, so a
+        repeat run (the NFR-23 check) leaves both runs' outputs on record.
+        """
+        return self._next_version(ExtractionResult, vignette_id, key="vignette_id")
+
+    def next_vignette_recommendation_version(self, vignette_id: uuid.UUID) -> int:
+        return self._next_version(Recommendation, vignette_id, key="vignette_id")
+
+    def _next_version(self, model: type, subject_id: uuid.UUID, *, key: str = "case_id") -> int:
         current = self._session.scalars(
-            select(func.max(model.version)).where(model.case_id == case_id)
+            select(func.max(model.version)).where(getattr(model, key) == subject_id)
         ).one()
         return (current or 0) + 1
 
@@ -474,7 +518,8 @@ class PipelineRepository:
     def insert_extraction(
         self,
         *,
-        case_id: uuid.UUID,
+        case_id: uuid.UUID | None = None,
+        vignette_id: uuid.UUID | None = None,
         version: int,
         input_text: str | None,
         extraction: ExtractionOutput,
@@ -485,6 +530,9 @@ class PipelineRepository:
         corrected_by: uuid.UUID | None = None,
     ) -> ExtractionResult:
         """Store an extraction and its complaint junction rows. Flushes.
+
+        Exactly one of `case_id` and `vignette_id` is set; the table's check
+        constraint refuses anything else (DR-06).
 
         `complaint_codes` is `(code, is_primary)` already mapped to codes that
         exist, so the FK cannot be violated by a stage that invented one.
@@ -500,6 +548,7 @@ class PipelineRepository:
         """
         row = ExtractionResult(
             case_id=case_id,
+            vignette_id=vignette_id,
             version=version,
             input_text=input_text,
             entities=extraction.model_dump(mode="json"),
@@ -527,7 +576,8 @@ class PipelineRepository:
     def insert_recommendation(
         self,
         *,
-        case_id: uuid.UUID,
+        case_id: uuid.UUID | None = None,
+        vignette_id: uuid.UUID | None = None,
         extraction_id: uuid.UUID,
         kb_version_id: uuid.UUID | None,
         version: int,
@@ -545,6 +595,7 @@ class PipelineRepository:
         """Store the final recommendation. Flushes."""
         row = Recommendation(
             case_id=case_id,
+            vignette_id=vignette_id,
             extraction_id=extraction_id,
             kb_version_id=kb_version_id,
             version=version,

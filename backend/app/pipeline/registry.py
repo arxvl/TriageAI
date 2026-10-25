@@ -254,6 +254,33 @@ def _assert_deidentification_before_llm(settings: Settings) -> None:
         )
 
 
+def settings_snapshot(settings: Settings, deps: PipelineDeps) -> dict[str, Any]:
+    """The stage selection and model settings, for an evaluation's snapshot (NFR-23).
+
+    Option names and ids only — no API key, no URL, no prompt. `llm_model_id` is
+    the provider's own name for the model, which the stages' `model_id` repeat
+    when they are real and report as `mock` when they are not.
+    """
+    return {
+        "PIPELINE_DEIDENTIFIER": str(settings.pipeline_deidentifier),
+        "PIPELINE_REDFLAGS": str(settings.pipeline_redflags),
+        "LLM_PROVIDER": str(settings.llm_provider),
+        "PIPELINE_EXTRACTOR": str(settings.pipeline_extractor),
+        "EMBEDDING_PROVIDER": None
+        if settings.embedding_provider is None
+        else str(settings.embedding_provider),
+        "KB_INDEXER": str(settings.kb_indexer),
+        "PIPELINE_RETRIEVER": str(settings.pipeline_retriever),
+        "PIPELINE_GENERATOR": str(settings.pipeline_generator),
+        "PIPELINE_ACTIONS": str(settings.pipeline_actions),
+        "PIPELINE_MODEL_ID": settings.pipeline_model_id,
+        "PIPELINE_PROMPT_VERSION": settings.pipeline_prompt_version,
+        # Blank means "send none", so the provider's own default applies (CLAUDE.md §9).
+        "LLM_TEMPERATURE": settings.LLM_TEMPERATURE or None,
+        "llm_model_id": None if deps.llm is None else getattr(deps.llm, "model_id", None),
+    }
+
+
 def build_pipeline(
     settings: Settings, session_factory: sessionmaker | None = None
 ) -> TriagePipeline:
@@ -329,4 +356,5 @@ def build_pipeline(
         kb_indexer=_build_stage(
             KB_INDEXER_SPECS, settings.kb_indexer, "KB_INDEXER", settings, deps
         ),
+        settings_snapshot=settings_snapshot(settings, deps),
     )

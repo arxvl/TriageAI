@@ -62,11 +62,12 @@ next (CLAUDE.md §8).
 import logging
 import threading
 import uuid
-from collections.abc import Callable
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, TypeVar
+from time import perf_counter
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -76,6 +77,7 @@ from app.models import (
     ActionSource,
     ActionsStatus,
     CaseStatus,
+    ConfidenceLevel,
     JobType,
     Recommendation,
     Species,
@@ -118,6 +120,7 @@ from app.repositories.pipeline_repository import (
     ActionSuggestionValues,
     CaseRunInput,
     PipelineRepository,
+    VignetteRunInput,
 )
 from app.services.audit_service import CASE_ENTITY, AuditAction, AuditService
 
@@ -137,6 +140,7 @@ __all__ = [
     "FailureReason",
     "PipelineRunResult",
     "TriagePipeline",
+    "VignetteRunResult",
 ]
 
 # What `action_suggestions` records as the provenance of a baseline row. These
@@ -288,6 +292,44 @@ class ActionsRunResult:
         return self.failure_reason is None
 
 
+@dataclass(frozen=True)
+class VignetteRunResult:
+    """What one evaluation run over a vignette did (P09 §9.2).
+
+    Everything the harness stores in `EvaluationResult` comes from here, so the
+    runner never reads the pipeline's tables back to find out what happened.
+    `stage_ms` is the orchestrator's own measurement of each stage (the same
+    values a live case stores as `params.stage_ms`); `total_ms` is the wall time of
+    the whole run including the database writes, which is the figure NFR-01 speaks
+    about.
+
+    On failure `failure_reason` is one of the `FailureReason` codes and nothing
+    else, and no output rows were written. The red-flag hits are kept either way:
+    the screen runs before anything that can fail.
+
+    `retrieved_entry_ids` is in rank order and is what the retrieval metrics read,
+    because `retrieved_references` stores the passage's title and text but not the
+    entry it belongs to.
+    """
+
+    vignette_id: uuid.UUID
+    failure_reason: "FailureReason | None" = None
+    extraction_id: uuid.UUID | None = None
+    recommendation_id: uuid.UUID | None = None
+    category: VTLCategory | None = None
+    confidence: ConfidenceLevel | None = None
+    safety_floor_applied: bool = False
+    red_flag_hits: list[RedFlagHit] = field(default_factory=list)
+    retrieved_entry_ids: list[uuid.UUID] = field(default_factory=list)
+    primary_complaint: str | None = None
+    stage_ms: dict[str, int] = field(default_factory=dict)
+    total_ms: int = 0
+
+    @property
+    def succeeded(self) -> bool:
+        return self.failure_reason is None
+
+
 def _actions_reason(error: Exception) -> ActionsFailureReason | None:
     """The reason code for a failure of the actions stage.
 
@@ -378,6 +420,10 @@ class TriagePipeline:
     # Not used by a triage run; selected by the same registry and handed to the
     # knowledge-base approval workflow (P08).
     kb_indexer: KBIndexer
+    # The stage selection and model settings this pipeline was built from, for an
+    # evaluation run's configuration snapshot (NFR-23). Filled by the registry;
+    # empty for a pipeline assembled by hand.
+    settings_snapshot: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def is_fully_mocked(self) -> bool:
@@ -500,8 +546,211 @@ class TriagePipeline:
                 self, session, recommendation_id, job_id, category=category, generation=generation
             ).execute()
 
+    def run_vignette(
+        self,
+        vignette_id: uuid.UUID,
+        kb_version_id: uuid.UUID,
+        *,
+        cancel: threading.Event | None = None,
+    ) -> VignetteRunResult:
+        """Run one evaluation vignette through the same stages a case goes through.
 
-class _TriageRun:
+        Never raises. This is the evaluation mode of P09 §9.2: de-identification,
+        the red-flag screen, extraction, retrieval, generation and the safety
+        validator, with the same retry rule. It stores an extraction and a
+        recommendation with `vignette_id` and **nothing else** — no case, no status
+        change, no alert row, no audit entry, no queue job (DR-06, FR-65).
+
+        `kb_version_id` is chosen once by the caller, so every vignette in a run is
+        answered from one knowledge-base version (NFR-23).
+        """
+        with self.deps.session_factory() as session:
+            return _VignetteRun(self, session, vignette_id, kb_version_id, cancel).execute()
+
+
+class _StageRun:
+    """The steps a case run and an evaluation run have in common.
+
+    Calling the model stages, retrying unusable output, measuring each stage and
+    stopping when the worker has given up are the same for a case and for a
+    vignette, which is the point of an evaluation: it runs the code a live case
+    runs (FR-65). What differs is what is read and what is written, and that stays
+    in `_TriageRun` and `_VignetteRun`.
+
+    Holds no case id on purpose. Whatever a subclass is *about* is its own to
+    carry and to name in `_log_context`.
+    """
+
+    def __init__(
+        self,
+        pipeline: TriagePipeline,
+        session: Session,
+        job_id: uuid.UUID | None,
+        cancel: threading.Event | None = None,
+    ) -> None:
+        self._pipeline = pipeline
+        self._config = pipeline.config
+        self._session = session
+        self._repo = PipelineRepository(session)
+        self._jobs = JobQueue(session)
+        self._job_id = job_id
+        self._cancel = cancel
+        # How many times the stage that failed was called, for the banner's
+        # "after 2 attempts". None until a model stage has been called.
+        self._attempts: int | None = None
+        # Per-stage wall time, as `params.stage_ms` on the recommendation (FR-68
+        # computes p50/p95 from these).
+        self._stage_ms: dict[str, int] = {}
+
+    # --- Steps shared by every kind of run --------------------------------
+
+    def _extract(self, case: CaseRunInput | VignetteRunInput, text: str) -> ExtractionOutput:
+        """Step 4: extract, retrying unusable output only (FR-15, IR-19)."""
+        self._stage(JobStage.EXTRACT)
+        stage = self._pipeline.extractor
+        phrase = self._config.demo_force_failure_phrase
+        if phrase is not None and phrase.lower() in text.lower():
+            # The PD8 demo toggle (P07 §7.1 task 7). Taken before the stage is
+            # called, so no model call is made, and after the screen has
+            # committed, so a red-flag alert still reaches the queue. The config
+            # carries a phrase only in `APP_ENV=dev`.
+            logger.warning(
+                "demo failure phrase matched; forcing a timeout", extra=self._log_context()
+            )
+            raise _StageFailure(FailureReason.LLM_TIMEOUT)
+        return self._attempt(
+            "extract",
+            stage,
+            _EXTRACTION_REASONS,
+            lambda: stage.extract(text, case.species, case.signalment),
+        )
+
+    def _retrieve(self, extraction: ExtractionOutput, kb_version_id: uuid.UUID) -> list[Passage]:
+        """Step 6a: retrieve the supporting passages (FR-19)."""
+        self._stage(JobStage.RETRIEVE)
+        stage = self._pipeline.retriever
+        try:
+            passages = stage.retrieve(extraction, kb_version_id, self._config.top_k)
+        except RetrievalFailed:
+            self._measured("retrieve", stage)
+            raise _StageFailure(FailureReason.RETRIEVAL_FAILED) from None
+        self._measured("retrieve", stage)
+        return passages
+
+    def _generate(
+        self, extraction: ExtractionOutput, passages: list[Passage]
+    ) -> DraftRecommendation:
+        """Step 6b: generate a draft, with the same retry rule as extraction.
+
+        The draft is never the stored category: the deterministic validator
+        produces that (ADR-09).
+        """
+        self._stage(JobStage.GENERATE)
+        stage = self._pipeline.generator
+        return self._attempt(
+            "generate",
+            stage,
+            _GENERATION_REASONS,
+            lambda: stage.generate(extraction, passages),
+        )
+
+    def _attempt(
+        self,
+        name: str,
+        stage: object,
+        reasons: tuple[tuple[type[Exception], FailureReason], ...],
+        call: "Callable[[], _T]",
+    ) -> "_T":
+        """Call a model stage, retrying unusable output `max_retries` times.
+
+        Shared by extraction and generation, because the retry rule is the same for
+        both and is a property of the orchestrator rather than of either stage
+        (FR-15, IR-19). The latency is recorded after every attempt, including a
+        failed one: an attempt that timed out still took time, and the stored
+        provenance should say so.
+        """
+        attempts = max(1, self._config.max_retries + 1)
+        last_reason = reasons[-1][1]
+
+        for attempt in range(1, attempts + 1):
+            self._attempts = attempt
+            try:
+                value = call()
+            except Exception as error:
+                self._measured(name, stage)
+                reason = _reason_for(error, reasons)
+                if reason is None:
+                    raise
+                last_reason = reason
+                if isinstance(error, LLMInvalidOutput) and attempt < attempts:
+                    logger.info(
+                        "stage returned unusable output; retrying",
+                        extra={**self._log_context(), "stage": name, "attempt": attempt},
+                    )
+                    continue
+                logger.warning(
+                    "stage failed",
+                    extra={
+                        **self._log_context(),
+                        "stage": name,
+                        "attempts": attempt,
+                        "reason": str(reason),
+                    },
+                )
+                raise _StageFailure(reason) from None
+            else:
+                self._measured(name, stage)
+                return value
+
+        # Unreachable: the loop either returns or raises. Here so the function has
+        # no implicit `None` return for a type checker to worry about.
+        raise _StageFailure(last_reason)
+
+    def _params(self) -> dict:
+        """The run's parameters, stored with the recommendation (FR-26, ADR-14).
+
+        `stage_ms` is every stage's measured wall time, including the ones that are
+        not model calls: FR-68 reports p50 and p95 per stage, and "retrieval took
+        no time because it was mocked" is itself a result worth being able to read
+        back.
+        """
+        return {
+            "top_k": self._config.top_k,
+            "temperature": self._config.temperature,
+            "timeout_s": self._config.timeout_s,
+            "max_retries": self._config.max_retries,
+            "retrieval_min_score": self._config.retrieval_min_score,
+            "stage_ms": dict(self._stage_ms),
+        }
+
+    def _measured(self, name: str, stage: object) -> None:
+        """Copy a stage's `last_latency_ms` into `stage_ms` (CLAUDE.md §8.2).
+
+        Read immediately after the call, including after a failed one: an attempt
+        that timed out still took time, and the stored provenance should say so.
+        """
+        self._stage_ms[name] = int(getattr(stage, "last_latency_ms", 0) or 0)
+
+    def _checkpoint(self) -> None:
+        """Stop here if the worker has already failed this run (P07 §7.1 task 5)."""
+        if self._cancel is not None and self._cancel.is_set():
+            raise _Cancelled
+
+    def _stage(self, stage: JobStage) -> None:
+        """Record progress on the job, for `GET /cases/{id}/status` (IR-22).
+
+        Also the checkpoint every step passes through before it starts.
+        """
+        self._checkpoint()
+        if self._job_id is not None:
+            self._jobs.set_stage(self._job_id, stage)
+
+    def _log_context(self) -> dict:
+        """Identifiers and nothing else (CLAUDE.md §9)."""
+        raise NotImplementedError
+
+
+class _TriageRun(_StageRun):
     """One run's mutable state: the session, the stage latencies, the job.
 
     Separate from `TriagePipeline` so the pipeline itself stays frozen and
@@ -520,21 +769,9 @@ class _TriageRun:
         job_id: uuid.UUID | None,
         cancel: threading.Event | None = None,
     ) -> None:
-        self._pipeline = pipeline
-        self._config = pipeline.config
-        self._session = session
-        self._repo = PipelineRepository(session)
+        super().__init__(pipeline, session, job_id, cancel)
         self._audit = AuditService(session)
-        self._jobs = JobQueue(session)
         self._case_id = case_id
-        self._job_id = job_id
-        self._cancel = cancel
-        # How many times the stage that failed was called, for the banner's
-        # "after 2 attempts". None until a model stage has been called.
-        self._attempts: int | None = None
-        # Per-stage wall time, as `params.stage_ms` on the recommendation (FR-68
-        # computes p50/p95 from these).
-        self._stage_ms: dict[str, int] = {}
 
     # --- Entry point -------------------------------------------------------
 
@@ -683,27 +920,6 @@ class _TriageRun:
             )
         return hits
 
-    def _extract(self, case: CaseRunInput, text: str) -> ExtractionOutput:
-        """Step 4: extract, retrying unusable output only (FR-15, IR-19)."""
-        self._stage(JobStage.EXTRACT)
-        stage = self._pipeline.extractor
-        phrase = self._config.demo_force_failure_phrase
-        if phrase is not None and phrase.lower() in text.lower():
-            # The PD8 demo toggle (P07 §7.1 task 7). Taken before the stage is
-            # called, so no model call is made, and after the screen has
-            # committed, so a red-flag alert still reaches the queue. The config
-            # carries a phrase only in `APP_ENV=dev`.
-            logger.warning(
-                "demo failure phrase matched; forcing a timeout", extra=self._log_context()
-            )
-            raise _StageFailure(FailureReason.LLM_TIMEOUT)
-        return self._attempt(
-            "extract",
-            stage,
-            _EXTRACTION_REASONS,
-            lambda: stage.extract(text, case.species, case.signalment),
-        )
-
     def _store_extraction(
         self, case: CaseRunInput, text: str, extraction: ExtractionOutput
     ) -> uuid.UUID:
@@ -731,87 +947,6 @@ class _TriageRun:
         )
         self._session.commit()
         return row.id
-
-    def _retrieve(self, extraction: ExtractionOutput, kb_version_id: uuid.UUID) -> list[Passage]:
-        """Step 6a: retrieve the supporting passages (FR-19)."""
-        self._stage(JobStage.RETRIEVE)
-        stage = self._pipeline.retriever
-        try:
-            passages = stage.retrieve(extraction, kb_version_id, self._config.top_k)
-        except RetrievalFailed:
-            self._measured("retrieve", stage)
-            raise _StageFailure(FailureReason.RETRIEVAL_FAILED) from None
-        self._measured("retrieve", stage)
-        return passages
-
-    def _generate(
-        self, extraction: ExtractionOutput, passages: list[Passage]
-    ) -> DraftRecommendation:
-        """Step 6b: generate a draft, with the same retry rule as extraction.
-
-        The draft is never the stored category: the deterministic validator
-        produces that (ADR-09).
-        """
-        self._stage(JobStage.GENERATE)
-        stage = self._pipeline.generator
-        return self._attempt(
-            "generate",
-            stage,
-            _GENERATION_REASONS,
-            lambda: stage.generate(extraction, passages),
-        )
-
-    def _attempt(
-        self,
-        name: str,
-        stage: object,
-        reasons: tuple[tuple[type[Exception], FailureReason], ...],
-        call: "Callable[[], _T]",
-    ) -> "_T":
-        """Call a model stage, retrying unusable output `max_retries` times.
-
-        Shared by extraction and generation, because the retry rule is the same for
-        both and is a property of the orchestrator rather than of either stage
-        (FR-15, IR-19). The latency is recorded after every attempt, including a
-        failed one: an attempt that timed out still took time, and the stored
-        provenance should say so.
-        """
-        attempts = max(1, self._config.max_retries + 1)
-        last_reason = reasons[-1][1]
-
-        for attempt in range(1, attempts + 1):
-            self._attempts = attempt
-            try:
-                value = call()
-            except Exception as error:
-                self._measured(name, stage)
-                reason = _reason_for(error, reasons)
-                if reason is None:
-                    raise
-                last_reason = reason
-                if isinstance(error, LLMInvalidOutput) and attempt < attempts:
-                    logger.info(
-                        "stage returned unusable output; retrying",
-                        extra={**self._log_context(), "stage": name, "attempt": attempt},
-                    )
-                    continue
-                logger.warning(
-                    "stage failed",
-                    extra={
-                        **self._log_context(),
-                        "stage": name,
-                        "attempts": attempt,
-                        "reason": str(reason),
-                    },
-                )
-                raise _StageFailure(reason) from None
-            else:
-                self._measured(name, stage)
-                return value
-
-        # Unreachable: the loop either returns or raises. Here so the function has
-        # no implicit `None` return for a type checker to worry about.
-        raise _StageFailure(last_reason)
 
     def _store_recommendation(
         self,
@@ -956,45 +1091,6 @@ class _TriageRun:
         return PipelineRunResult(self._case_id, self._FAILED_STATUS, reason)
 
     # --- Internals --------------------------------------------------------
-
-    def _params(self) -> dict:
-        """The run's parameters, stored with the recommendation (FR-26, ADR-14).
-
-        `stage_ms` is every stage's measured wall time, including the ones that are
-        not model calls: FR-68 reports p50 and p95 per stage, and "retrieval took
-        no time because it was mocked" is itself a result worth being able to read
-        back.
-        """
-        return {
-            "top_k": self._config.top_k,
-            "temperature": self._config.temperature,
-            "timeout_s": self._config.timeout_s,
-            "max_retries": self._config.max_retries,
-            "retrieval_min_score": self._config.retrieval_min_score,
-            "stage_ms": dict(self._stage_ms),
-        }
-
-    def _measured(self, name: str, stage: object) -> None:
-        """Copy a stage's `last_latency_ms` into `stage_ms` (CLAUDE.md §8.2).
-
-        Read immediately after the call, including after a failed one: an attempt
-        that timed out still took time, and the stored provenance should say so.
-        """
-        self._stage_ms[name] = int(getattr(stage, "last_latency_ms", 0) or 0)
-
-    def _checkpoint(self) -> None:
-        """Stop here if the worker has already failed this run (P07 §7.1 task 5)."""
-        if self._cancel is not None and self._cancel.is_set():
-            raise _Cancelled
-
-    def _stage(self, stage: JobStage) -> None:
-        """Record progress on the job, for `GET /cases/{id}/status` (IR-22).
-
-        Also the checkpoint every step passes through before it starts.
-        """
-        self._checkpoint()
-        if self._job_id is not None:
-            self._jobs.set_stage(self._job_id, stage)
 
     def _record(self, action: AuditAction, after: dict) -> None:
         """Append one audit entry for this case.
@@ -1577,3 +1673,196 @@ class _ActionsRun:
             "recommendation_id": str(self._recommendation_id),
             "job_id": str(self._job_id) if self._job_id else None,
         }
+
+
+class _VignetteRun(_StageRun):
+    """One evaluation run over one vignette (P09 §9.2, FR-65).
+
+    The shared steps — extraction with its retry rule, retrieval, generation, the
+    stage timings — are `_StageRun`'s, so an evaluation exercises the code a live
+    case does. What is different is deliberately small:
+
+    - **Nothing about a case is touched.** There is no case, so no status moves,
+      no `RedFlagAlert` is inserted, no audit entry is written (the log records
+      clinical and administrative events, and an evaluation vignette is neither)
+      and no `SUGGEST_ACTIONS` job is enqueued.
+    - **No owner reference.** A vignette has none, and the de-identifier is called
+      with `None` for both fields.
+    - **One commit, at the end.** There is no queue to alert and no status to keep
+      honest, so a vignette either leaves an extraction and a recommendation or
+      leaves nothing. A failed vignette writes no output rows; the harness records
+      the failure on its own result row.
+    - **The red-flag hits are returned**, not stored as alerts, because the safety
+      floor works from them and the harness records them (FR-23).
+    """
+
+    def __init__(
+        self,
+        pipeline: TriagePipeline,
+        session: Session,
+        vignette_id: uuid.UUID,
+        kb_version_id: uuid.UUID,
+        cancel: threading.Event | None = None,
+    ) -> None:
+        super().__init__(pipeline, session, None, cancel)
+        self._vignette_id = vignette_id
+        self._kb_version_id = kb_version_id
+        self._hits: list[RedFlagHit] = []
+
+    def execute(self) -> VignetteRunResult:
+        started = perf_counter()
+        try:
+            result = self._run()
+        except _Cancelled:
+            self._session.rollback()
+            logger.warning("vignette run cancelled", extra=self._log_context())
+            result = self._failed(FailureReason.LLM_TIMEOUT)
+        except _StageFailure as failure:
+            self._session.rollback()
+            result = self._failed(failure.reason)
+        except Exception:
+            # An evaluation continues with the next vignette whatever one of them
+            # does, and records that this one failed; the traceback goes to the log.
+            self._session.rollback()
+            logger.exception("vignette run raised", extra=self._log_context())
+            result = self._failed(FailureReason.INTERNAL_ERROR)
+        return replace(result, total_ms=int((perf_counter() - started) * 1000))
+
+    def _failed(self, reason: FailureReason) -> VignetteRunResult:
+        logger.warning(
+            "vignette run failed",
+            extra={**self._log_context(), "reason": str(reason)},
+        )
+        return VignetteRunResult(
+            vignette_id=self._vignette_id,
+            failure_reason=reason,
+            red_flag_hits=list(self._hits),
+            stage_ms=dict(self._stage_ms),
+        )
+
+    def _run(self) -> VignetteRunResult:
+        vignette = self._repo.vignette_for_run(self._vignette_id)
+        if vignette is None:
+            logger.error("vignette run: vignette not found", extra=self._log_context())
+            raise _StageFailure(FailureReason.INTERNAL_ERROR)
+
+        text = self._deidentify(vignette)
+        self._hits = self._screen(vignette, text)
+        extraction = self._extract(vignette, text)
+        passages = self._retrieve(extraction, self._kb_version_id)
+        draft = self._generate(extraction, passages)
+
+        final = SafetyValidator.finalize(draft, passages, self._hits, extraction, self._config)
+        extraction_id, recommendation_id = self._store(text, extraction, passages, final)
+        self._session.commit()
+
+        logger.info(
+            "vignette run finished",
+            extra={
+                **self._log_context(),
+                "category": final.category.value,
+                "safety_floor_applied": final.safety_floor_applied,
+                "stage_ms": dict(self._stage_ms),
+            },
+        )
+        primary = next((c.code for c in extraction.presenting_complaints if c.is_primary), None)
+        return VignetteRunResult(
+            vignette_id=self._vignette_id,
+            extraction_id=extraction_id,
+            recommendation_id=recommendation_id,
+            category=final.category,
+            confidence=final.confidence,
+            safety_floor_applied=final.safety_floor_applied,
+            red_flag_hits=list(self._hits),
+            retrieved_entry_ids=[
+                passage.entry_id for passage in sorted(passages, key=lambda p: p.rank)
+            ],
+            primary_complaint=primary,
+            stage_ms=dict(self._stage_ms),
+        )
+
+    # --- Steps -------------------------------------------------------------
+
+    def _deidentify(self, vignette: VignetteRunInput) -> str:
+        """De-identify the description, failing closed (IR-20, ADR-10).
+
+        The same rule as for a case: any exception is a failure, and the run stops
+        before the screener, the extractor and the model. A vignette has no owner,
+        so the stage is given none.
+        """
+        self._stage(JobStage.DEIDENTIFY)
+        stage = self._pipeline.deidentifier
+        try:
+            text = stage.deidentify(vignette.description, None, None)
+        except Exception as error:
+            self._measured("deidentify", stage)
+            logger.warning(
+                "de-identification failed; the run stops before any other stage",
+                extra={**self._log_context(), "error_type": type(error).__name__},
+            )
+            raise _StageFailure(FailureReason.DEIDENTIFICATION_FAILED) from None
+        self._measured("deidentify", stage)
+        return text
+
+    def _screen(self, vignette: VignetteRunInput, text: str) -> list[RedFlagHit]:
+        """Run the red-flag screen. The hits are returned and never stored as alerts."""
+        self._stage(JobStage.SCREEN)
+        stage = self._pipeline.red_flag_screener
+        hits = stage.screen(text, vignette.species, None)
+        self._measured("screen", stage)
+        return hits
+
+    def _store(
+        self,
+        text: str,
+        extraction: ExtractionOutput,
+        passages: list[Passage],
+        final: FinalRecommendation,
+    ) -> tuple[uuid.UUID, uuid.UUID]:
+        """Write the extraction, the recommendation and its references (no commit)."""
+        self._checkpoint()
+        known = self._repo.known_complaint_codes(
+            [complaint.code for complaint in extraction.presenting_complaints] + ["OTHER"]
+        )
+        extractor = self._pipeline.extractor
+        extraction_row = self._repo.insert_extraction(
+            vignette_id=self._vignette_id,
+            version=self._repo.next_vignette_extraction_version(self._vignette_id),
+            input_text=text,
+            extraction=extraction,
+            model_id=extractor.model_id,
+            prompt_version=extractor.prompt_version,
+            latency_ms=self._stage_ms.get("extract"),
+            complaint_codes=PipelineRepository.mapped_complaints(extraction, known),
+        )
+
+        generator = self._pipeline.generator
+        recommendation = self._repo.insert_recommendation(
+            vignette_id=self._vignette_id,
+            extraction_id=extraction_row.id,
+            kb_version_id=self._kb_version_id,
+            version=self._repo.next_vignette_recommendation_version(self._vignette_id),
+            category=final.category,
+            rationale=final.rationale,
+            confidence=final.confidence,
+            safety_floor_applied=final.safety_floor_applied,
+            safety_floor_rule_codes=final.safety_floor_rule_codes,
+            low_confidence_reasons=final.low_confidence_reasons,
+            model_id=generator.model_id,
+            prompt_version=generator.prompt_version,
+            params=self._params(),
+            latency_ms=self._stage_ms.get("generate"),
+        )
+        self._repo.insert_retrieved_references(
+            recommendation_id=recommendation.id,
+            passages=passages,
+            cited=citation_flags(passages, final.cited_ranks),
+            storable_chunk_ids=self._repo.known_chunk_ids(
+                [passage.chunk_id for passage in passages]
+            ),
+        )
+        return extraction_row.id, recommendation.id
+
+    def _log_context(self) -> dict:
+        """Identifiers and nothing else (CLAUDE.md §9)."""
+        return {"vignette_id": str(self._vignette_id)}

@@ -126,3 +126,29 @@ def test_a_failing_warm_up_fails_startup(embedder_spy: _SpyEmbedder) -> None:
 
     with pytest.raises(RuntimeError, match="EMBEDDING_DIM=384"):
         _start(_settings(EMBEDDING_PROVIDER="sentence_transformer", EMBEDDING_WARMUP=True))
+
+
+def test_the_lifespan_starts_one_worker_for_live_jobs_and_one_for_evaluations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An evaluation runs for minutes; it must not share a thread with a case (NFR-01)."""
+    started: list[dict] = []
+
+    class _RecordingWorker:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+        def start(self) -> None:
+            started.append(self.kwargs)
+
+        def stop(self, *args: object, **kwargs: object) -> None: ...
+
+    monkeypatch.setattr(main, "recover_stale_jobs", lambda *a, **k: None)
+    monkeypatch.setattr(main, "JobWorker", _RecordingWorker)
+
+    _start(_settings(job_worker_enabled=True))
+
+    assert [(w["name"], tuple(w["job_types"])) for w in started] == [
+        ("triageai-job-worker", main.LIVE_JOB_TYPES),
+        ("triageai-eval-worker", main.EVAL_JOB_TYPES),
+    ]

@@ -38,18 +38,25 @@ is recorded on that recommendation and never on the case (FR-77, ADR-18 §3);
 that contains it, and its failure leaves the entry awaiting review with nothing
 published (FR-53, P08 §8.1). Anything else is refused rather than ignored, so a
 job enqueued by a later phase against a worker that predates it fails loudly
-instead of sitting `QUEUED` forever: `EVAL_RUN` arrives with the evaluation
-harness (M7).
+instead of sitting `QUEUED` forever.
+
+A fifth type, `EVAL_RUN`, runs the evaluation harness over a set of vignettes
+(P09 §9.2). It can take many minutes, so it never shares a thread with the other
+four: `JobWorker` takes a `job_types` filter, and the application starts one worker
+for `LIVE_JOB_TYPES` and a second for `EVAL_RUN` alone. An evaluation therefore
+cannot delay a case waiting for its recommendation (NFR-01, NFR-09).
 """
 
 import logging
 import threading
 import uuid
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.jobs.queue import REGENERATE_EXTRACTION_KEY, JobQueue
+from app.eval.runner import run_evaluation
+from app.jobs.queue import EVAL_RUN_ID_KEY, REGENERATE_EXTRACTION_KEY, JobQueue
 from app.models import Job, JobType, VTLCategory
 from app.pipeline.orchestrator import (
     ACTIONS_JOB_CATEGORY_KEY,
@@ -66,9 +73,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_POLL_INTERVAL_S",
+    "EVAL_JOB_TYPES",
     "INVALID_ACTIONS_TARGET",
+    "LIVE_JOB_TYPES",
     "MISSING_CASE_ID",
     "MISSING_ENTRY_ID",
+    "MISSING_EVAL_RUN_ID",
     "MISSING_EXTRACTION_ID",
     "MISSING_RECOMMENDATION_ID",
     "UNEXPECTED_ERROR",
@@ -81,6 +91,13 @@ __all__ = [
 # enough that an idle clinic is not running two queries a second all day (NFR-01).
 DEFAULT_POLL_INTERVAL_S = 0.5
 
+# Which job types each worker takes. The two sets are disjoint and together cover
+# every type, so no job is left for nobody (P09 §9.2).
+EVAL_JOB_TYPES: tuple[JobType, ...] = (JobType.EVAL_RUN,)
+LIVE_JOB_TYPES: tuple[JobType, ...] = tuple(
+    job_type for job_type in JobType if job_type not in EVAL_JOB_TYPES
+)
+
 UNSUPPORTED_JOB_TYPE = "UNSUPPORTED_JOB_TYPE"
 # The same code a pipeline bug reports (`FailureReason.INTERNAL_ERROR`), so a job
 # that raised and a run that raised read alike in `last_error` (P07 §7.1 task 1).
@@ -89,6 +106,7 @@ MISSING_CASE_ID = "MISSING_CASE_ID"
 MISSING_RECOMMENDATION_ID = "MISSING_RECOMMENDATION_ID"
 MISSING_ENTRY_ID = "MISSING_ENTRY_ID"
 MISSING_EXTRACTION_ID = "MISSING_EXTRACTION_ID"
+MISSING_EVAL_RUN_ID = "MISSING_EVAL_RUN_ID"
 # A `SUGGEST_ACTIONS` payload names a category or a generation that cannot be
 # read: a job somebody built by hand (P07 §7.2b).
 INVALID_ACTIONS_TARGET = "INVALID_ACTIONS_TARGET"
@@ -139,6 +157,19 @@ def _extraction_id(job: Job) -> uuid.UUID | None:
     a case, and this job is about one *version* of that case's extraction.
     """
     raw = (job.payload or {}).get(REGENERATE_EXTRACTION_KEY)
+    try:
+        return uuid.UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _eval_run_id(job: Job) -> uuid.UUID | None:
+    """The evaluation run an `EVAL_RUN` job is about, or None.
+
+    In the payload for the same reason as the recommendation id: see
+    `EVAL_RUN_ID_KEY`. Anything that is not a uuid is a job somebody built by hand.
+    """
+    raw = (job.payload or {}).get(EVAL_RUN_ID_KEY)
     try:
         return uuid.UUID(str(raw))
     except (TypeError, ValueError):
@@ -259,6 +290,16 @@ def run_job(
                 recommendation_id, job_id=job.id, category=category, generation=generation
             )
 
+        elif job.type is JobType.EVAL_RUN:
+            run_id = _eval_run_id(job)
+            if run_id is None:
+                logger.error("EVAL_RUN job without a run", extra=context)
+                queue.fail(job, MISSING_EVAL_RUN_ID)
+                return
+            # No time budget: a run is as long as its set, and each vignette is
+            # already bounded by the provider's own timeout.
+            result = run_evaluation(pipeline.deps.session_factory, pipeline, run_id)
+
         else:
             logger.error("job type not supported by this worker", extra=context)
             queue.fail(job, UNSUPPORTED_JOB_TYPE)
@@ -282,18 +323,19 @@ def run_pending_jobs_once(
     *,
     max_jobs: int | None = None,
     budget_s: float | None = None,
+    job_types: Iterable[JobType] | None = None,
 ) -> int:
     """Run every job that is ready now, in this thread; returns how many.
 
     The synchronous entry point the tests use. `max_jobs` bounds one pass, which
     is what keeps a test that enqueues a job whose run enqueues another from
-    looping forever.
+    looping forever. `job_types` narrows which jobs are taken; None takes any.
     """
     ran = 0
     with session_factory() as session:
         queue = JobQueue(session)
         while max_jobs is None or ran < max_jobs:
-            job = queue.claim_next()
+            job = queue.claim_next(job_types)
             if job is None:
                 break
             run_job(session, pipeline, job, budget_s=budget_s)
@@ -316,8 +358,12 @@ class JobWorker:
         *,
         poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
         budget_s: float | None = None,
+        job_types: Iterable[JobType] | None = None,
+        name: str = "triageai-job-worker",
     ) -> None:
         self._session_factory = session_factory
+        self._job_types = None if job_types is None else tuple(job_types)
+        self._name = name
         self._pipeline = pipeline
         self._budget_s = budget_s
         self._poll_interval_s = poll_interval_s
@@ -328,22 +374,28 @@ class JobWorker:
         if self._thread is not None:
             return
         self._stopping.clear()
-        self._thread = threading.Thread(target=self._loop, name="triageai-job-worker", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name=self._name, daemon=True)
         self._thread.start()
-        logger.info("job worker started", extra={"poll_interval_s": self._poll_interval_s})
+        logger.info(
+            "job worker started",
+            extra={"worker": self._name, "poll_interval_s": self._poll_interval_s},
+        )
 
     def stop(self, timeout_s: float = 5.0) -> None:
         self._stopping.set()
         thread, self._thread = self._thread, None
         if thread is not None:
             thread.join(timeout=timeout_s)
-        logger.info("job worker stopped")
+        logger.info("job worker stopped", extra={"worker": self._name})
 
     def _loop(self) -> None:
         while not self._stopping.is_set():
             try:
                 ran = run_pending_jobs_once(
-                    self._session_factory, self._pipeline, budget_s=self._budget_s
+                    self._session_factory,
+                    self._pipeline,
+                    budget_s=self._budget_s,
+                    job_types=self._job_types,
                 )
             except Exception:
                 # A database that has gone away must not kill the thread; the next

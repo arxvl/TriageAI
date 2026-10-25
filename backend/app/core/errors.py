@@ -316,6 +316,52 @@ class InvalidUserUpdate(AppError):
         return error_body(self.code, self.message, self.field)
 
 
+class InvalidVignetteFile(AppError):
+    """422: the vignette file has rows that cannot be imported (FR-64).
+
+    Carries every problem found, by row, so the administrator can fix the file in
+    one pass instead of one error per upload (IR-05). Nothing is stored.
+    """
+
+    code = "VALIDATION_ERROR"
+    status_code = 422
+    message = "The vignette file has errors. Fix the rows listed and upload it again."
+
+    def __init__(self, rows: list[dict[str, object]], message: str | None = None) -> None:
+        self.rows = rows
+        super().__init__(message)
+
+    def body(self) -> dict[str, Any]:
+        return {"error": {"code": self.code, "message": self.message, "rows": self.rows}}
+
+
+class EvaluationNotFound(AppError):
+    """404: no evaluation set or run has that id."""
+
+    code = "NOT_FOUND"
+    status_code = 404
+    message = "That evaluation record could not be found."
+
+
+class EvaluationNameInUse(AppError):
+    """409: another evaluation set already has that name."""
+
+    code = "EVALUATION_NAME_IN_USE"
+    status_code = 409
+    message = "Another evaluation set already has that name."
+
+    def body(self) -> dict[str, dict[str, str]]:
+        return error_body(self.code, self.message, "name")
+
+
+class EvaluationNotFinished(AppError):
+    """409: the run is still queued or running, so there is nothing to export yet."""
+
+    code = "EVALUATION_NOT_FINISHED"
+    status_code = 409
+    message = "This evaluation run has not finished yet."
+
+
 class CSRFFailed(AppError):
     code = "CSRF_FAILED"
     status_code = 403

@@ -9,7 +9,10 @@ Four things happen at startup, in this order, and the order is the point:
    through (CLAUDE.md §8.3, IR-20, ADR-10, ADR-17).
 2. **Stale jobs are recovered** — jobs a crash left `RUNNING` go back to `QUEUED`,
    so the cases they were working on are not stuck in `PROCESSING` (NFR-13).
-3. **The worker thread starts**, and is stopped before the process exits.
+3. **The worker threads start**, and are stopped before the process exits. There are
+   two: one for the live job types and one for `EVAL_RUN` alone, so an evaluation
+   that runs for minutes never holds up a case waiting for its recommendation
+   (P09 §9.2, NFR-01).
 4. **The embedding model is warmed up** — when `EMBEDDING_PROVIDER` is set and
    `EMBEDDING_WARMUP` is on, one short text is embedded so the first case does
    not pay for the load, and a wrong model name or a dimension mismatch fails
@@ -38,7 +41,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.jobs.recovery import recover_stale_jobs
-from app.jobs.worker import JobWorker
+from app.jobs.worker import EVAL_JOB_TYPES, LIVE_JOB_TYPES, JobWorker
 from app.pipeline.registry import build_pipeline
 
 logger = logging.getLogger(__name__)
@@ -104,19 +107,29 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         },
     )
 
-    worker: JobWorker | None = None
+    workers: list[JobWorker] = []
     if settings.job_worker_enabled:
         recover_stale_jobs(SessionLocal, settings.job_stale_after_minutes)
-        worker = JobWorker(
-            SessionLocal,
-            app.state.pipeline,
-            poll_interval_s=settings.job_poll_interval_s,
-        )
-        worker.start()
+        workers = [
+            JobWorker(
+                SessionLocal,
+                app.state.pipeline,
+                poll_interval_s=settings.job_poll_interval_s,
+                job_types=job_types,
+                name=name,
+            )
+            for name, job_types in (
+                ("triageai-job-worker", LIVE_JOB_TYPES),
+                ("triageai-eval-worker", EVAL_JOB_TYPES),
+            )
+        ]
+        for worker in workers:
+            worker.start()
     else:
         logger.info("job worker disabled (JOB_WORKER_ENABLED=false)")
 
-    app.state.job_worker = worker
+    app.state.job_worker = workers[0] if workers else None
+    app.state.eval_worker = workers[1] if workers else None
     try:
         # Last, and whether or not the worker is on: the KB import and the
         # retriever both need the model. Inside the `try`, so a failure here
@@ -124,7 +137,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         _warm_up_embedder(settings)
         yield
     finally:
-        if worker is not None:
+        for worker in workers:
             worker.stop()
 
 

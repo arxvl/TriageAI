@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_STALE_AFTER_MINUTES",
+    "EVAL_RUN_ID_KEY",
     "KB_INDEX_APPROVER_KEY",
     "KB_INDEX_ENTRY_KEY",
     "REGENERATE_EXTRACTION_KEY",
@@ -73,6 +74,12 @@ KB_INDEX_APPROVER_KEY = "approved_by"
 # extraction to make the next recommendation from. `jobs` points at a case, and
 # the job is about one version of that case's extraction (ADR-14).
 REGENERATE_EXTRACTION_KEY = "extraction_id"
+
+
+# What an `EVAL_RUN` job carries in its payload (P09 §9.2): the evaluation run to
+# execute. `jobs` points at a case or a vignette, and this job is about a whole set
+# of vignettes, so the run's id travels in the payload.
+EVAL_RUN_ID_KEY = "run_id"
 
 
 class JobStage(StrEnum):

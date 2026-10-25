@@ -237,6 +237,25 @@ The two entries in `knowledge_base/entries/` today are **SAMPLE** placeholders w
 fake citation, there so the workflow can be walked end to end; M5 replaces them with sourced
 content.
 
+## Evaluation harness
+
+An administrator measures the pipeline against a labelled set of invented vignettes
+(`evaluation/vignettes/*.csv`; the format is in `docs/dev-prompts/P09-admin-evaluation-exports.md`).
+Vignettes are stored apart from clinical cases and run through the same pipeline a live case uses.
+
+```bash
+docker compose exec backend alembic upgrade head
+docker compose exec backend python -m app.eval import --file tests/fixtures/vignettes_mock.csv --name mock-set
+docker compose exec backend python -m app.eval run --set mock-set
+docker compose exec backend python -m app.eval report --run <id> --format md   # or --format json
+```
+
+The report prints each SRS target (NFR-01, NFR-16, NFR-17) with PASS / FAIL, the confusion matrix and
+the under-triaged vignettes. When every stage is a mock it says so: **mock results are not model
+results.** The same runs are available to administrators under `/api/v1/eval` (upload, start, poll,
+export CSV or JSON); a run started there is executed by a separate worker thread, so it never delays
+live triage.
+
 ## Running tests
 
 ```bash
@@ -256,6 +275,7 @@ backend/app/        api · core · db · models · schemas · repositories · se
                     adapters (llm, embeddings) · jobs · kb · eval
 backend/prompts/    versioned prompt templates
 backend/scripts/    seed, import_kb, llm_* developer scripts
+backend/app/eval/   evaluation harness: importer, runner, metrics, report (python -m app.eval)
 frontend/src/       pages (one folder per wireframe), components, hooks, api
 knowledge_base/     entries, red-flag rules and phrases, APPROVALS.md
 evaluation/         vignettes and run results

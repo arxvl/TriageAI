@@ -29,6 +29,10 @@ KB_ENTRY_ENTITY = "kb_entry"
 RED_FLAG_RULE_ENTITY = "red_flag_rule"
 KB_VERSION_ENTITY = "kb_version"
 
+# The evaluation harness's two aggregates (P09 §9.2).
+EVAL_SET_ENTITY = "evaluation_set"
+EVAL_RUN_ENTITY = "evaluation_run"
+
 # Used when a login is attempted for an address that has no account, so the
 # failure is still auditable (SR-12).
 UNKNOWN_ENTITY_ID = "unknown"
@@ -110,6 +114,10 @@ class AuditAction(StrEnum):
     USER_UPDATED = "USER_UPDATED"
     USER_UNLOCKED = "USER_UNLOCKED"
     USER_PASSWORD_RESET = "USER_PASSWORD_RESET"  # noqa: S105 - an audit action name
+    # The evaluation harness (P09 §9.2, FR-64, FR-65, BR-05). The actor is the
+    # administrator; payloads hold ids, names and counts, never a vignette.
+    EVAL_SET_IMPORTED = "EVAL_SET_IMPORTED"
+    EVAL_RUN_STARTED = "EVAL_RUN_STARTED"
 
 
 class AuditService:

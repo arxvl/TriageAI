@@ -14,17 +14,22 @@ All data here is fictitious (CLAUDE.md §9).
 
 import threading
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.jobs.queue import REGENERATE_EXTRACTION_KEY
+from app.eval.runner import NO_KNOWLEDGE_BASE_VERSION, EvaluationRunResult
+from app.jobs import worker
+from app.jobs.queue import EVAL_RUN_ID_KEY, REGENERATE_EXTRACTION_KEY
 from app.jobs.worker import (
+    EVAL_JOB_TYPES,
     INVALID_ACTIONS_TARGET,
+    LIVE_JOB_TYPES,
+    MISSING_EVAL_RUN_ID,
     MISSING_EXTRACTION_ID,
     MISSING_RECOMMENDATION_ID,
     UNEXPECTED_ERROR,
-    UNSUPPORTED_JOB_TYPE,
     run_pending_jobs_once,
 )
 from app.models import ActionsStatus, CaseStatus, JobStatus, JobType, VTLCategory
@@ -205,25 +210,117 @@ def test_an_empty_queue_runs_nothing(
     assert pipeline.calls == []
 
 
-@pytest.mark.parametrize("job_type", [JobType.EVAL_RUN])
-def test_a_job_type_this_worker_does_not_handle_fails_loudly(
-    db_session: Session, app_session_factory: sessionmaker, job_type: JobType
-) -> None:
-    """M7 adds this one. Until then, failing beats sitting `QUEUED`.
+class _EvalPipeline(_StubPipeline):
+    """A stub that also carries the `deps.session_factory` an `EVAL_RUN` job reads."""
 
-    `KB_INDEX` and `REGENERATE` have left this list: P08 §8.1 and P07 §7.2
-    dispatch them, and their own tests cover what they do.
-    """
-    job = make_job(db_session, case=make_case(db_session), job_type=job_type)
-    pipeline = _StubPipeline()
+    def __init__(self, session_factory: sessionmaker) -> None:
+        super().__init__()
+        self.deps = SimpleNamespace(session_factory=session_factory)
+
+
+def test_an_eval_run_job_runs_the_evaluation_and_nothing_else(
+    db_session: Session, app_session_factory: sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = uuid.uuid4()
+    calls: list[uuid.UUID] = []
+
+    def fake_run_evaluation(session_factory: object, pipeline: object, given: uuid.UUID):
+        calls.append(given)
+        return EvaluationRunResult(given)
+
+    monkeypatch.setattr(worker, "run_evaluation", fake_run_evaluation)
+    job = make_job(db_session, job_type=JobType.EVAL_RUN, payload={EVAL_RUN_ID_KEY: str(run_id)})
+    pipeline = _EvalPipeline(app_session_factory)
 
     assert run_pending_jobs_once(app_session_factory, pipeline) == 1
 
+    assert calls == [run_id]
     assert pipeline.calls == []
+    db_session.refresh(job)
+    assert job.status is JobStatus.DONE
+
+
+def test_a_failed_evaluation_run_fails_the_job_with_its_reason(
+    db_session: Session, app_session_factory: sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        worker,
+        "run_evaluation",
+        lambda session_factory, pipeline, run_id: EvaluationRunResult(
+            run_id, NO_KNOWLEDGE_BASE_VERSION
+        ),
+    )
+    job = make_job(
+        db_session, job_type=JobType.EVAL_RUN, payload={EVAL_RUN_ID_KEY: str(uuid.uuid4())}
+    )
+
+    run_pending_jobs_once(app_session_factory, _EvalPipeline(app_session_factory))
+
     db_session.refresh(job)
     assert job.status is JobStatus.FAILED
     assert job.last_error is not None
-    assert job.last_error.startswith(UNSUPPORTED_JOB_TYPE)
+    assert job.last_error.startswith(NO_KNOWLEDGE_BASE_VERSION)
+
+
+@pytest.mark.parametrize("payload", [None, {}, {EVAL_RUN_ID_KEY: "not-a-uuid"}])
+def test_an_eval_run_job_without_a_run_fails(
+    db_session: Session, app_session_factory: sessionmaker, payload: dict | None
+) -> None:
+    job = make_job(db_session, job_type=JobType.EVAL_RUN, payload=payload)
+
+    run_pending_jobs_once(app_session_factory, _EvalPipeline(app_session_factory))
+
+    db_session.refresh(job)
+    assert job.status is JobStatus.FAILED
+    assert job.last_error is not None
+    assert job.last_error.startswith(MISSING_EVAL_RUN_ID)
+
+
+def test_the_two_workers_take_disjoint_job_types_that_cover_every_type() -> None:
+    assert set(LIVE_JOB_TYPES).isdisjoint(EVAL_JOB_TYPES)
+    assert set(LIVE_JOB_TYPES) | set(EVAL_JOB_TYPES) == set(JobType)
+    assert EVAL_JOB_TYPES == (JobType.EVAL_RUN,)
+
+
+def test_the_live_worker_leaves_an_evaluation_alone(
+    db_session: Session, app_session_factory: sessionmaker
+) -> None:
+    """A long evaluation must never be what a waiting case is queued behind."""
+    evaluation = make_job(db_session, job_type=JobType.EVAL_RUN, payload={})
+    case_job = make_job(db_session, case=make_case(db_session))
+    pipeline = _StubPipeline(result=PipelineRunResult(case_job.case_id, CaseStatus.AWAITING_REVIEW))
+
+    ran = run_pending_jobs_once(app_session_factory, pipeline, job_types=LIVE_JOB_TYPES)
+
+    assert ran == 1
+    db_session.refresh(evaluation)
+    db_session.refresh(case_job)
+    assert evaluation.status is JobStatus.QUEUED
+    assert case_job.status is JobStatus.DONE
+
+
+def test_the_eval_worker_takes_only_evaluations(
+    db_session: Session, app_session_factory: sessionmaker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        worker,
+        "run_evaluation",
+        lambda session_factory, pipeline, run_id: EvaluationRunResult(run_id),
+    )
+    case_job = make_job(db_session, case=make_case(db_session))
+    evaluation = make_job(
+        db_session, job_type=JobType.EVAL_RUN, payload={EVAL_RUN_ID_KEY: str(uuid.uuid4())}
+    )
+
+    ran = run_pending_jobs_once(
+        app_session_factory, _EvalPipeline(app_session_factory), job_types=EVAL_JOB_TYPES
+    )
+
+    assert ran == 1
+    db_session.refresh(case_job)
+    db_session.refresh(evaluation)
+    assert case_job.status is JobStatus.QUEUED
+    assert evaluation.status is JobStatus.DONE
 
 
 def test_a_regenerate_job_runs_the_regeneration_not_the_pipeline(
