@@ -1,0 +1,25 @@
+slug: heat-stress-dog-cat
+title: "Heat stress – dogs and cats"
+complaint_code: HEAT_STRESS
+species: [DOG, CAT]
+content: |
+  What it is. Heat stroke happens when a pet overheats from a hot environment or hard exercise, with a body temperature above about 41°C (105.8°F). Severe overheating can cause widespread inflammation and organ failure. It is most common in dogs and rare in cats.
+
+  Signs that raise urgency. A body temperature above 105.5°F is Red. Difficulty breathing is Red. A pet in shock is Red. A pet that cannot be woken or does not respond is Red. A pet that is having a seizure right now is Red. Moderate difficulty breathing is Orange. Severe dehydration (more than about 8 percent) is Orange. General weakness is Orange. A pet that is dull, confused, or hard to rouse is Orange. Tiny pinpoint bleeding spots or bruising is Orange. Mild difficulty breathing is Yellow.
+
+  Signs that usually allow waiting. The triage list does not give a Green category for heat stress, so no waiting pattern is listed. The mildest sign on the list is mild breathing difficulty, which is Yellow.
+
+  What staff should ask the owner.
+  - Was your pet in a hot or humid place, or shut in without fresh air or water?
+  - How long was your pet in the heat or exercising, and when was it found?
+  - Is your pet a flat-faced breed or a working dog?
+  - Does your pet have an airway problem, such as noisy breathing, or is it overweight?
+  - What signs did you see, such as panting, drooling, vomiting, wobbliness, collapse, or bloody diarrhea?
+source:
+  title: "Basic triage in dogs and cats: Part II"
+  publisher: "Canadian Veterinary Journal (via PubMed Central)"
+  url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10880400/"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# Signs list in question 5 also matches Merck "What to Do in a Dog or Cat Emergency": https://www.merckvetmanual.com/special-pet-topics/emergencies/what-to-do-in-a-dog-or-cat-emergency
+red_flag_codes: []

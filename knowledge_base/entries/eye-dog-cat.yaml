@@ -1,0 +1,25 @@
+slug: eye-dog-cat
+title: "Eye problem – dogs and cats"
+complaint_code: EYE
+species: [DOG, CAT]
+content: |
+  What it is. Eye emergencies need a fast diagnosis. They include an eye pushed out of its socket by an injury (traumatic proptosis), bleeding in the eye, and foreign objects in the eye. Some conditions need immediate surgery to save the eye.
+
+  Signs that raise urgency. An eye pushed out of its socket (proptosis) is Red. A deep penetrating eye injury or a sudden chemical injury to the eye is Red. Sudden complete loss of vision is Orange.
+
+  Signs that usually allow waiting. The triage list does not give a Yellow or Green sign that is specific to the eye, so no waiting pattern is listed.
+
+  What staff should ask the owner.
+  - What happened to the eye, and when?
+  - Does the eye look like it is bulging or pushed out?
+  - Is the eye red, watering, or swollen?
+  - Could something have got into the eye, such as a splinter, a plant spine, or a pellet?
+  - Has your pet's vision seemed to change, for example bumping into things?
+source:
+  title: "Eye Emergencies"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual, Pet Owner Version)"
+  url: "https://www.merckvetmanual.com/special-pet-topics/emergencies/eye-emergencies"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# Proptosis causes/prognosis factors from Merck professional "Proptosis in Small Animals": https://www.merckvetmanual.com/emergency-medicine-and-critical-care/ophthalmic-emergencies/proptosis-in-small-animals
+red_flag_codes: []

@@ -1,0 +1,25 @@
+slug: lethargy-dog-cat
+title: "Tiredness or lethargy – dogs and cats"
+complaint_code: LETHARGY
+species: [DOG, CAT]
+content: |
+  What it is. Lethargy means unusual tiredness, low energy, or weakness. It is not a diagnosis on its own, and it can come with serious problems such as a body-wide infection (sepsis) or fluid around the heart, often together with vomiting, diarrhea, or loss of appetite.
+
+  Signs that raise urgency. A pet that cannot be woken or does not respond is Red. Signs suggesting very low blood sugar are Red. A body temperature above 105.5°F or below 98°F is Red. A pet in shock is Red. General weakness is Orange. A pet that is dull, confused, or hard to rouse is Orange. Severe dehydration (more than about 8 percent) is Orange. A sudden worsening of the pet's condition is Yellow.
+
+  Signs that usually allow waiting. The triage list does not give a lower category for tiredness on its own, so no waiting pattern is listed.
+
+  What staff should ask the owner.
+  - When did your pet become lethargic, and did it come on suddenly?
+  - Is your pet also vomiting, having diarrhea, or not eating?
+  - Has your pet had a recent surgery, a bite wound, or an infection?
+  - Is your pet breathing faster or harder than usual?
+  - Could your pet have eaten a poison, or started a new medication?
+source:
+  title: "Basic triage in dogs and cats: Part II"
+  publisher: "Canadian Veterinary Journal (via PubMed Central)"
+  url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10880400/"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# No dedicated Merck page for lethargy was found; this draws on Part II's sepsis and pericardial effusion sections.
+red_flag_codes: []

@@ -1,4 +1,4 @@
-# M7 — Evaluation with the Real Pipeline (Manual)
+.# M7 — Evaluation with the Real Pipeline (Manual)
 
 **Owner:** Lane B, with the whole team · **Branch:** `eval/m7-<set-name>`
 **Do after:** M6, P09 · **Requirements:** FR-64–FR-68, NFR-01, NFR-14, NFR-16, NFR-17, NFR-19, NFR-23 · TBD-10, TBD-12

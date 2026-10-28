@@ -1,0 +1,140 @@
+- id: P01
+  species: CAT
+  complaint_code: URINARY_OBSTRUCTION
+  signs: ["straining in the litter box", "crying", "vomiting"]
+  red_flags: ["nothing comes out"]
+  duration: "since this morning"
+  expect: urinary-obstruction-cat
+- id: P02
+  species: DOG
+  complaint_code: RESPIRATORY_DISTRESS
+  signs: ["breathing very fast", "mouth open"]
+  red_flags: ["bluish gums"]
+  duration: "an hour"
+  expect: respiratory-distress-dog-cat
+- id: P03
+  species: DOG
+  complaint_code: SKIN_ITCH
+  signs: ["scratching paws", "licking paws"]
+  red_flags: []
+  duration: "two weeks"
+  expect: skin-itch-dog
+- id: P04
+  species: DOG
+  complaint_code: SEIZURES
+  signs: ["shaking all over", "legs paddling", "drooling"]
+  red_flags: ["seizing right now"]
+  duration: "ten minutes so far"
+  expect: seizures-dog-cat
+- id: P05
+  species: DOG
+  complaint_code: BLEEDING
+  signs: ["deep cut on the leg", "blood soaking through the towel"]
+  red_flags: ["bleeding won't stop"]
+  duration: "twenty minutes"
+  expect: bleeding-dog-cat
+- id: P06
+  species: DOG
+  complaint_code: TOXIN_INGESTION
+  signs: ["licked antifreeze off the garage floor", "drooling", "stumbling"]
+  red_flags: ["antifreeze"]
+  duration: "about an hour ago"
+  expect: toxin-ingestion-dog-cat
+- id: P07
+  species: CAT
+  complaint_code: VOMITING
+  signs: ["vomited many times", "very dry gums", "sunken eyes"]
+  red_flags: []
+  duration: "since last night"
+  expect: vomiting-dog-cat
+- id: P08
+  species: DOG
+  complaint_code: TRAUMA
+  signs: ["hit by a car", "bone showing through the skin", "yelping in pain"]
+  red_flags: []
+  duration: "ten minutes ago"
+  expect: trauma-dog-cat
+- id: P09
+  species: CAT
+  complaint_code: COLLAPSE
+  signs: ["suddenly fell over", "cannot stand", "very weak"]
+  red_flags: ["not responding"]
+  duration: "twenty minutes"
+  expect: collapse-dog-cat
+- id: P10
+  species: DOG
+  complaint_code: ABDOMINAL_DISTENSION
+  signs: ["belly swelling up fast", "trying to vomit but nothing comes up", "restless"]
+  red_flags: []
+  duration: "two hours"
+  expect: abdominal-distension-dog-cat
+- id: P11
+  species: CAT
+  complaint_code: COUGH_SNEEZE
+  signs: ["dry hacking cough", "wheezing after play"]
+  red_flags: []
+  duration: "two weeks"
+  expect: cough-sneeze-dog-cat
+- id: P12
+  species: CAT
+  complaint_code: FOREIGN_BODY
+  signs: ["swallowed a piece of string", "vomiting", "not eating"]
+  red_flags: []
+  duration: "since yesterday morning"
+  expect: foreign-body-dog-cat
+- id: P13
+  species: DOG
+  complaint_code: HEAT_STRESS
+  signs: ["panting hard", "drooling", "wobbly on his feet"]
+  red_flags: []
+  duration: "an hour in a hot parked car"
+  expect: heat-stress-dog-cat
+- id: P14
+  species: DOG
+  complaint_code: DYSTOCIA
+  signs: ["straining for hours", "a puppy's head showing but not coming out"]
+  red_flags: []
+  duration: "three hours"
+  expect: dystocia-dog-cat
+- id: P15
+  species: CAT
+  complaint_code: EYE
+  signs: ["eye bulging out of the socket", "after a fight"]
+  red_flags: []
+  duration: "thirty minutes"
+  expect: eye-dog-cat
+- id: P16
+  species: DOG
+  complaint_code: LETHARGY
+  signs: ["sleeping all day", "weak", "not interested in walks"]
+  red_flags: []
+  duration: "three days"
+  expect: lethargy-dog-cat
+- id: P17
+  species: CAT
+  complaint_code: DIARRHEA
+  signs: ["watery stool", "mucus in the stool", "straining"]
+  red_flags: []
+  duration: "two days"
+  expect: diarrhea-dog-cat
+- id: P18
+  species: CAT
+  complaint_code: INAPPETENCE
+  signs: ["won't eat", "hiding", "sluggish"]
+  red_flags: []
+  duration: "two days"
+  expect: inappetence-dog-cat
+- id: P19
+  species: DOG
+  complaint_code: LAMENESS
+  signs: ["limping on the front leg", "worse after exercise"]
+  red_flags: []
+  duration: "four days"
+  expect: lameness-dog-cat
+- id: P20
+  species: CAT
+  complaint_code: EAR
+  signs: ["scratching the ear", "shaking her head", "smelly discharge"]
+  red_flags: []
+  duration: "a week"
+  expect: ear-dog-cat

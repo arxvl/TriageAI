@@ -1,0 +1,24 @@
+slug: ear-dog-cat
+title: "Ear problem – dogs and cats"
+complaint_code: EAR
+species: [DOG, CAT]
+content: |
+  What it is. Otitis externa is inflammation of the outer ear canal and is common in dogs and cats. It can come on suddenly or last a long time, and it can affect one ear or both. Young animals may be affected more often, and breed patterns often follow skin disease, such as allergies in retrievers and terriers.
+
+  Signs that raise urgency. A pet in severe pain is Orange. A head tilt is Yellow. Moderate pain is Yellow. Severe itching is Yellow.
+
+  Signs that usually allow waiting. Local redness or swelling in one area is Green. Recent mild pain or itching is Green.
+
+  What staff should ask the owner.
+  - Is one ear affected or both?
+  - Did the ear problem start suddenly, or has it been going on or coming back for a while?
+  - Does your pet have a history of skin problems or allergies?
+  - Is there any discharge or smell coming from the ear?
+  - Has your pet been tilting its head or losing its balance?
+source:
+  title: "Otitis Externa in Animals"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual)"
+  url: "https://www.merckvetmanual.com/ear-disorders/otitis-externa/otitis-externa-in-animals"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: []

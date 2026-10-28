@@ -1,0 +1,24 @@
+slug: diarrhea-dog-cat
+title: "Diarrhea – dogs and cats"
+complaint_code: DIARRHEA
+species: [DOG, CAT]
+content: |
+  What it is. Diarrhea is the passing of loose or watery stool. Colitis, which is inflammation of the large bowel, is a common cause in dogs and cats, and the diarrhea can be sudden or long-lasting. In colitis the stool often contains mucus or blood, the pet may strain or seem to be in pain when passing it, and the signs can come and go.
+
+  Signs that raise urgency. A pet in shock is Red. Severe dehydration (more than about 8 percent) is Orange. Black, tarry stool is Yellow.
+
+  Signs that usually allow waiting. The triage list does not name diarrhea itself, so no waiting pattern is listed.
+
+  What staff should ask the owner.
+  - How long has the diarrhea been going on, and does it come and go?
+  - Is there mucus or blood in the stool?
+  - Does your pet strain or seem to be in pain when passing stool?
+  - Is your pet also vomiting, tired, weak, or not eating?
+source:
+  title: "Colitis in Small Animals"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual)"
+  url: "https://www.merckvetmanual.com/digestive-system/diseases-of-the-large-intestine-in-small-animals/colitis-in-small-animals"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# Colitis covers large-bowel diarrhea only; a Merck page on small-bowel diarrhea could be added.
+red_flag_codes: []
