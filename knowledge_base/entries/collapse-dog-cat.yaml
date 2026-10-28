@@ -1,0 +1,24 @@
+slug: collapse-dog-cat
+title: "Collapse or sudden weakness – dogs and cats"
+complaint_code: COLLAPSE
+species: [DOG, CAT]
+content: |
+  What it is. Collapse is a sudden loss of the ability to stay upright. The pet may be able to sit but not stand, or may be completely down, but it stays awake and aware. This is different from fainting (syncope), where the pet briefly loses consciousness and then wakes up again.
+
+  Signs that raise urgency. A pet in shock is Red. A pet that cannot be woken or does not respond is Red. A body temperature above 105.5°F is Red. A body temperature below 98°F is Red. Signs suggesting very low blood sugar are Red. Signs of a blood clot blocking the main artery to the back legs (aortic thromboembolism) are Red. General weakness is Orange. A pet that is dull, confused, or hard to rouse is Orange. Pale gums without shock are Orange. Severe dehydration (more than about 8 percent) is Orange. Sudden weakness or loss of control in the legs or body, or a sudden worsening of the pet's condition, is Yellow. The head and neck bent downward (ventroflexion) is Yellow.
+
+  Signs that usually allow waiting. The triage list does not give a lower category for collapse or sudden weakness, because general weakness is already Orange.
+
+  What staff should ask the owner.
+  - Did your pet stay awake while it was down, or did it pass out and then wake up?
+  - Is your pet having trouble breathing?
+  - Could your pet have been stung or bitten, or exposed to a new food, vaccine, or medicine?
+  - Has your pet been in a hot place, been exercising hard, or chewed on an electrical cord?
+  - Could your pet have eaten a poison or toxin?
+source:
+  title: "Basic triage in dogs and cats: Part II"
+  publisher: "Canadian Veterinary Journal (via PubMed Central)"
+  url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10880400/"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: [UNRESPONSIVE, PALE_GUMS]

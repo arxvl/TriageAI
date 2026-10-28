@@ -1,0 +1,25 @@
+slug: toxin-ingestion-dog-cat
+title: "Suspected poisoning – dogs and cats"
+complaint_code: TOXIN_INGESTION
+species: [DOG, CAT]
+content: |
+  What it is. Poisoning happens when a toxic substance is swallowed, breathed in, or absorbed through the skin, eyes, or moist tissues. Pets are often poisoned by eating something toxic, such as antifreeze or a poisonous plant, or by a venomous bite or sting. How harmful a poison is depends on the dose and on the species.
+
+  Signs that raise urgency. A pet that may have swallowed a toxin is Orange. A pet that is having a seizure right now is Red. A pet that cannot be woken or does not respond is Red. A venomous bite or sting (envenomation) is Red. A pet that is dull, confused, or hard to rouse is Orange.
+
+  Signs that usually allow waiting. The triage list does not give a lower category, because suspected toxin ingestion is already Orange.
+
+  What staff should ask the owner.
+  - What do you think your pet was exposed to, and how much?
+  - When did it happen, and what signs have you seen, in the order they appeared?
+  - What is your pet's age and weight?
+  - Does your pet have any earlier illness, or take any regular medications?
+  - What is your pet's surroundings like, for example access to garbage, machinery, or vehicles, or any recent pesticide use?
+source:
+  title: "Introduction to Poisoning"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual, Pet Owner Version)"
+  url: "https://www.merckvetmanual.com/special-pet-topics/poisoning/introduction-to-poisoning"
+  access_date: 2026-10-28
+# Owner questions adapted from Merck "Diagnosis of Poisoning": https://www.msdvetmanual.com/special-pet-topics/poisoning/diagnosis-of-poisoning
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: [TOXIN_INGESTION]

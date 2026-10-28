@@ -1,0 +1,25 @@
+slug: bleeding-dog-cat
+title: "Bleeding – dogs and cats"
+complaint_code: BLEEDING
+species: [DOG, CAT]
+content: |
+  What it is. Acute bleeding is an emergency that can lead to sudden death if it is not stopped. It happens for two main reasons: a damaged blood vessel (most often from an injury or after surgery) or a clotting disorder that stops the blood from forming clots. The blood can come out of the body (from the nose, mouth, or a wound) or stay inside the belly, chest, gut, or around a broken bone, where it is harder to spot.
+
+  Signs that raise urgency. Very heavy bleeding (profuse hemorrhage) is Red. A pet in shock is Red. Major bleeding that cannot be stopped is Orange. Pale gums without shock are Orange. Tiny pinpoint bleeding spots or bruising on the skin or gums are Orange. Minor bleeding that cannot be stopped is Yellow. Black, tarry stool is Yellow. Blood in the urine without straining is Yellow. Abnormal vaginal bleeding in a pregnant pet is Yellow.
+
+  Signs that usually allow waiting. The triage list does not give a Green category for bleeding, so no waiting pattern is listed. The mildest bleeding signs on the list are Yellow.
+
+  What staff should ask the owner.
+  - Where is the blood coming from, or is your pet weak or collapsed with no blood that you can see?
+  - Did the bleeding start after an injury or a recent surgery?
+  - Has your pet had bleeding or clotting problems before?
+  - Has bleeding gone on for a long time after a cut or an injection?
+  - Is your pet weak, breathing fast, or showing pale gums?
+source:
+  title: "Basic triage in dogs and cats: Part II"
+  publisher: "Canadian Veterinary Journal (via PubMed Central)"
+  url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10880400/"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# Question 4 (prolonged bleeding after cuts/injections) also from Merck "Coagulation Disorders in Animals": https://www.merckvetmanual.com/circulatory-system/hemostatic-disorders/coagulation-disorders-in-animals
+red_flag_codes: [UNCONTROLLED_BLEEDING]

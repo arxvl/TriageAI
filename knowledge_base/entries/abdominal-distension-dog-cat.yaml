@@ -1,0 +1,24 @@
+slug: abdominal-distension-dog-cat
+title: "Swollen or bloated belly – dogs and cats"
+complaint_code: ABDOMINAL_DISTENSION
+species: [DOG, CAT]
+content: |
+  What it is. A swollen belly has many possible causes. One of the most dangerous is gastric dilation and volvulus, where the stomach fills with gas and fluid and twists. It is life-threatening and mainly affects large and giant-breed dogs.
+
+  Signs that raise urgency. A belly that swells up very quickly is Red. A pet in shock is Red. Fluid that can be felt or seen sloshing in the belly (an abdominal fluid wave) is Orange.
+
+  Signs that usually allow waiting. The triage list does not give a lower category for a slower or milder belly swelling, so no waiting pattern is listed for this complaint.
+
+  What staff should ask the owner.
+  - How quickly did the belly become swollen?
+  - Is your pet trying to vomit but nothing comes up?
+  - Is your pet drooling a lot or unable to settle?
+  - Does the belly feel tight and hard?
+  - What breed and size is your pet?
+source:
+  title: "Gastric Dilation and Volvulus in Small Animals"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual)"
+  url: "https://www.merckvetmanual.com/digestive-system/surgical-problems-of-the-gastrointestinal-tract-in-small-animals/gastric-dilation-and-volvulus-in-small-animals"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: []

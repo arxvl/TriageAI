@@ -33,3 +33,12 @@ evaluation/results/*
 .DS_Store
 .idea/
 .vscode/
+
+# Local development documentation
+/CLAUDE.md
+/.claude/
+/docs/dev-prompts/
+
+# Local-only directories
+/scripts/
+/docs/tests_and_commands/

@@ -1,0 +1,24 @@
+slug: inappetence-dog-cat
+title: "Loss of appetite – dogs and cats"
+complaint_code: INAPPETENCE
+species: [DOG, CAT]
+content: |
+  What it is. Loss of appetite (anorexia) is often the first sign that a pet is ill. The cause can be psychological, when something in the pet's surroundings has changed, or medical, and with a medical cause other signs are usually present too.
+
+  Signs that raise urgency. A pet that may have swallowed an object more than 24 hours ago and now has no appetite or is vomiting is Orange. A pet that may have swallowed a toxin is Orange. Severe dehydration (more than about 8 percent) is Orange. A pet that keeps vomiting again and again is Yellow.
+
+  Signs that usually allow waiting. The triage list does not name loss of appetite on its own, so no waiting pattern is listed.
+
+  What staff should ask the owner.
+  - Has anything changed recently in your pet's home, routine, or food?
+  - Is your pet also vomiting, drooling more than usual, or having diarrhea?
+  - Is your pet unusually tired or sluggish, or has it had any weakness or collapse?
+  - Could your pet have eaten rat bait or another poison?
+source:
+  title: "Overview of Anorexia (Loss of Appetite) in Dogs"
+  publisher: "PetPlace"
+  url: "https://www.petplace.com/article/dogs/diseases-conditions-of-dogs/symptoms/anorexia-loss-of-appetite-in-dogs"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# No Merck page for loss of appetite was found. This source is a pet-owner site and covers dogs only; consider replacing it.
+red_flag_codes: []

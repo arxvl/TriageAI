@@ -1,0 +1,25 @@
+slug: cough-sneeze-dog-cat
+title: "Coughing or sneezing – dogs and cats"
+complaint_code: COUGH_SNEEZE
+species: [DOG, CAT]
+content: |
+  What it is. Coughing is an involuntary reflex that can come from lung and airway disease or from heart disease. It is described as short-term (acute) or long-lasting (chronic), and owners can confuse it with vomiting or retching, especially in cats.
+
+  Signs that raise urgency. Difficulty breathing (respiratory distress) is Red. A harsh, noisy sound when breathing in (acute stridor) is Orange. Moderate difficulty breathing is Orange. Air trapped under the skin is Orange. Mild difficulty breathing is Yellow.
+
+  Signs that usually allow waiting. Coughing on its own, without breathing difficulty, is Green. The triage list does not mention sneezing.
+
+  What staff should ask the owner.
+  - What does the cough sound like: soft, honking, or gagging?
+  - Is your pet having any trouble breathing, or making wheezing or noisy breathing sounds?
+  - What brings on the cough, such as excitement, eating, or drinking?
+  - How long has the coughing been going on?
+  - Are you sure it is coughing and not vomiting or retching?
+source:
+  title: "Coughing in Small Animal Patients"
+  publisher: "Frontiers in Veterinary Science (via PubMed Central)"
+  url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC6985277"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+# This source does not cover sneezing; consider adding a Merck page (e.g. Rhinitis and Sinusitis in Dogs and Cats) for sneezing.
+red_flag_codes: []

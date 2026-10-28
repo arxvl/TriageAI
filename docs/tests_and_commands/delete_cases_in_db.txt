@@ -1,1 +1,0 @@
-docker compose exec db psql -U triageai -d triageai -c "TRUNCATE cases CASCADE; ALTER SEQUENCE case_no_seq RESTART WITH 1;"

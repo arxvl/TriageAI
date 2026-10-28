@@ -1,0 +1,24 @@
+slug: trauma-dog-cat
+title: "Injury or trauma – dogs and cats"
+complaint_code: TRAUMA
+species: [DOG, CAT]
+content: |
+  What it is. Trauma is a physical injury, such as a wound, a suspected broken bone, an eye injury, or a blow to the body. Some injuries need immediate veterinary care, including severe or uncontrolled bleeding, trouble breathing, eye injuries, and a limb that cannot move.
+
+  Signs that raise urgency. Organs showing through a wound (evisceration) is Red. A venomous bite or sting is Red. An eye pushed out of its socket is Red. A deep penetrating eye injury or a sudden chemical injury to the eye is Red. A pet in shock is Red. Very heavy bleeding is Red. Severe pain is Orange. Air trapped under the skin (subcutaneous emphysema) is Orange. Injury to the mouth is Yellow. A broken bone that breaks through the skin (open fracture) is Yellow. A medium or large skin wound is Yellow. Moderate pain is Yellow.
+
+  Signs that usually allow waiting. Local redness or swelling in one area is Green. Recent mild pain is Green.
+
+  What staff should ask the owner.
+  - What happened, and when did it happen?
+  - Is your pet awake and breathing normally?
+  - Is there any bleeding, and how heavy is it?
+  - Is a leg being held up or unable to move, or does a bone look broken?
+  - Is anything stuck in your pet's body, such as an arrow or a stick?
+source:
+  title: "What to Do in a Dog or Cat Emergency - Special Pet Topics - Merck Veterinary Manual"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual, Pet Owner Version)"
+  url: "https://www.merckvetmanual.com/special-pet-topics/emergencies/what-to-do-in-a-dog-or-cat-emergency"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: []

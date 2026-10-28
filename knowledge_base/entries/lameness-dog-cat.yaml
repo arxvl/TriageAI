@@ -1,0 +1,25 @@
+slug: lameness-dog-cat
+title: "Limping or lameness – dogs and cats"
+complaint_code: LAMENESS
+species: [DOG, CAT]
+content: |
+  What it is. Lameness is a sign of illness rather than a disease in itself. It can point to a problem in the muscles, bones, or joints, and it often comes with weakness, limb swelling, or joint problems.
+
+  Signs that raise urgency. Signs of a blood clot blocking the main artery to the back legs (aortic thromboembolism) are Red. Severe pain is Orange. A broken bone that breaks through the skin is Yellow. Sudden weakness or loss of control in the legs or body is Yellow. Moderate pain is Yellow.
+
+  Signs that usually allow waiting. Recent mild pain is Green.
+
+  What staff should ask the owner.
+  - Which leg or legs are affected, one or several?
+  - Does the limping change when your pet gets up, rests, or walks?
+  - Has your pet had an injury to that leg, now or in the past?
+  - Is there any swelling, or does your pet seem weak?
+  - How has your pet's general health been?
+source:
+  title: "Lameness in Dogs"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual, Pet Owner Version)"
+  url: "https://www.merckvetmanual.com/dog-owners/bone,-joint,-and-muscle-disorders-of-dogs/lameness-in-dogs"
+  access_date: 2026-10-28
+# Cat version (same advice): https://www.merckvetmanual.com/cat-owners/bone,-joint,-and-muscle-disorders-of-cats/lameness-in-cats
+# Urgency categories: Thomovsky & Ilie 2024, Part I, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: []

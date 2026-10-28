@@ -20,4 +20,4 @@ source:
   publisher: "Canadian Veterinary Journal"
   url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/"
   access_date: 2026-10-20
-red_flag_codes: []
+red_flag_codes: [NOT_BREATHING, BLUE_GUMS_CYANOSIS]
