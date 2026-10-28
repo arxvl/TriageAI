@@ -1,0 +1,24 @@
+slug: seizures-dog-cat
+title: "Seizures – dogs and cats"
+complaint_code: SEIZURES
+species: [DOG, CAT]
+content: |
+  What it is. A seizure is a sudden episode of abnormal brain activity. It can cause loss of awareness, jerking or stiff limbs, drooling, vomiting, or loss of bladder and bowel control. Most seizures last from a few seconds to a few minutes, but some go on for hours.
+
+  Signs that raise urgency. A pet that is having a seizure right now is Red. A pet that has more than one seizure within about 24 to 48 hours (cluster seizures) is Red. A pet that cannot be woken or does not respond to people is Red. Sudden abnormal behavior is Red. Nonstop crying out or howling that began suddenly is Red. Signs suggesting very low blood sugar are Red. A pet that is dull, confused, or hard to rouse is Orange. A pet that has suddenly gone completely blind is Orange. Sudden weakness or loss of control in the legs or body, or a sudden worsening of the pet's condition, is Yellow. A head tilt is Yellow.
+
+  Signs that usually allow waiting. A single recent seizure that has already stopped is Green.
+
+  What staff should ask the owner.
+  - What did the seizure look like, and how long did it last?
+  - Has your pet had seizures before, and if so, how many and how close together?
+  - Could your pet have been exposed to a poison, chemical, or other toxin?
+  - Has your pet had a recent head injury or other trauma?
+  - Did you notice any behavior change before the seizure, or confusion, pacing, or blindness afterward?
+source:
+  title: "Epilepsy in Small Animals - Nervous System - Merck Veterinary Manual"
+  publisher: "Merck & Co., Inc., Rahway, NJ, USA (Merck Veterinary Manual)"
+  url: "https://www.merckvetmanual.com/nervous-system/epilepsy-in-small-animals/epilepsy-in-small-animals"
+  access_date: 2026-10-28
+# Urgency categories: Thomovsky & Ilie 2024, Figure 1 "Veterinary triage list" (https://pmc.ncbi.nlm.nih.gov/articles/PMC10783570/)
+red_flag_codes: [ACTIVE_SEIZURE]
